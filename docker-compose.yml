@@ -32,7 +32,7 @@ services:
         condition: service_healthy
     volumes:
       - crawler_data:/app/crawler_output # Mount shared volume for import
-    command: ["python", "-m", "service.wait_for_db"]
+    command: ["python", "-m", "uvicorn", "service.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   crawler:
     build: .
@@ -60,6 +60,7 @@ services:
       - db
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json
 
 volumes:
   db_data:

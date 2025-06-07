@@ -8,7 +8,8 @@ from typing import (
 )
 import logging
 import os
-from datetime import date
+from datetime import date, datetime # Import datetime
+import uuid # Import uuid for API key generation
 from .base import Database
 from .models import (
     Chain,
@@ -480,3 +481,40 @@ class PostgresDatabase(Database):
             if row:
                 return User(**row)  # type: ignore
             return None
+
+    async def add_user(self, name: str) -> User:
+        """
+        Add a new user with a randomly generated API key.
+
+        Args:
+            name: The name of the user.
+
+        Returns:
+            The created User object.
+        """
+        api_key = str(uuid.uuid4()) # Generate a random UUID for the API key
+        created_at = datetime.now()
+        is_active = True # New users are active by default
+
+        async with self._atomic() as conn:
+            user_id = await conn.fetchval(
+                """
+                INSERT INTO users (name, api_key, is_active, created_at)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                name,
+                api_key,
+                is_active,
+                created_at,
+            )
+            if user_id is None:
+                raise RuntimeError(f"Failed to insert user {name}")
+
+            return User(
+                id=user_id,
+                name=name,
+                api_key=api_key,
+                is_active=is_active,
+                created_at=created_at,
+            )

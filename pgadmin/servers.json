@@ -1,0 +1,13 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "Cijene DB",
+            "Group": "Docker",
+            "Port": 5432,
+            "Username": "user",
+            "Host": "db",
+            "SSLMode": "prefer",
+            "MaintenanceDB": "cijene_db"
+        }
+    }
+}
