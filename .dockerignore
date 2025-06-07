@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.uv/
+.venv/
+venv/
+.env
+uv.lock # uv.lock is copied explicitly in Dockerfile, no need to copy the directory
+output/
+logs/

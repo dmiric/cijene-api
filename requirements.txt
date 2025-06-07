@@ -1,0 +1,9 @@
+asyncpg>=0.30.0
+beautifulsoup4>=4.13.4
+fastapi[standard]>=0.115.12
+httpx>=0.28.1
+lxml>=5.4.0
+openpyxl>=3.1.5
+pydantic>=2.11.4
+python-dotenv>=1.1.0
+uvicorn>=0.34.2
