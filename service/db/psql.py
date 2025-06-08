@@ -249,7 +249,7 @@ class PostgresDatabase(Database):
 
         # TODO: Implement full-text search using PostgreSQL's
         # text search capabilities
-        words = [word.strip() for word in query.split() if word.strip()]
+        words = [word.strip() for word in query.split(',') if word.strip()] # Split by comma
         if not words:
             return []
 
@@ -267,25 +267,25 @@ class PostgresDatabase(Database):
             unaccented_word_ilike_param = f"${idx + len(words)}" # Parameter for ILIKE unaccented word
 
             # Condition for fuzzy matching using pg_trgm's similarity
-            fuzzy_condition = f"similarity(unaccent(cp.name), unaccent({unaccented_word_param})) > {SIMILARITY_THRESHOLD}"
+            fuzzy_condition = f"similarity(unaccent(sk.keyword), unaccent({unaccented_word_param})) > {SIMILARITY_THRESHOLD}"
             params.append(word)
 
             # Condition for direct substring matching using ILIKE
-            ilike_condition = f"unaccent(cp.name) ILIKE '%' || unaccent({unaccented_word_ilike_param}) || '%'"
+            ilike_condition = f"unaccent(sk.keyword) ILIKE '%' || unaccent({unaccented_word_ilike_param}) || '%'"
             params.append(word) # Add the word again for the ILIKE parameter
 
             where_conditions.append(f"({fuzzy_condition} OR {ilike_condition})")
 
-        where_clause = " AND ".join(where_conditions)
+        where_clause = " OR ".join(where_conditions) # Changed to OR for multi-word search
         query_sql = f"""
             SELECT
                 p.ean,
-                COUNT(cp) AS product_count
-            FROM chain_products cp
-            JOIN products p ON cp.product_id = p.id
+                COUNT(sk) AS keyword_count
+            FROM search_keywords sk
+            JOIN products p ON sk.ean = p.ean
             WHERE {where_clause}
             GROUP BY p.ean
-            ORDER BY product_count DESC, MAX(similarity(unaccent(cp.name), unaccent(${len(words)}))) DESC
+            ORDER BY keyword_count DESC, MAX(similarity(unaccent(sk.keyword), unaccent(${len(words)}))) DESC
         """
         # The ORDER BY clause needs to refer to the last parameter for similarity,
         # which is now the original word parameter, not the duplicated one for ILIKE.
@@ -537,3 +537,24 @@ class PostgresDatabase(Database):
                 is_active=is_active,
                 created_at=created_at,
             )
+
+    async def get_products_for_keyword_generation(self, limit: int = 100) -> list[dict[str, Any]]:
+        async with self._get_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    p.ean,
+                    COALESCE(cp.name, p.name) AS product_name,
+                    COALESCE(cp.brand, p.brand) AS brand_name
+                FROM products p
+                LEFT JOIN chain_products cp ON p.id = cp.product_id
+                WHERE p.ean NOT IN (SELECT ean FROM search_keywords)
+                ORDER BY LENGTH(COALESCE(cp.name, p.name)) DESC, p.ean
+                LIMIT $1
+                """,
+                limit
+            )
+            return [
+                {"ean": row["ean"], "product_name": row["product_name"], "brand_name": row["brand_name"]}
+                for row in rows
+            ]

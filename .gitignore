@@ -17,3 +17,7 @@ data/
 
 # Configuration
 .env
+
+# Logs and Production Config
+logs/
+prod.json

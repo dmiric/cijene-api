@@ -4,8 +4,9 @@ from pydantic import BaseModel, Field
 import datetime
 
 from service.config import settings
-from service.db.models import ProductWithId
+from service.db.models import ProductWithId, User # Import User
 from service.routers.auth import RequireAuth
+from fastapi import Depends # Import Depends for user injection
 
 router = APIRouter(tags=["Products, Chains and Stores"], dependencies=[RequireAuth])
 db = settings.get_db()
@@ -107,6 +108,40 @@ class ProductResponse(BaseModel):
 class ProductSearchResponse(BaseModel):
     products: list[ProductResponse] = Field(
         ..., description="List of products matching the search query."
+    )
+
+
+class SearchKeywordsGenerationItem(BaseModel):
+    ean: str = Field(..., description="EAN barcode of the product.")
+    product_name: str = Field(..., description="Name of the product.")
+    brand_name: str | None = Field(None, description="Brand name of the product.")
+
+
+class SearchKeywordsGenerationResponse(BaseModel):
+    items: list[SearchKeywordsGenerationItem] = Field(
+        ..., description="List of products suitable for keyword generation."
+    )
+
+
+@router.get("/search-keywords/", summary="Get products for keyword generation")
+async def get_products_for_keyword_generation(
+    current_user: User = RequireAuth, # Corrected: Removed Depends() wrapper
+    limit: int = Query(100, description="Maximum number of items to return."),
+) -> SearchKeywordsGenerationResponse:
+    """
+    Returns a list of products (EAN, product name, and brand name) that are not yet in the
+    search_keywords table, suitable for generating new keywords.
+    Access is restricted to user 'dmiric'.
+    """
+    if current_user.name != "dmiric":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only user 'dmiric' can access this endpoint.",
+        )
+
+    products_data = await db.get_products_for_keyword_generation(limit=limit)
+    return SearchKeywordsGenerationResponse(
+        items=[SearchKeywordsGenerationItem(**item) for item in products_data]
     )
 
 

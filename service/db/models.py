@@ -86,3 +86,11 @@ class Price:
     unit_price: Optional[Decimal] = None
     best_price_30: Optional[Decimal] = None
     anchor_price: Optional[Decimal] = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SearchKeyword:
+    id: int
+    ean: str
+    keyword: str
+    created_at: datetime
