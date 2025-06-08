@@ -8,6 +8,9 @@ help: ## Display this help message
 crawl-sample: ## Run a sample crawl for Lidl and Konzum
 	docker-compose run --rm crawler python crawler/cli/crawl.py /app/output --chain lidl,konzum
 
+crawl-all: ## Crawl all data
+	docker-compose run --rm crawler python crawler/cli/crawl.py /app/output
+
 rebuild: ## Rebuild and restart all Docker containers
 	docker-compose up -d --build --force-recreate
 
@@ -19,7 +22,7 @@ add-user: ## Add a new user with a generated API key. Usage: make add-user USERN
 	docker-compose run --rm api python service/cli/add_user.py $(USERNAME)
 
 QUERY ?= kokos
-API_KEY ?= dbb87592-ad26-49bf-b247-2f9780023528
+API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 search-products: ## Search for products by name. Usage: make search-products QUERY=your_query API_KEY=your_api_key
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-products API_KEY=your_api_key [QUERY=your_query]"; exit 1; fi
 	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(QUERY)" | jq .

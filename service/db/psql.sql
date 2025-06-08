@@ -1,3 +1,15 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- Create an immutable unaccent function for use in indexes
+CREATE OR REPLACE FUNCTION f_unaccent(text)
+  RETURNS text
+AS
+$$
+  SELECT unaccent($1)
+$$
+LANGUAGE sql IMMUTABLE;
+
 -- Users table to store API users
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -58,6 +70,12 @@ CREATE TABLE IF NOT EXISTS chain_products (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chain_products_product_id ON chain_products (product_id);
+
+-- Add GIN index for fuzzy search on product names using pg_trgm
+CREATE INDEX IF NOT EXISTS trgm_idx_chain_products_name ON chain_products USING GIN (name gin_trgm_ops);
+
+-- Add GIN index for unaccented fuzzy search on product names
+CREATE INDEX IF NOT EXISTS trgm_idx_chain_products_unaccent_name ON chain_products USING GIN (f_unaccent(name) gin_trgm_ops);
 
 -- Prices table to store product prices
 CREATE TABLE IF NOT EXISTS prices (

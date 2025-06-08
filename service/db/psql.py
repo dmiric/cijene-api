@@ -253,13 +253,28 @@ class PostgresDatabase(Database):
         if not words:
             return []
 
+        # TODO: Implement full-text search using PostgreSQL's
+        # text search capabilities
+        # Using pg_trgm for fuzzy matching
         where_conditions = []
         params = []
+        # Define a similarity threshold, e.g., 0.3 (can be adjusted)
+        SIMILARITY_THRESHOLD = 0.3
 
         for idx, word in enumerate(words, start=1):
             word = word.lower().replace("%", "")
-            where_conditions.append(f"cp.name ILIKE ${idx}")
-            params.append(f"%{word}%")
+            unaccented_word_param = f"${idx}" # Parameter for unaccented word
+            unaccented_word_ilike_param = f"${idx + len(words)}" # Parameter for ILIKE unaccented word
+
+            # Condition for fuzzy matching using pg_trgm's similarity
+            fuzzy_condition = f"similarity(unaccent(cp.name), unaccent({unaccented_word_param})) > {SIMILARITY_THRESHOLD}"
+            params.append(word)
+
+            # Condition for direct substring matching using ILIKE
+            ilike_condition = f"unaccent(cp.name) ILIKE '%' || unaccent({unaccented_word_ilike_param}) || '%'"
+            params.append(word) # Add the word again for the ILIKE parameter
+
+            where_conditions.append(f"({fuzzy_condition} OR {ilike_condition})")
 
         where_clause = " AND ".join(where_conditions)
         query_sql = f"""
@@ -270,8 +285,12 @@ class PostgresDatabase(Database):
             JOIN products p ON cp.product_id = p.id
             WHERE {where_clause}
             GROUP BY p.ean
-            ORDER BY product_count DESC
+            ORDER BY product_count DESC, MAX(similarity(unaccent(cp.name), unaccent(${len(words)}))) DESC
         """
+        # The ORDER BY clause needs to refer to the last parameter for similarity,
+        # which is now the original word parameter, not the duplicated one for ILIKE.
+        # The parameter indices will be 1 to N for similarity, and N+1 to 2N for ILIKE.
+        # So, the last similarity parameter is ${len(words)}.
 
         async with self._get_conn() as conn:
             rows = await conn.fetch(query_sql, *params)
