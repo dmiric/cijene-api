@@ -1,5 +1,5 @@
 from decimal import Decimal
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 import datetime
 
@@ -143,6 +143,65 @@ async def get_products_for_keyword_generation(
     return SearchKeywordsGenerationResponse(
         items=[SearchKeywordsGenerationItem(**item) for item in products_data]
     )
+
+
+class NearbyStoreResponse(BaseModel):
+    """Response schema for a single nearby store."""
+    id: int = Field(..., description="Unique ID of the store.")
+    chain_code: str = Field(..., description="Code of the retail chain.")
+    code: str = Field(..., description="Unique code of the store.")
+    type: str | None = Field(None, description="Type of the store.")
+    address: str | None = Field(None, description="Physical address of the store.")
+    city: str | None = Field(None, description="City where the store is located.")
+    zipcode: str | None = Field(None, description="Postal code of the store location.")
+    latitude: Decimal | None = Field(None, description="Latitude of the store.")
+    longitude: Decimal | None = Field(None, description="Longitude of the store.")
+    distance_meters: Decimal | None = Field(None, description="Distance from the query point in meters.")
+
+
+class ListNearbyStoresResponse(BaseModel):
+    """List nearby stores response schema."""
+    stores: list[NearbyStoreResponse] = Field(
+        ..., description="List of stores within the specified radius, ordered by distance."
+    )
+
+
+@router.get("/stores/nearby/", summary="Find stores within a given radius")
+async def list_nearby_stores(
+    latitude: Decimal = Query(..., description="Latitude of the center point."),
+    longitude: Decimal = Query(..., description="Longitude of the center point."),
+    radius_meters: int = Query(..., description="Radius in meters to search within."),
+    chain_code: str | None = Query(None, description="Optional: Filter by chain code."),
+) -> ListNearbyStoresResponse:
+    """
+    Finds and lists stores within a specified radius of a given latitude/longitude.
+    Results are ordered by distance from the center point.
+    """
+    stores_data = await db.get_stores_within_radius(
+        latitude=latitude,
+        longitude=longitude,
+        radius_meters=radius_meters,
+        chain_code=chain_code,
+    )
+
+    response_stores = []
+    for store_data in stores_data:
+        response_stores.append(
+            NearbyStoreResponse(
+                id=store_data["id"],
+                chain_code=store_data["chain_code"],
+                code=store_data["code"],
+                type=store_data["type"],
+                address=store_data["address"],
+                city=store_data["city"],
+                zipcode=store_data["zipcode"],
+                latitude=store_data["latitude"],
+                longitude=store_data["longitude"],
+                distance_meters=store_data["distance_meters"],
+            )
+        )
+
+    return ListNearbyStoresResponse(stores=response_stores)
 
 
 async def prepare_product_response(

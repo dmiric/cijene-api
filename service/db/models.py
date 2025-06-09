@@ -32,6 +32,8 @@ class Store:
     address: Optional[str] = None
     city: Optional[str] = None
     zipcode: Optional[str] = None
+    latitude: Optional[Decimal] = None # Added latitude
+    longitude: Optional[Decimal] = None # Added longitude
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

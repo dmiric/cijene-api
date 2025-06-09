@@ -35,3 +35,13 @@ search-keywords: ## Get search keywords for AI
 
 logs-api: ## Display logs for the API service and save to ./logs/api.log (empties file first)
 	mkdir -p logs && > ./logs/api.log && docker-compose logs api > ./logs/api.log
+
+geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
+	docker-compose run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
+
+LATITUDE ?= 45.29278835973543
+LONGITUDE ?= 18.791376990006086
+RADIUS ?= 1500
+test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITUDE=val] [LONGITUDE=val] [RADIUS=val] API_KEY=your_api_key
+	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi
+	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?latitude=$(LATITUDE)&longitude=$(LONGITUDE)&radius_meters=$(RADIUS)" | jq .

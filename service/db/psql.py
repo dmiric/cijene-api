@@ -9,6 +9,7 @@ from typing import (
 import logging
 import os
 from datetime import date, datetime # Import datetime
+from decimal import Decimal # Import Decimal
 import uuid # Import uuid for API key generation
 from .base import Database
 from .models import (
@@ -124,15 +125,23 @@ class PostgresDatabase(Database):
             return [ChainWithId(**row) for row in rows]  # type: ignore
 
     async def add_store(self, store: Store) -> int:
+        # Prepare location geometry if latitude and longitude are provided
+        location_geom = None
+        if store.latitude is not None and store.longitude is not None:
+            location_geom = f"ST_SetSRID(ST_Point({store.longitude}, {store.latitude}), 4326)::geography"
+
         return await self._fetchval(
-            """
-            INSERT INTO stores (chain_id, code, type, address, city, zipcode)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            f"""
+            INSERT INTO stores (chain_id, code, type, address, city, zipcode, latitude, longitude, location)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, {location_geom if location_geom else 'NULL'})
             ON CONFLICT (chain_id, code) DO UPDATE SET
                 type = COALESCE($3, stores.type),
                 address = COALESCE($4, stores.address),
                 city = COALESCE($5, stores.city),
-                zipcode = COALESCE($6, stores.zipcode)
+                zipcode = COALESCE($6, stores.zipcode),
+                latitude = COALESCE($7, stores.latitude),
+                longitude = COALESCE($8, stores.longitude),
+                location = COALESCE(EXCLUDED.location, stores.location)
             RETURNING id
             """,
             store.chain_id,
@@ -141,6 +150,8 @@ class PostgresDatabase(Database):
             store.address or None,
             store.city or None,
             store.zipcode or None,
+            store.latitude,
+            store.longitude,
         )
 
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
@@ -148,7 +159,7 @@ class PostgresDatabase(Database):
             rows = await conn.fetch(
                 """
                 SELECT
-                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode
+                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.latitude, s.longitude
                 FROM stores s
                 JOIN chains c ON s.chain_id = c.id
                 WHERE c.code = $1
@@ -157,6 +168,59 @@ class PostgresDatabase(Database):
             )
 
             return [StoreWithId(**row) for row in rows]  # type: ignore
+
+    async def get_ungeocoded_stores(self) -> list[StoreWithId]:
+        """
+        Fetches stores that have address information but are missing
+        latitude or longitude.
+        """
+        async with self._get_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    id, chain_id, code, type, address, city, zipcode, latitude, longitude
+                FROM stores
+                WHERE
+                    (latitude IS NULL OR longitude IS NULL) AND
+                    (address IS NOT NULL OR city IS NOT NULL OR zipcode IS NOT NULL)
+                """
+            )
+            return [StoreWithId(**row) for row in rows] # type: ignore
+
+    async def get_stores_within_radius(
+        self,
+        latitude: Decimal,
+        longitude: Decimal,
+        radius_meters: int,
+        chain_code: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Finds and lists stores within a specified radius of a given latitude/longitude.
+        Results include chain code and distance from the center point, ordered by distance.
+        """
+        async with self._get_conn() as conn:
+            # Create a geography point for the center of the search
+            center_point = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geography"
+
+            query = f"""
+                SELECT
+                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.latitude, s.longitude,
+                    c.code AS chain_code,
+                    ST_Distance(s.location, {center_point}) AS distance_meters
+                FROM stores s
+                JOIN chains c ON s.chain_id = c.id
+                WHERE ST_DWithin(s.location, {center_point}, $1)
+            """
+            params = [radius_meters]
+
+            if chain_code:
+                query += " AND c.code = $2"
+                params.append(chain_code)
+
+            query += f" ORDER BY ST_Distance(s.location, {center_point})"
+
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
 
     async def add_ean(self, ean: str) -> int:
         """
