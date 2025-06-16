@@ -21,3 +21,4 @@ data/
 # Logs and Production Config
 logs/
 prod.json
+search-prod.json

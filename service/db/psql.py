@@ -6,11 +6,12 @@ from typing import (
     List,
     Any,
 )
-import logging
 import os
 from datetime import date, datetime # Import datetime
 from decimal import Decimal # Import Decimal
 import uuid # Import uuid for API key generation
+import sys # Import sys for direct print to stderr
+
 from .base import Database
 from .models import (
     Chain,
@@ -23,6 +24,7 @@ from .models import (
     StoreWithId,
     ChainProductWithId,
     User,
+    UserLocation, # Added UserLocation
 )
 
 
@@ -41,7 +43,10 @@ class PostgresDatabase(Database):
         self.min_size = min_size
         self.max_size = max_size
         self.pool = None
-        self.logger = logging.getLogger(__name__)
+        # Using print for debugging as logging is not appearing reliably
+        def debug_print_db(*args, **kwargs):
+            print("[DEBUG psql]", *args, file=sys.stderr, **kwargs)
+        self.debug_print = debug_print_db
 
     async def connect(self) -> None:
         self.pool = await asyncpg.create_pool(
@@ -79,9 +84,9 @@ class PostgresDatabase(Database):
 
             async with self._get_conn() as conn:
                 await conn.execute(schema_sql)
-                self.logger.info("Database tables created successfully")
+                self.debug_print("Database tables created successfully")
         except Exception as e:
-            self.logger.error(f"Error creating tables: {e}")
+            self.debug_print(f"Error creating tables: {e}")
             raise
 
     async def _fetchval(self, query: str, *args: Any) -> Any:
@@ -331,11 +336,11 @@ class PostgresDatabase(Database):
             unaccented_word_ilike_param = f"${idx + len(words)}" # Parameter for ILIKE unaccented word
 
             # Condition for fuzzy matching using pg_trgm's similarity
-            fuzzy_condition = f"similarity(unaccent(sk.keyword), unaccent({unaccented_word_param})) > {SIMILARITY_THRESHOLD}"
+            fuzzy_condition = f"similarity(sk.keyword, {unaccented_word_param}) > {SIMILARITY_THRESHOLD}"
             params.append(word)
 
             # Condition for direct substring matching using ILIKE
-            ilike_condition = f"unaccent(sk.keyword) ILIKE '%' || unaccent({unaccented_word_ilike_param}) || '%'"
+            ilike_condition = f"sk.keyword ILIKE '%' || {unaccented_word_ilike_param} || '%'"
             params.append(word) # Add the word again for the ILIKE parameter
 
             where_conditions.append(f"({fuzzy_condition} OR {ilike_condition})")
@@ -349,45 +354,58 @@ class PostgresDatabase(Database):
             JOIN products p ON sk.ean = p.ean
             WHERE {where_clause}
             GROUP BY p.ean
-            ORDER BY keyword_count DESC, MAX(similarity(unaccent(sk.keyword), unaccent(${len(words)}))) DESC
+            ORDER BY keyword_count DESC
         """
-        # The ORDER BY clause needs to refer to the last parameter for similarity,
-        # which is now the original word parameter, not the duplicated one for ILIKE.
+        # Temporarily removed MAX(similarity(sk.keyword), $1) DESC to debug UndefinedFunctionError
         # The parameter indices will be 1 to N for similarity, and N+1 to 2N for ILIKE.
         # So, the last similarity parameter is ${len(words)}.
 
         async with self._get_conn() as conn:
+            self.debug_print(f"search_products: Query: {query_sql}")
+            self.debug_print(f"search_products: Params: {params}")
             rows = await conn.fetch(query_sql, *params)
             eans = [row["ean"] for row in rows]
 
         return await self.get_products_by_ean(eans)
 
     async def get_product_prices(
-        self, product_ids: list[int], date: date
+        self, product_ids: list[int], date: date, store_ids: list[int] | None = None
     ) -> list[dict[str, Any]]:
         async with self._get_conn() as conn:
-            return await conn.fetch(
-                """
+            query = """
                 SELECT
-                    c.code AS chain,
+                    c.code AS chain_code,
                     cpr.product_id,
-                    cp.min_price,
-                    cp.max_price,
-                    cp.avg_price
-                FROM chain_prices cp
-                JOIN chain_products cpr ON cp.chain_product_id = cpr.id
+                    cpr.id AS chain_product_id,
+                    p.store_id,
+                    s.code AS store_code,
+                    p.price_date,
+                    p.regular_price,
+                    p.special_price,
+                    p.unit_price,
+                    p.anchor_price -- Added anchor_price
+                FROM prices p
+                JOIN chain_products cpr ON p.chain_product_id = cpr.id
                 JOIN chains c ON cpr.chain_id = c.id
+                JOIN stores s ON p.store_id = s.id
                 WHERE cpr.product_id = ANY($1)
-                AND cp.price_date = (
-                    SELECT MAX(cp2.price_date)
-                    FROM chain_prices cp2
-                    WHERE cp2.chain_product_id = cp.chain_product_id
-                    AND cp2.price_date <= $2
+                AND p.price_date = (
+                    SELECT MAX(p2.price_date)
+                    FROM prices p2
+                    WHERE p2.chain_product_id = p.chain_product_id
+                    AND p2.store_id = p.store_id -- Ensure max date is per store
+                    AND p2.price_date <= $2
                 )
-                """,
-                product_ids,
-                date,
-            )
+            """
+            params = [product_ids, date]
+
+            if store_ids:
+                query += " AND p.store_id = ANY($3)"
+                params.append(store_ids)
+            
+            self.debug_print(f"get_product_prices: Query: {query}")
+            self.debug_print(f"get_product_prices: Params: {params}")
+            return await conn.fetch(query, *params)
 
     async def add_many_prices(self, prices: list[Price]) -> int:
         async with self._atomic() as conn:
@@ -602,10 +620,144 @@ class PostgresDatabase(Database):
                 created_at=created_at,
             )
 
-    async def get_products_for_keyword_generation(self, limit: int = 100) -> list[dict[str, Any]]:
+    async def add_user_location(self, user_id: int, location_data: dict) -> UserLocation:
+        """
+        Add a new location for a user.
+        """
+        latitude = location_data.get("latitude")
+        longitude = location_data.get("longitude")
+        location_geom = None
+        if latitude is not None and longitude is not None:
+            location_geom = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geometry"
+
+        async with self._atomic() as conn:
+            # Fetch all fields including generated ones
+            row = await conn.fetchrow(
+                f"""
+                INSERT INTO user_locations (
+                    user_id, address, city, state, zip_code, country,
+                    latitude, longitude, location_name, location, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, {location_geom if location_geom else 'NULL'}, NOW(), NOW())
+                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
+                """,
+                user_id,
+                location_data.get("address"),
+                location_data.get("city"),
+                location_data.get("state"),
+                location_data.get("zip_code"),
+                location_data.get("country"),
+                latitude,
+                longitude,
+                location_data.get("location_name"),
+            )
+            if row is None:
+                raise RuntimeError(f"Failed to insert user location for user {user_id}")
+
+            return UserLocation(**row)
+
+    async def get_user_locations_by_user_id(self, user_id: int) -> list[UserLocation]:
+        """
+        Get all locations for a specific user.
+        """
         async with self._get_conn() as conn:
             rows = await conn.fetch(
                 """
+                SELECT
+                    id, user_id, address, city, state, zip_code, country,
+                    latitude, longitude, location_name, created_at, updated_at
+                FROM user_locations
+                WHERE user_id = $1
+                ORDER BY created_at
+                """,
+                user_id,
+            )
+            return [UserLocation(**row) for row in rows] # type: ignore
+
+    async def get_user_location_by_id(self, user_id: int, location_id: int) -> UserLocation | None:
+        """
+        Get a specific user location by its ID and user ID.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    id, user_id, address, city, state, zip_code, country,
+                    latitude, longitude, location_name, created_at, updated_at
+                FROM user_locations
+                WHERE id = $1 AND user_id = $2
+                """,
+                location_id,
+                user_id,
+            )
+            if row:
+                return UserLocation(**row) # type: ignore
+            return None
+
+    async def update_user_location(self, user_id: int, location_id: int, location_data: dict) -> UserLocation | None:
+        """
+        Update an existing user location.
+        """
+        latitude = location_data.get("latitude")
+        longitude = location_data.get("longitude")
+        location_geom = None
+        if latitude is not None and longitude is not None:
+            location_geom = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geometry"
+
+        async with self._atomic() as conn:
+            row = await conn.fetchrow(
+                f"""
+                UPDATE user_locations
+                SET
+                    address = COALESCE($3, address),
+                    city = COALESCE($4, city),
+                    state = COALESCE($5, state),
+                    zip_code = COALESCE($6, zip_code),
+                    country = COALESCE($7, country),
+                    latitude = COALESCE($8, latitude),
+                    longitude = COALESCE($9, longitude),
+                    location_name = COALESCE($10, location_name),
+                    location = COALESCE({location_geom if location_geom else 'NULL'}, location),
+                    updated_at = NOW()
+                WHERE id = $1 AND user_id = $2
+                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
+                """,
+                location_id,
+                user_id,
+                location_data.get("address"),
+                location_data.get("city"),
+                location_data.get("state"),
+                location_data.get("zip_code"),
+                location_data.get("country"),
+                latitude,
+                longitude,
+                location_data.get("location_name"),
+            )
+            if row:
+                return UserLocation(**row)
+            return None
+
+    async def delete_user_location(self, user_id: int, location_id: int) -> bool:
+        """
+        Delete a user location.
+        """
+        async with self._atomic() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM user_locations
+                WHERE id = $1 AND user_id = $2
+                """,
+                location_id,
+                user_id,
+            )
+            _, rowcount = result.split(" ")
+            return int(rowcount) == 1
+
+    async def get_products_for_keyword_generation(
+        self, limit: int = 100, product_name_filter: str | None = None
+    ) -> list[dict[str, Any]]:
+        async with self._get_conn() as conn:
+            query = """
                 SELECT
                     p.ean,
                     COALESCE(cp.name, p.name) AS product_name,
@@ -613,11 +765,21 @@ class PostgresDatabase(Database):
                 FROM products p
                 LEFT JOIN chain_products cp ON p.id = cp.product_id
                 WHERE p.ean NOT IN (SELECT ean FROM search_keywords)
+            """
+            params = []
+            param_index = 1 # Start parameter index from $1
+
+            if product_name_filter:
+                query += f" AND COALESCE(cp.name, p.name) ILIKE '%' || ${param_index} || '%'"
+                params.append(product_name_filter)
+                param_index += 1
+
+            query += f"""
                 ORDER BY LENGTH(COALESCE(cp.name, p.name)) DESC, p.ean
-                LIMIT $1
-                """,
-                limit
-            )
+                LIMIT ${param_index}
+            """
+            params.append(limit) # Add limit as the last parameter
+            rows = await conn.fetch(query, *params)
             return [
                 {"ean": row["ean"], "product_name": row["product_name"], "brand_name": row["brand_name"]}
                 for row in rows

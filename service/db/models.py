@@ -15,6 +15,22 @@ class User:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class UserLocation:
+    id: int
+    user_id: int
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    location_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Chain:
     code: str
 

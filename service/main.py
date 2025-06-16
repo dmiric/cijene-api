@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import sys # Import sys for stdout
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -69,7 +70,21 @@ async def health_check():
 
 def main():
     log_level = logging.DEBUG if settings.debug else logging.INFO
-    logging.basicConfig(level=log_level)
+    
+    # Configure the root logger to ensure all messages are captured
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Clear existing handlers to prevent duplicate output
+    if root_logger.handlers:
+        for handler in root_logger.handlers:
+            root_logger.removeHandler(handler)
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
     uvicorn.run(
         "service.main:app",
         host=settings.host,
