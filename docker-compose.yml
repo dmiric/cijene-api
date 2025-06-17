@@ -4,12 +4,11 @@ services:
   db:
     image: postgis/postgis:16-3.4
     env_file:
-      - ./.env # Load database credentials from .env file
+      - ./.env
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./service/db/psql.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      # Use environment variables for healthcheck if possible, or ensure they match .env
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
@@ -20,49 +19,54 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./.env # Load environment variables from .env file
+      - ./.env
     environment:
-      DB_DSN: postgresql://dmiric:PriceMicE100%@db:5432/pricemice
-      REDIRECT_URL: http://localhost:8000/docs # Example, adjust as needed
-      # DEBUG: "true" # Removed for production
+      DB_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIRECT_URL: http://localhost:8000/docs
       PYTHONUTF8: "1"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      # - ./service:/app/service # Removed for production (no hot-reloading)
-      - ./.env:/app/.env # Load environment variables from .env file
-      - crawler_data:/app/crawler_output # Mount shared volume for import
-    command: ["sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000"] # Removed --reload
+      - ./.env:/app/.env
+      - crawler_data:/app/crawler_output
+    command: ["sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000"]
 
   crawler:
     build: .
     environment:
-      DB_DSN: postgresql://dmiric:PriceMicE100%@db:5432/pricemice
-      # DEBUG: "true" # Removed for production
+      DB_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       PYTHONUTF8: "1"
     depends_on:
       - db
     volumes:
-      - crawler_data:/app/output # Crawler writes to this shared volume
-    # This service is not meant to be continuously running.
-    # It's here to provide a container for running crawler commands.
-    # Example usage: docker-compose run --rm crawler python -m crawler.cli.crawl /app/output --date 2024-01-01
-    command: ["tail", "-f", "/dev/null"] # Keep container alive for manual execution
+      - crawler_data:/app/output
+    command: ["tail", "-f", "/dev/null"]
 
   pgadmin:
     image: dpage/pgadmin4
     env_file:
-      - ./.env # Load pgadmin credentials from .env file
-    # ports: # Removed for production (access via SSH tunnel if needed)
-    #   - "5050:80"
+      - ./.env
     depends_on:
       - db
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json
 
+  backup:
+    image: postgis/postgis:16-3.4
+    env_file:
+      - ./.env
+    volumes:
+      - db_backups:/backups
+      - ./scripts:/scripts
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["tail", "-f", "/dev/null"]
+
 volumes:
   db_data:
   pgadmin_data:
-  crawler_data: # New volume for crawler output
+  crawler_data:
+  db_backups:

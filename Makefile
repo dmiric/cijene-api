@@ -20,6 +20,9 @@ rebuild-api: ## Rebuild and restart only the API service
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
 
+dump-tables: ## Dump specified database tables to the db_backups volume
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm backup /scripts/backup_tables.sh
+
 add-user: ## Add a new user with a generated API key. Usage: make add-user USERNAME=your_username
 	@if [ -z "$(USERNAME)" ]; then echo "Error: USERNAME is required. Usage: make add-user USERNAME=your_username"; exit 1; fi
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/add_user.py $(USERNAME)
