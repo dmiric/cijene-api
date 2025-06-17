@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  db:
+    extends:
+      service: db
+      file: docker-compose.yml
+    ports:
+      - "5432:5432" # Expose DB port for local access
+
+  api:
+    extends:
+      service: api
+      file: docker-compose.yml
+    volumes:
+      - ./service:/app/service # Mount service directory for live code changes
+    environment:
+      DEBUG: "true" # Enable debug for local development
+    command: ["sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload"] # Enable --reload
+
+  crawler:
+    extends:
+      service: crawler
+      file: docker-compose.yml
+    environment:
+      DEBUG: "true" # Enable debug for local development
+
+  pgadmin:
+    extends:
+      service: pgadmin
+      file: docker-compose.yml
+    ports:
+      - "5050:80" # Expose PGAdmin port for local access

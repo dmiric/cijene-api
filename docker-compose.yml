@@ -10,8 +10,6 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./service/db/psql.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432" # Optional: Expose DB port for local access
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d cijene_db"]
       interval: 5s
@@ -27,22 +25,22 @@ services:
     environment:
       DB_DSN: postgresql://user:password@db:5432/cijene_db
       REDIRECT_URL: http://localhost:8000/docs # Example, adjust as needed
-      DEBUG: "true"
+      # DEBUG: "true" # Removed for production
       PYTHONUTF8: "1"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./service:/app/service # Mount service directory for live code changes
+      # - ./service:/app/service # Removed for production (no hot-reloading)
       - ./.env:/app/.env # Load environment variables from .env file
       - crawler_data:/app/crawler_output # Mount shared volume for import
-    command: ["sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: ["sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000"] # Removed --reload
 
   crawler:
     build: .
     environment:
       DB_DSN: postgresql://user:password@db:5432/cijene_db
-      DEBUG: "true"
+      # DEBUG: "true" # Removed for production
       PYTHONUTF8: "1"
     depends_on:
       - db
@@ -58,8 +56,8 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin_password
-    ports:
-      - "5050:80"
+    # ports: # Removed for production (access via SSH tunnel if needed)
+    #   - "5050:80"
     depends_on:
       - db
     volumes:
