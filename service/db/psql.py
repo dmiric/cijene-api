@@ -155,7 +155,7 @@ class PostgresDatabase(Database):
         # Prepare location geometry if lat and lon are provided
         location_geom = None
         if store.lat is not None and store.lon is not None:
-            location_geom = f"ST_SetSRID(ST_Point({store.lon}, {store.lat}), 4326)::geography"
+            location_geom = f"ST_SetSRID(ST_Point({store.lon}, {store.lat}), 4326)::geometry" # Changed to geometry
 
         return await self._fetchval(
             f"""
@@ -179,7 +179,7 @@ class PostgresDatabase(Database):
             store.zipcode or None,
             store.lat,
             store.lon,
-            store.location,
+            # Removed store.location as it's not a direct column
         )
 
     async def update_store(
@@ -190,8 +190,8 @@ class PostgresDatabase(Database):
         address: str | None = None,
         city: str | None = None,
         zipcode: str | None = None,
-        lat: float | None = None,
-        lon: float | None = None,
+        lat: Decimal | None = None, # Changed float to Decimal
+        lon: Decimal | None = None, # Changed float to Decimal
         phone: str | None = None,
     ) -> bool:
         """
@@ -244,8 +244,8 @@ class PostgresDatabase(Database):
         chain_codes: list[str] | None = None,
         city: str | None = None,
         address: str | None = None,
-        lat: float | None = None,
-        lon: float | None = None,
+        lat: Decimal | None = None, # Changed float to Decimal
+        lon: Decimal | None = None, # Changed float to Decimal
         d: float = 10.0,
     ) -> list[StoreWithId]:
         # Validate lat/lon parameters
@@ -335,8 +335,8 @@ class PostgresDatabase(Database):
         Results include chain code and distance from the center point, ordered by distance.
         """
         async with self._get_conn() as conn:
-            # Create a geography point for the center of the search
-            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geography"
+            # Create a geometry point for the center of the search (matching DB column type)
+            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry" # Changed to geometry
 
             query = f"""
                 SELECT
@@ -443,6 +443,9 @@ class PostgresDatabase(Database):
                         address=row["address"],
                         city=row["city"],
                         zipcode=row["zipcode"],
+                        lat=row["lat"], # Added lat
+                        lon=row["lon"], # Added lon
+                        phone=row["phone"], # Added phone
                     ),
                 )
                 for row in rows

@@ -57,8 +57,8 @@ class Store:
     address: Optional[str] = None
     city: Optional[str] = None
     zipcode: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    lat: Optional[Decimal] = None
+    lon: Optional[Decimal] = None
     phone: Optional[str] = None
 
 

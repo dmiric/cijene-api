@@ -27,7 +27,7 @@ async def get_db() -> PostgresDatabase:
 async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal] | None:
     """
     Geocodes an address using the Google Geocoding API.
-    Returns (latitude, longitude) or None if geocoding fails.
+    Returns (lat, lon) or None if geocoding fails.
     """
     base_url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
@@ -42,10 +42,10 @@ async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal]
 
             if data["status"] == "OK" and data["results"]:
                 location = data["results"][0]["geometry"]["location"]
-                latitude = Decimal(str(location["lat"]))
-                longitude = Decimal(str(location["lng"]))
-                logger.info(f"Geocoded '{address}': Lat={latitude}, Lng={longitude}")
-                return latitude, longitude
+                lat = Decimal(str(location["lat"])) # Renamed to lat
+                lon = Decimal(str(location["lng"])) # Renamed to lon
+                logger.info(f"Geocoded '{address}': Lat={lat}, Lng={lon}") # Updated log
+                return lat, lon # Renamed to lat, lon
             elif data["status"] == "ZERO_RESULTS":
                 logger.warning(f"No results for address: '{address}'")
             else:
@@ -61,7 +61,7 @@ async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal]
 @app.command()
 async def geocode_stores():
     """
-    Geocodes stores in the database that are missing latitude/longitude.
+    Geocodes stores in the database that are missing lat/lon. # Updated description
     """
     load_dotenv() # Load environment variables from .env file
     google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -88,9 +88,9 @@ async def geocode_stores():
                 continue
 
             logger.info(f"Geocoding store ID {store.id}: '{full_address}'")
-            latitude, longitude = await geocode_address(full_address, google_api_key)
+            lat, lon = await geocode_address(full_address, google_api_key) # Renamed to lat, lon
 
-            if latitude is not None and longitude is not None:
+            if lat is not None and lon is not None: # Renamed to lat, lon
                 updated_store = Store(
                     chain_id=store.chain_id,
                     code=store.code,
@@ -98,12 +98,12 @@ async def geocode_stores():
                     address=store.address,
                     city=store.city,
                     zipcode=store.zipcode,
-                    latitude=latitude,
-                    longitude=longitude
+                    lat=lat, # Renamed to lat
+                    lon=lon # Renamed to lon
                 )
                 # Use add_store for upserting, it will update existing store by chain_id and code
                 await db.add_store(updated_store)
-                logger.info(f"Successfully updated store ID {store.id} with Lat={latitude}, Lng={longitude}")
+                logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}") # Updated log
             else:
                 logger.error(f"Failed to geocode store ID {store.id}: '{full_address}'")
 

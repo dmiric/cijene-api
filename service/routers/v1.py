@@ -43,8 +43,8 @@ class StoreResponse(BaseModel):
     address: str | None = Field(..., description="Physical address of the store.")
     city: str | None = Field(..., description="City where the store is located.")
     zipcode: str | None = Field(..., description="Postal code of the store location.")
-    lat: float | None = Field(..., description="Latitude coordinate of the store.")
-    lon: float | None = Field(..., description="Longitude coordinate of the store.")
+    lat: Decimal | None = Field(..., description="Latitude coordinate of the store.") # Changed float to Decimal
+    lon: Decimal | None = Field(..., description="Longitude coordinate of the store.") # Changed float to Decimal
     phone: str | None = Field(..., description="Phone number of the store.")
 
 
@@ -136,11 +136,11 @@ async def search_stores(
         None,
         description="Address for case-insensitive substring match",
     ),
-    lat: float = Query(
+    lat: Decimal = Query( # Changed float to Decimal
         None,
         description="Latitude coordinate for geolocation search",
     ),
-    lon: float = Query(
+    lon: Decimal = Query( # Changed float to Decimal
         None,
         description="Longitude coordinate for geolocation search",
     ),
@@ -160,7 +160,7 @@ async def search_stores(
     if (lat is None) != (lon is None):
         raise HTTPException(
             status_code=400,
-            detail="Both latitude and longitude must be provided for geolocation search",
+            detail="Both lat and lon must be provided for geolocation search", # Changed message
         )
 
     # Parse chain codes
@@ -393,8 +393,8 @@ class NearbyStoreResponse(BaseModel):
     address: str | None = Field(None, description="Physical address of the store.")
     city: str | None = Field(None, description="City where the store is located.")
     zipcode: str | None = Field(None, description="Postal code of the store location.")
-    latitude: Decimal | None = Field(None, description="Latitude of the store.")
-    longitude: Decimal | None = Field(None, description="Longitude of the store.")
+    lat: Decimal | None = Field(None, description="Latitude of the store.") # Renamed to lat
+    lon: Decimal | None = Field(None, description="Longitude of the store.") # Renamed to lon
     distance_meters: Decimal | None = Field(None, description="Distance from the query point in meters.")
 
 
@@ -407,18 +407,18 @@ class ListNearbyStoresResponse(BaseModel):
 
 @router.get("/stores/nearby/", summary="Find stores within a given radius")
 async def list_nearby_stores(
-    latitude: Decimal = Query(..., description="Latitude of the center point."),
-    longitude: Decimal = Query(..., description="Longitude of the center point."),
+    lat: Decimal = Query(..., description="Latitude of the center point."), # Renamed to lat
+    lon: Decimal = Query(..., description="Longitude of the center point."), # Renamed to lon
     radius_meters: int = Query(..., description="Radius in meters to search within."),
     chain_code: str | None = Query(None, description="Optional: Filter by chain code."),
 ) -> ListNearbyStoresResponse:
     """
-    Finds and lists stores within a specified radius of a given latitude/longitude.
+    Finds and lists stores within a specified radius of a given lat/lon.
     Results are ordered by distance from the center point.
     """
     stores_data = await db.get_stores_within_radius(
-        latitude=latitude,
-        longitude=longitude,
+        lat=lat, # Changed to lat
+        lon=lon, # Changed to lon
         radius_meters=radius_meters,
         chain_code=chain_code,
     )
@@ -434,8 +434,8 @@ async def list_nearby_stores(
                 address=store_data["address"],
                 city=store_data["city"],
                 zipcode=store_data["zipcode"],
-                latitude=store_data["latitude"],
-                longitude=store_data["longitude"],
+                lat=store_data["lat"], # Changed to lat
+                lon=store_data["lon"], # Changed to lon
                 distance_meters=store_data["distance_meters"],
             )
         )
