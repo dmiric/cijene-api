@@ -1,6 +1,6 @@
 DATE ?= $(shell date +%Y-%m-%d)
 
-.PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-tail
+.PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-tail pgtunnel ssh-server
 
 help: ## Display this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | sed -E 's/^(.*?):.*?## (.*)$$/\x1b[36m\1\x1b[0m              \2/'
@@ -45,6 +45,12 @@ logs-api: ## Display logs for the API service and save to ./logs/api.log (emptie
 
 logs-tail: ## Continuously display logs from ./logs/api.log (PowerShell only)
 	pwsh.exe -Command "Get-Content -Path './logs/api.log' -Wait"
+
+pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 5060:localhost:80 dmiric@88.198.153.158
+
+ssh-server: ## SSH into the VPS server
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh dmiric@88.198.153.158
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
