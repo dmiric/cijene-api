@@ -8,7 +8,7 @@ import logging
 
 from service.config import settings
 from service.db.psql import PostgresDatabase
-from service.db.models import StoreWithId, Store
+from service.db.models import Store # Keep Store, remove StoreWithId
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -6,9 +6,9 @@ import sys # Import sys for direct print to stderr
 from dataclasses import asdict # Import asdict
 
 from service.config import settings
-from service.db.models import ProductWithId, User, UserLocation # Import User and UserLocation
+from service.db.models import ProductWithId, User, UserLocation # noqa: F401 # Import User and UserLocation
 from service.routers.auth import RequireAuth
-from fastapi import Depends # Import Depends for user injection
+from fastapi import Depends # noqa: F401 # Import Depends for user injection
 
 router = APIRouter(tags=["Products, Chains and Stores"], dependencies=[RequireAuth])
 db = settings.get_db()

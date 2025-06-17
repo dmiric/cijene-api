@@ -3,7 +3,6 @@ import argparse
 import logging
 from service.config import settings
 from service.db.psql import PostgresDatabase
-from service.db.models import User
 
 logger = logging.getLogger(__name__)
 
