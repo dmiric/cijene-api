@@ -41,6 +41,15 @@ class ChainWithId(Chain):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ChainStats:
+    chain_code: str
+    price_date: date
+    price_count: int
+    store_count: int
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Store:
     chain_id: int
     code: str
@@ -48,8 +57,9 @@ class Store:
     address: Optional[str] = None
     city: Optional[str] = None
     zipcode: Optional[str] = None
-    latitude: Optional[Decimal] = None # Added latitude
-    longitude: Optional[Decimal] = None # Added longitude
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    phone: Optional[str] = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -104,6 +114,19 @@ class Price:
     unit_price: Optional[Decimal] = None
     best_price_30: Optional[Decimal] = None
     anchor_price: Optional[Decimal] = None
+
+
+@dataclass(frozen=True, slots=True)
+class StorePrice:
+    chain: str
+    ean: str
+    price_date: date
+    regular_price: Optional[Decimal]
+    special_price: Optional[Decimal]
+    unit_price: Optional[Decimal]
+    best_price_30: Optional[Decimal]
+    anchor_price: Optional[Decimal]
+    store: Store
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -18,6 +18,7 @@ db = settings.get_db()
 async def lifespan(app: FastAPI):
     """Lifespan context manager to handle startup and shutdown events."""
     await db.connect()
+    await db.create_tables()
     yield
     await db.close()
 

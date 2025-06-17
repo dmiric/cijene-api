@@ -147,8 +147,96 @@ async def enrich_stores(csv_path: Path) -> None:
     Args:
         csv_path: Path to the CSV file containing store enrichment data.
     """
-    logger.info("Store enrichment is not yet implemented")
-    # TODO: Implement store enrichment in the future
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {
+        "id",
+        "chain_code",
+        "code",
+        "type",
+        "address",
+        "city",
+        "zipcode",
+        "lat",
+        "lon",
+        "phone",
+    }
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for stores")
+
+    logger.info(f"Starting store enrichment from {csv_path} with {len(data)} stores")
+    t0 = time()
+
+    # Fetch all chains and build a code -> id map
+    chains = await db.list_chains()
+    chain_code_to_id = {chain.code: chain.id for chain in chains}
+
+    updated_count = 0
+    for row in data:
+        chain_code = row["chain_code"]
+        store_code = row["code"]
+
+        chain_id = chain_code_to_id.get(chain_code)
+        if chain_id is None:
+            logger.warning(
+                f"Chain code not found for store: chain_code={chain_code}, code={store_code}"
+            )
+            continue
+
+        # Convert empty strings to None for nullable fields
+        address = row["address"].strip() or None
+        city = row["city"].strip() or None
+        zipcode = row["zipcode"].strip() or None
+        phone = row["phone"].strip() or None
+
+        # lat/lon: convert to float if present and not empty, else None
+        lat = None
+        lon = None
+        if row["lat"].strip():
+            try:
+                lat = float(row["lat"])
+            except Exception:
+                logger.warning(
+                    f"Invalid lat value for store {store_code} in chain {chain_code}: {row['lat']}"
+                )
+        if row["lon"].strip():
+            try:
+                lon = float(row["lon"])
+            except Exception:
+                logger.warning(
+                    f"Invalid lon value for store {store_code} in chain {chain_code}: {row['lon']}"
+                )
+
+        # Only update if at least one field is non-empty
+        if not any([address, city, zipcode, lat, lon, phone]):
+            continue
+
+        was_updated = await db.update_store(
+            chain_id=chain_id,
+            store_code=store_code,
+            address=address,
+            city=city,
+            zipcode=zipcode,
+            lat=lat,
+            lon=lon,
+            phone=phone,
+        )
+        if was_updated:
+            updated_count += 1
+        else:
+            logger.warning(
+                f"Store not found for update: chain_id={chain_id}, code={store_code}"
+            )
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {updated_count} stores from {csv_path.name} in {dt} seconds")
 
 
 async def main():
@@ -162,7 +250,8 @@ async def main():
     Database connection settings are loaded from the service configuration.
     """
     parser = argparse.ArgumentParser(
-        description=main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=main.__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
@@ -171,7 +260,10 @@ async def main():
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
-        "-p", "--products", action="store_true", help="Enrich product information"
+        "-p",
+        "--products",
+        action="store_true",
+        help="Enrich product information",
     )
     group.add_argument(
         "-s",

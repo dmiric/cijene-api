@@ -15,12 +15,14 @@ import sys # Import sys for direct print to stderr
 from .base import Database
 from .models import (
     Chain,
+    ChainStats,
     ChainWithId,
     Product,
     ProductWithId,
     Store,
     ChainProduct,
     Price,
+    StorePrice,
     StoreWithId,
     ChainProductWithId,
     User,
@@ -56,7 +58,7 @@ class PostgresDatabase(Database):
         )
 
     @asynccontextmanager
-    async def _get_conn(self) -> AsyncGenerator[Any, asyncpg.Connection]:
+    async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection]:
         """Context manager to acquire a connection from the pool."""
         if not self.pool:
             raise RuntimeError("Database pool is not initialized")
@@ -129,23 +131,43 @@ class PostgresDatabase(Database):
             rows = await conn.fetch("SELECT id, code FROM chains")
             return [ChainWithId(**row) for row in rows]  # type: ignore
 
+    async def list_latest_chain_stats(self) -> list[ChainStats]:
+        async with self._get_conn() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    c.code AS chain_code,
+                    cs.price_date,
+                    cs.price_count,
+                    cs.store_count,
+                    cs.created_at
+                FROM chains c
+                JOIN LATERAL (
+                    SELECT *
+                    FROM chain_stats
+                    WHERE chain_id = c.id
+                    ORDER BY price_date DESC
+                    LIMIT 1
+                ) cs ON true;
+            """)
+            return [ChainStats(**row) for row in rows]  # type: ignore
+
     async def add_store(self, store: Store) -> int:
-        # Prepare location geometry if latitude and longitude are provided
+        # Prepare location geometry if lat and lon are provided
         location_geom = None
-        if store.latitude is not None and store.longitude is not None:
-            location_geom = f"ST_SetSRID(ST_Point({store.longitude}, {store.latitude}), 4326)::geography"
+        if store.lat is not None and store.lon is not None:
+            location_geom = f"ST_SetSRID(ST_Point({store.lon}, {store.lat}), 4326)::geography"
 
         return await self._fetchval(
             f"""
-            INSERT INTO stores (chain_id, code, type, address, city, zipcode, latitude, longitude, location)
+            INSERT INTO stores (chain_id, code, type, address, city, zipcode, lat, lon, location)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, {location_geom if location_geom else 'NULL'})
             ON CONFLICT (chain_id, code) DO UPDATE SET
                 type = COALESCE($3, stores.type),
                 address = COALESCE($4, stores.address),
                 city = COALESCE($5, stores.city),
                 zipcode = COALESCE($6, stores.zipcode),
-                latitude = COALESCE($7, stores.latitude),
-                longitude = COALESCE($8, stores.longitude),
+                lat = COALESCE($7, stores.lat),
+                lon = COALESCE($8, stores.lon),
                 location = COALESCE(EXCLUDED.location, stores.location)
             RETURNING id
             """,
@@ -155,16 +177,59 @@ class PostgresDatabase(Database):
             store.address or None,
             store.city or None,
             store.zipcode or None,
-            store.latitude,
-            store.longitude,
+            store.lat,
+            store.lon,
+            store.location,
         )
+
+    async def update_store(
+        self,
+        chain_id: int,
+        store_code: str,
+        *,
+        address: str | None = None,
+        city: str | None = None,
+        zipcode: str | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
+        phone: str | None = None,
+    ) -> bool:
+        """
+        Update store information by chain_id and store code.
+        Returns True if the store was updated, False if not found.
+        """
+        async with self._get_conn() as conn:
+            result = await conn.execute(
+                """
+                UPDATE stores
+                SET
+                    address = COALESCE($3, stores.address),
+                    city = COALESCE($4, stores.city),
+                    zipcode = COALESCE($5, stores.zipcode),
+                    lat = COALESCE($6, stores.lat),
+                    lon = COALESCE($7, stores.lon),
+                    phone = COALESCE($8, stores.phone)
+                WHERE chain_id = $1 AND code = $2
+                """,
+                chain_id,
+                store_code,
+                address or None,
+                city or None,
+                zipcode or None,
+                lat or None,
+                lon or None,
+                phone or None,
+            )
+            _, rowcount = result.split(" ")
+            return int(rowcount) == 1
 
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
                 """
                 SELECT
-                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.latitude, s.longitude
+                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode,
+                    s.lat, s.lon, s.phone
                 FROM stores s
                 JOIN chains c ON s.chain_id = c.id
                 WHERE c.code = $1
@@ -174,19 +239,85 @@ class PostgresDatabase(Database):
 
             return [StoreWithId(**row) for row in rows]  # type: ignore
 
+    async def filter_stores(
+        self,
+        chain_codes: list[str] | None = None,
+        city: str | None = None,
+        address: str | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
+        d: float = 10.0,
+    ) -> list[StoreWithId]:
+        # Validate lat/lon parameters
+        if (lat is None) != (lon is None):
+            raise ValueError(
+                "Both lat and lon must be provided together, or both must be None"
+            )
+
+        async with self._get_conn() as conn:
+            # Build the query dynamically based on provided filters
+            where_conditions = []
+            params = []
+            param_counter = 1
+
+            # Chain codes filter
+            if chain_codes:
+                where_conditions.append(f"c.code = ANY(${param_counter})")
+                params.append(chain_codes)
+                param_counter += 1
+
+            # City filter (case-insensitive substring match)
+            if city:
+                where_conditions.append(f"s.city ILIKE ${param_counter}")
+                params.append(f"%{city}%")
+                param_counter += 1
+
+            # Address filter (case-insensitive substring match)
+            if address:
+                where_conditions.append(f"s.address ILIKE ${param_counter}")
+                params.append(f"%{address}%")
+                param_counter += 1
+
+            # Geolocation filter using computed earth_point column
+            if lat is not None and lon is not None:
+                where_conditions.append(
+                    f"s.earth_point IS NOT NULL AND "
+                    f"earth_distance(s.earth_point, ll_to_earth(${param_counter}, ${param_counter + 1})) <= ${param_counter + 2}"
+                )
+                params.extend([lat, lon, d * 1000])  # Convert km to meters
+                param_counter += 3
+
+            # Build the complete query
+            base_query = """
+                SELECT
+                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode,
+                    s.lat, s.lon, s.phone
+                FROM stores s
+                JOIN chains c ON s.chain_id = c.id
+            """
+
+            if where_conditions:
+                query = base_query + " WHERE " + " AND ".join(where_conditions)
+            else:
+                query = base_query
+
+            query += " ORDER BY c.code, s.code"
+            rows = await conn.fetch(query, *params)
+            return [StoreWithId(**row) for row in rows]  # type: ignore
+
     async def get_ungeocoded_stores(self) -> list[StoreWithId]:
         """
         Fetches stores that have address information but are missing
-        latitude or longitude.
+        lat or lon.
         """
         async with self._get_conn() as conn:
             rows = await conn.fetch(
                 """
                 SELECT
-                    id, chain_id, code, type, address, city, zipcode, latitude, longitude
+                    id, chain_id, code, type, address, city, zipcode, lat, lon
                 FROM stores
                 WHERE
-                    (latitude IS NULL OR longitude IS NULL) AND
+                    (lat IS NULL OR lon IS NULL) AND
                     (address IS NOT NULL OR city IS NOT NULL OR zipcode IS NOT NULL)
                 """
             )
@@ -194,22 +325,22 @@ class PostgresDatabase(Database):
 
     async def get_stores_within_radius(
         self,
-        latitude: Decimal,
-        longitude: Decimal,
+        lat: Decimal,
+        lon: Decimal,
         radius_meters: int,
         chain_code: str | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Finds and lists stores within a specified radius of a given latitude/longitude.
+        Finds and lists stores within a specified radius of a given lat/lon.
         Results include chain code and distance from the center point, ordered by distance.
         """
         async with self._get_conn() as conn:
             # Create a geography point for the center of the search
-            center_point = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geography"
+            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geography"
 
             query = f"""
                 SELECT
-                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.latitude, s.longitude,
+                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.lat, s.lon,
                     c.code AS chain_code,
                     ST_Distance(s.location, {center_point}) AS distance_meters
                 FROM stores s
@@ -252,6 +383,70 @@ class PostgresDatabase(Database):
                 ean,
             )
             return [ProductWithId(**row) for row in rows]  # type: ignore
+
+    async def get_product_store_prices(
+        self, product_id: int, chain_ids: list[int] | None
+    ) -> list[StorePrice]:
+        async with self._get_conn() as conn:
+            query = """
+                WITH chains_dates AS (
+                  -- Find the latest loaded data per chain
+                    SELECT DISTINCT ON (chain_id) chain_id, price_date AS last_price_date
+                    FROM chain_stats
+                    ORDER BY chain_id, price_date DESC
+                )
+                SELECT
+                    chains.id AS chain_id,
+                    chains.code AS chain_code,
+                    products.ean,
+                    prices.price_date,
+                    prices.regular_price,
+                    prices.special_price,
+                    prices.best_price_30,
+                    prices.unit_price,
+                    prices.anchor_price,
+                    stores.code AS store_code,
+                    stores.type,
+                    stores.address,
+                    stores.city,
+                    stores.zipcode
+                FROM chains_dates
+                JOIN chains ON chains.id = chains_dates.chain_id
+                JOIN chain_products ON chain_products.chain_id = chains.id
+                JOIN products ON products.id = chain_products.product_id
+                JOIN prices ON prices.chain_product_id = chain_products.id
+                           AND prices.price_date = chains_dates.last_price_date
+                JOIN stores ON stores.id = prices.store_id
+                WHERE products.id = $1
+            """
+
+            if chain_ids:
+                query += "AND chains.id = ANY($2)"
+                rows = await conn.fetch(query, product_id, chain_ids)
+            else:
+                rows = await conn.fetch(query, product_id)
+
+            return [
+                StorePrice(
+                    chain=row["chain_code"],
+                    ean=row["ean"],
+                    price_date=row["price_date"],
+                    regular_price=row["regular_price"],
+                    special_price=row["special_price"],
+                    unit_price=row["unit_price"],
+                    best_price_30=row["best_price_30"],
+                    anchor_price=row["anchor_price"],
+                    store=Store(
+                        chain_id=row["chain_id"],
+                        code=row["store_code"],
+                        type=row["type"],
+                        address=row["address"],
+                        city=row["city"],
+                        zipcode=row["zipcode"],
+                    ),
+                )
+                for row in rows
+            ]
 
     async def update_product(self, product: Product) -> bool:
         """
@@ -566,6 +761,40 @@ class PostgresDatabase(Database):
                 date,
             )
 
+    async def compute_chain_stats(self, date: date) -> None:
+        async with self._atomic() as conn:
+            # Not doing insert in the same query because that caused deadlocks
+            # for reasons which I don't understand.
+            stats = await conn.fetch(
+                """
+                SELECT
+                    cp.chain_id,
+                    COUNT(*) AS price_count,
+                    COUNT(DISTINCT p.store_id) AS store_count
+                FROM prices p
+                JOIN chain_products cp ON cp.id = p.chain_product_id
+                WHERE p.price_date = $1
+                GROUP BY cp.chain_id
+                """,
+                date,
+            )
+
+            for record in stats:
+                await conn.execute(
+                    """
+                    INSERT INTO chain_stats(chain_id, price_date, price_count, store_count)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (chain_id, price_date)
+                    DO UPDATE SET
+                        price_count = EXCLUDED.price_count,
+                        store_count = EXCLUDED.store_count;
+                    """,
+                    record["chain_id"],
+                    date,
+                    record["price_count"],
+                    record["store_count"],
+                )
+
     async def get_user_by_api_key(self, api_key: str) -> User | None:
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
@@ -624,11 +853,11 @@ class PostgresDatabase(Database):
         """
         Add a new location for a user.
         """
-        latitude = location_data.get("latitude")
-        longitude = location_data.get("longitude")
+        lat = location_data.get("lat")
+        lon = location_data.get("lon")
         location_geom = None
-        if latitude is not None and longitude is not None:
-            location_geom = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geometry"
+        if lat is not None and lon is not None:
+            location_geom = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
 
         async with self._atomic() as conn:
             # Fetch all fields including generated ones
@@ -636,10 +865,10 @@ class PostgresDatabase(Database):
                 f"""
                 INSERT INTO user_locations (
                     user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, location, created_at, updated_at
+                    lat, lon, location_name, location, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, {location_geom if location_geom else 'NULL'}, NOW(), NOW())
-                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
+                RETURNING id, user_id, address, city, state, zip_code, country, lat, lon, location_name, created_at, updated_at
                 """,
                 user_id,
                 location_data.get("address"),
@@ -647,8 +876,8 @@ class PostgresDatabase(Database):
                 location_data.get("state"),
                 location_data.get("zip_code"),
                 location_data.get("country"),
-                latitude,
-                longitude,
+                lat,
+                lon,
                 location_data.get("location_name"),
             )
             if row is None:
@@ -665,7 +894,7 @@ class PostgresDatabase(Database):
                 """
                 SELECT
                     id, user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, created_at, updated_at
+                    lat, lon, location_name, created_at, updated_at
                 FROM user_locations
                 WHERE user_id = $1
                 ORDER BY created_at
@@ -683,7 +912,7 @@ class PostgresDatabase(Database):
                 """
                 SELECT
                     id, user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, created_at, updated_at
+                    lat, lon, location_name, created_at, updated_at
                 FROM user_locations
                 WHERE id = $1 AND user_id = $2
                 """,
@@ -698,11 +927,11 @@ class PostgresDatabase(Database):
         """
         Update an existing user location.
         """
-        latitude = location_data.get("latitude")
-        longitude = location_data.get("longitude")
+        lat = location_data.get("lat")
+        lon = location_data.get("lon")
         location_geom = None
-        if latitude is not None and longitude is not None:
-            location_geom = f"ST_SetSRID(ST_Point({longitude}, {latitude}), 4326)::geometry"
+        if lat is not None and lon is not None:
+            location_geom = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
 
         async with self._atomic() as conn:
             row = await conn.fetchrow(
@@ -714,13 +943,13 @@ class PostgresDatabase(Database):
                     state = COALESCE($5, state),
                     zip_code = COALESCE($6, zip_code),
                     country = COALESCE($7, country),
-                    latitude = COALESCE($8, latitude),
-                    longitude = COALESCE($9, longitude),
+                    lat = COALESCE($8, lat),
+                    lon = COALESCE($9, lon),
                     location_name = COALESCE($10, location_name),
                     location = COALESCE({location_geom if location_geom else 'NULL'}, location),
                     updated_at = NOW()
                 WHERE id = $1 AND user_id = $2
-                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
+                RETURNING id, user_id, address, city, state, zip_code, country, lat, lon, location_name, created_at, updated_at
                 """,
                 location_id,
                 user_id,
@@ -729,8 +958,8 @@ class PostgresDatabase(Database):
                 location_data.get("state"),
                 location_data.get("zip_code"),
                 location_data.get("country"),
-                latitude,
-                longitude,
+                lat,
+                lon,
                 location_data.get("location_name"),
             )
             if row:

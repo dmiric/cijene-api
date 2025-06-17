@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-from decimal import Decimal
-import logging
-import asyncio
 import argparse
-from datetime import datetime, date
-from pathlib import Path
-from typing import Any, List, Dict
+import asyncio
+import logging
+import zipfile
 from csv import DictReader
+from datetime import date, datetime
+from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import time
+from typing import Any, Dict, List
 
 from service.config import settings
-from service.db.models import Chain, Store, ChainProduct, Price
+from service.db.models import Chain, ChainProduct, Price, Store
 
 logger = logging.getLogger("importer")
 
@@ -296,6 +298,21 @@ async def process_chain(
     logger.info(f"Imported {n_new_prices} new prices for {code}")
 
 
+async def import_archive(path: Path):
+    """Import data from all chain directories in the given zip archive."""
+    try:
+        price_date = datetime.strptime(path.stem, "%Y-%m-%d")
+    except ValueError:
+        logger.error(f"`{path.stem}` is not a valid date in YYYY-MM-DD format")
+        return
+
+    with TemporaryDirectory() as temp_dir:  # type: ignore
+        logger.debug(f"Extracting archive {path} to {temp_dir}")
+        with zipfile.ZipFile(path, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+        await _import(Path(temp_dir), price_date)
+
+
 async def import_directory(path: Path) -> None:
     """Import data from all chain directories in the given directory."""
     if not path.is_dir():
@@ -310,6 +327,10 @@ async def import_directory(path: Path) -> None:
         )
         return
 
+    await _import(path, price_date)
+
+
+async def _import(path: Path, price_date: datetime) -> None:
     chain_dirs = [d.resolve() for d in path.iterdir() if d.is_dir()]
     if not chain_dirs:
         logger.warning(f"No chain directories found in {path}")
@@ -319,19 +340,15 @@ async def import_directory(path: Path) -> None:
 
     t0 = time()
 
-    await db.connect()
+    barcodes = await db.get_product_barcodes()
+    for chain_dir in chain_dirs:
+        await process_chain(price_date, chain_dir, barcodes)
 
-    try:
-        await db.create_tables()
+    logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
+    await db.compute_chain_prices(price_date)
 
-        barcodes = await db.get_product_barcodes()
-        for chain_dir in chain_dirs:
-            await process_chain(price_date, chain_dir, barcodes)
-
-        logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
-        await db.compute_chain_prices(price_date)
-    finally:
-        await db.close()
+    logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
+    await db.compute_chain_stats(price_date)
 
     t1 = time()
     dt = int(t1 - t0)
@@ -340,19 +357,30 @@ async def import_directory(path: Path) -> None:
 
 async def main():
     """
-    Import price data from a directory.
+    Import price data from directories or zip archives.
 
-    This script expects the directory to be named in the format YYYY-MM-DD,
+    This script expects the directories to be named in the format YYYY-MM-DD,
     containing subdirectories for each retail chain. Each chain directory
     should contain CSV files named `stores.csv`, `products.csv`, and `prices.csv`.
     The CSV files should follow the structure documented in
     `crawler/store/archive_info.txt`.
 
+    Zip archives should be named YYYY-MM-DD.zip and contain the same resources
+    as directories described above.
+
     Database connection settings are loaded from the service configuration, see
     `service/config.py` for details.
     """
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("dir", type=Path, help="Directory containing price data")
+    parser = argparse.ArgumentParser(
+        description=main.__doc__,
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "paths",
+        type=Path,
+        help="One or more directories or zip archives containing price data",
+        nargs="+",
+    )
     parser.add_argument(
         "-d",
         "--debug",
@@ -366,7 +394,20 @@ async def main():
         format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
     )
 
-    await import_directory(args.dir)
+    await db.connect()
+
+    try:
+        await db.create_tables()
+
+        for path in args.paths:
+            if path.is_dir():
+                await import_directory(path)
+            elif path.suffix.lower() == ".zip":
+                await import_archive(path)
+            else:
+                logger.error(f"Path `{path}` is neither a directory nor a zip archive.")
+    finally:
+        await db.close()
 
 
 if __name__ == "__main__":

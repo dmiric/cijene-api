@@ -4,12 +4,14 @@ from typing import Any
 
 from .models import (
     Chain,
+    ChainStats,
     ChainWithId,
     Product,
     ProductWithId,
     Store,
     ChainProduct,
     Price,
+    StorePrice,
     StoreWithId,
     ChainProductWithId,
     User,
@@ -58,6 +60,16 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    async def list_latest_chain_stats(self) -> list[ChainStats]:
+        """
+        Returns the latest available chain stats for each chain.
+
+        Returns:
+            A list of ChainStats objects.
+        """
+        pass
+
+    @abstractmethod
     async def add_store(self, store: Store) -> int:
         """
         Add a new store or update existing one and return its ID.
@@ -72,6 +84,37 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    async def update_store(
+        self,
+        chain_id: int,
+        store_code: str,
+        *,
+        address: str | None = None,
+        city: str | None = None,
+        zipcode: str | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
+        phone: str | None = None,
+    ) -> bool:
+        """
+        Update store information by chain_id and store code.
+
+        Args:
+            chain_id: The ID of the chain.
+            store_code: The code of the store.
+            address: New address (optional).
+            city: New city (optional).
+            zipcode: New zipcode (optional).
+            lat: New latitude (optional).
+            lon: New longitude (optional).
+            phone: New phone (optional).
+
+        Returns:
+            True if the store was updated, False if not found.
+        """
+        pass
+
+    @abstractmethod
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
         """
         List all stores for a particular chain.
@@ -81,6 +124,35 @@ class Database(ABC):
 
         Returns:
             A list of Store objects representing chain stores.
+        """
+        pass
+
+    @abstractmethod
+    async def filter_stores(
+        self,
+        chain_codes: list[str] | None = None,
+        city: str | None = None,
+        address: str | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
+        d: float = 10.0,
+    ) -> list[StoreWithId]:
+        """
+        Filter stores by chain codes, city, address, and/or geolocation.
+
+        Args:
+            chain_codes: List of chain codes to filter by (optional).
+            city: City name for case-insensitive substring match (optional).
+            address: Address for case-insensitive substring match (optional).
+            lat: Latitude coordinate for geolocation search (optional).
+            lon: Longitude coordinate for geolocation search (optional).
+            d: Distance in kilometers for geolocation search (default: 10.0).
+
+        Returns:
+            A list of StoreWithId objects matching the filters.
+
+        Raises:
+            ValueError: If only one of lat/lon is provided.
         """
         pass
 
@@ -226,6 +298,16 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    async def compute_chain_stats(self, date: date) -> None:
+        """
+        Compute chain statistics and populate chain_stats for a given date.
+
+        Args:
+            date: The date for which to compute stats.
+        """
+        pass
+
+    @abstractmethod
     async def get_product_prices(
         self,
         product_ids: list[int],
@@ -251,6 +333,24 @@ class Database(ABC):
 
         Returns:
             Information for the specified products and date.
+        """
+        pass
+
+    @abstractmethod
+    async def get_product_store_prices(
+        self,
+        product_id: int,
+        chain_ids: list[int] | None,
+    ) -> list[StorePrice]:
+        """
+        For a given product return latest available prices per store.
+
+        Args:
+            product_id: The ID of the product to fetch
+            chain_ids: Optional list of chain IDs to filter by.
+
+        Returns:
+            A list of StorePrice objects
         """
         pass
 

@@ -115,10 +115,19 @@ class DmCrawler(BaseCrawler):
         Returns:
             List of column headers
         """
+
+        def fix_col_name(name: str | None) -> str:
+            """
+            Normalize column names.
+            """
+            name = str(name or "")
+            name = self.strip_diacritics(name.lower())
+            words = name.split()
+            return " ".join(w for w in words if w)
+            return self.strip_diacritics(name.lower().replace("\t", " "))
+
         for row in worksheet.iter_rows():
-            row_str = [
-                self.strip_diacritics(str(cell.value or "").lower()) for cell in row
-            ]
+            row_str = [fix_col_name(cell.value) for cell in row]
             if "naziv + sifra" in row_str:
                 idx = row_str.index("naziv + sifra")
                 if row_str[idx + 1] != "":
@@ -194,7 +203,7 @@ class DmCrawler(BaseCrawler):
                         "price": self.parse_price(row_map["mpc"], False),
                         "special_price": self.parse_price(
                             row_map[
-                                "mpc za vrijeme posebnog oblika prodaje (rasprodaja proizvoda koji izlaze iz asortimana)"
+                                "mpc za\nvrijeme\nposebnog \noblika\nprodaje (rasprodaja proizvoda koji izlaze iz asortimana)"
                             ],
                             False,
                         ),

@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS chains (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Chain stats table to store statistics of loaded data per chain
+CREATE TABLE IF NOT EXISTS chain_stats (
+    id SERIAL PRIMARY KEY,
+    chain_id INTEGER NOT NULL REFERENCES chains (id),
+    price_date DATE NOT NULL,
+    price_count INTEGER NOT NULL,
+    store_count INTEGER NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (chain_id, price_date)
+);
+
 -- Stores table to store retailer locations
 CREATE TABLE IF NOT EXISTS stores (
     id SERIAL PRIMARY KEY,
@@ -37,9 +48,24 @@ CREATE TABLE IF NOT EXISTS stores (
     address VARCHAR(255),
     city VARCHAR(100),
     zipcode VARCHAR(20),
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    phone VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (chain_id, code)
 );
+
+-- Add new columns to existing stores table if they don't exist
+ALTER TABLE stores
+ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+
+-- Requires "cube" and "earthdistance" extensions for geospatial queries
+ALTER TABLE stores
+ADD COLUMN IF NOT EXISTS earth_point earth GENERATED ALWAYS AS (ll_to_earth (lat, lon)) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_stores_earth_point ON stores USING GIST (earth_point);
 
 -- Products table to store global product information
 CREATE TABLE IF NOT EXISTS products (

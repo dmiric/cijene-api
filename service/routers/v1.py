@@ -6,7 +6,7 @@ import sys # Import sys for direct print to stderr
 from dataclasses import asdict # Import asdict
 
 from service.config import settings
-from service.db.models import ProductWithId, User, UserLocation # noqa: F401 # Import User and UserLocation
+from service.db.models import ChainStats, ProductWithId, StorePrice, User, UserLocation # noqa: F401 # Import User and UserLocation
 from service.routers.auth import RequireAuth
 from fastapi import Depends # noqa: F401 # Import Depends for user injection
 
@@ -43,6 +43,9 @@ class StoreResponse(BaseModel):
     address: str | None = Field(..., description="Physical address of the store.")
     city: str | None = Field(..., description="City where the store is located.")
     zipcode: str | None = Field(..., description="Postal code of the store location.")
+    lat: float | None = Field(..., description="Latitude coordinate of the store.")
+    lon: float | None = Field(..., description="Longitude coordinate of the store.")
+    phone: str | None = Field(..., description="Phone number of the store.")
 
 
 class UserLocationCreate(BaseModel):
@@ -110,6 +113,91 @@ async def list_stores(chain_code: str) -> ListStoresResponse:
                 address=store.address,
                 city=store.city,
                 zipcode=store.zipcode,
+                lat=store.lat,
+                lon=store.lon,
+                phone=store.phone,
+            )
+            for store in stores
+        ]
+    )
+
+
+@router.get("/stores/", summary="Search stores")
+async def search_stores(
+    chains: str = Query(
+        None,
+        description="Comma-separated list of chain codes to include, or all",
+    ),
+    city: str = Query(
+        None,
+        description="City name for case-insensitive substring match",
+    ),
+    address: str = Query(
+        None,
+        description="Address for case-insensitive substring match",
+    ),
+    lat: float = Query(
+        None,
+        description="Latitude coordinate for geolocation search",
+    ),
+    lon: float = Query(
+        None,
+        description="Longitude coordinate for geolocation search",
+    ),
+    d: float = Query(
+        10.0,
+        description="Distance in kilometers for geolocation search (default: 10.0)",
+    ),
+) -> ListStoresResponse:
+    """
+    Search for stores by chain codes, city, address, and/or geolocation.
+
+    For geolocation search, both lat and lon must be provided together.
+    Note that the geolocation search will only return stores that have
+    the geo information available in the database.
+    """
+    # Validate lat/lon parameters
+    if (lat is None) != (lon is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Both latitude and longitude must be provided for geolocation search",
+        )
+
+    # Parse chain codes
+    chain_codes = None
+    if chains:
+        chain_codes = [c.strip().lower() for c in chains.split(",") if c.strip()]
+
+    try:
+        stores = await db.filter_stores(
+            chain_codes=chain_codes,
+            city=city,
+            address=address,
+            lat=lat,
+            lon=lon,
+            d=d,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Get chain code mapping for response
+    chains_map = {}
+    if stores:
+        all_chains = await db.list_chains()
+        chains_map = {chain.id: chain.code for chain in all_chains}
+
+    return ListStoresResponse(
+        stores=[
+            StoreResponse(
+                chain_code=chains_map.get(store.chain_id, "unknown"),
+                code=store.code,
+                type=store.type,
+                address=store.address,
+                city=store.city,
+                zipcode=store.zipcode,
+                lat=store.lat,
+                lon=store.lon,
+                phone=store.phone,
             )
             for store in stores
         ]
@@ -495,6 +583,47 @@ async def get_product(
     return product_responses[0]
 
 
+class StorePricesResponse(BaseModel):
+    store_prices: list[StorePrice] = Field(
+        ..., description="For a given product return latest price data per store."
+    )
+
+
+@router.get("/products/{ean}/store-prices/", summary="Get product prices by store")
+async def get_store_prices(
+    ean: str,
+    chains: str = Query(
+        None,
+        description="Comma-separated list of chain codes to include",
+    ),
+) -> StorePricesResponse:
+    """
+    For a single store return prices for each store where the product is
+    available. Returns prices for the last available date. Optionally filtered
+    by chain.
+    """
+    products = await db.get_products_by_ean([ean])
+    if not products:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Product with EAN {ean} not found",
+        )
+
+    [product] = products
+    chain_ids = await _get_chain_ids(chains)
+    store_prices = await db.get_product_store_prices(product.id, chain_ids)
+    return StorePricesResponse(store_prices=store_prices)
+
+
+async def _get_chain_ids(chains_query: str):
+    if not chains_query:
+        return None
+
+    chains = await db.list_chains()
+    chain_codes = [code.lower().strip() for code in chains_query.split(",")]
+    return [c.id for c in chains if c.code in chain_codes]
+
+
 @router.get("/products/", summary="Search for products by name")
 async def search_products(
     q: str = Query(..., description="Search query for product names"),
@@ -549,3 +678,15 @@ async def search_products(
     debug_print(f"search_products: Prepared {len(product_responses)} product responses.")
 
     return ProductSearchResponse(products=product_responses)
+
+
+class ChainStatsResponse(BaseModel):
+    chain_stats: list[ChainStats] = Field(..., description="List chain stats.")
+
+
+@router.get("/chain-stats/", summary="Return stats of currently loaded data per chain.")
+async def chain_stats() -> ChainStatsResponse:
+    """Return stats of currently loaded data per chain."""
+
+    chain_stats = await db.list_latest_chain_stats()
+    return ChainStatsResponse(chain_stats=chain_stats)
