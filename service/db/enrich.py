@@ -200,14 +200,14 @@ async def enrich_stores(csv_path: Path) -> None:
         lon = None
         if row["lat"].strip():
             try:
-                lat = float(row["lat"])
+                lat = Decimal(row["lat"])
             except Exception:
                 logger.warning(
                     f"Invalid lat value for store {store_code} in chain {chain_code}: {row['lat']}"
                 )
         if row["lon"].strip():
             try:
-                lon = float(row["lon"])
+                lon = Decimal(row["lon"])
             except Exception:
                 logger.warning(
                     f"Invalid lon value for store {store_code} in chain {chain_code}: {row['lon']}"

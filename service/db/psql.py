@@ -58,7 +58,7 @@ class PostgresDatabase(Database):
         )
 
     @asynccontextmanager
-    async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection]:
+    async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         """Context manager to acquire a connection from the pool."""
         if not self.pool:
             raise RuntimeError("Database pool is not initialized")
@@ -159,8 +159,8 @@ class PostgresDatabase(Database):
 
         return await self._fetchval(
             f"""
-            INSERT INTO stores (chain_id, code, type, address, city, zipcode, lat, lon, location)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, {location_geom if location_geom else 'NULL'})
+            INSERT INTO stores (chain_id, code, type, address, city, zipcode, lat, lon, phone)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (chain_id, code) DO UPDATE SET
                 type = COALESCE($3, stores.type),
                 address = COALESCE($4, stores.address),
@@ -168,7 +168,7 @@ class PostgresDatabase(Database):
                 zipcode = COALESCE($6, stores.zipcode),
                 lat = COALESCE($7, stores.lat),
                 lon = COALESCE($8, stores.lon),
-                location = COALESCE(EXCLUDED.location, stores.location)
+                phone = COALESCE($9, stores.phone)
             RETURNING id
             """,
             store.chain_id,
@@ -179,7 +179,7 @@ class PostgresDatabase(Database):
             store.zipcode or None,
             store.lat,
             store.lon,
-            # Removed store.location as it's not a direct column
+            store.phone or None,
         )
 
     async def update_store(

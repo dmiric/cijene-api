@@ -7,7 +7,8 @@ from time import time
 from zipfile import ZipFile
 import datetime
 from bs4 import BeautifulSoup
-from re import Pattern
+import re
+from re import Pattern # Keep Pattern if it's used elsewhere, otherwise remove
 import unicodedata
 
 import httpx
@@ -168,7 +169,12 @@ class BaseCrawler:
         if price_str is None:
             price_str = ""
 
-        if price_str and not any(c.isdigit() for c in price_str):
+        # Remove all characters that are not digits, commas, or periods
+        # This handles newlines and other non-numeric text
+        price_str = re.sub(r'[^\d,.]', '', price_str)
+
+        # If after cleaning, there are no digits, treat as empty
+        if not any(c.isdigit() for c in price_str):
             price_str = ""
 
         # If price contains both "," and ".", assume what occurs first is the 1000s
@@ -179,6 +185,7 @@ class BaseCrawler:
             else:
                 price_str = price_str.replace(".", "")
 
+        # Replace currency symbols and convert comma to dot for decimal
         price_str = (
             price_str.replace("€", "").replace("EUR", "").replace(",", ".").strip()
         )

@@ -51,13 +51,6 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "output_path",
-        nargs="?",
-        type=Path,
-        default=None,
-        help="Output directory path where data will be stored.\n(Required unless -l/--list is used)",
-    )
-    parser.add_argument(
         "-d",
         "--date",
         type=parse_date,
@@ -93,15 +86,8 @@ def main():
             print(f"  - {chain_name}")
         return 0
 
-    if args.output_path is None:
-        parser.error("output_path is required; use -h/--help for more info")
-
-    if args.output_path.is_file():
-        parser.error(f"Output path '{args.output_path}' is a file.")
-
-    if not args.output_path.exists():
-        args.output_path.mkdir(parents=True, exist_ok=True)
-        print(f"Created directory: {args.output_path}")
+    # Hardcode the output path
+    output_root_path = Path("/app/output")
 
     chains_to_crawl = None
     if args.chain:
@@ -124,11 +110,12 @@ def main():
         date_txt = args.date.strftime("%Y-%m-%d") if args.date else "today"
         print(f"Fetching price data from {chains_txt} for {date_txt} ...", flush=True)
 
-        zip_path = crawl(args.output_path, crawl_date, chains_to_crawl)
-        print(f"Archive created: {zip_path}")
+        # Call crawl with the hardcoded root path
+        zip_path = crawl(output_root_path, crawl_date, chains_to_crawl)
+        print(f"{zip_path}") # Print only the path to stdout for make to capture
         return 0
     except Exception as e:
-        print(f"Error during crawling: {e}")
+        print(f"Error during crawling: {e}", file=sys.stderr) # Print errors to stderr
         return 1
 
 

@@ -1,9 +1,4 @@
--- Create a spatial index on the location column for performance
-CREATE INDEX idx_stores_location ON stores USING GIST (location);
+ALTER TABLE stores
+ADD COLUMN IF NOT EXISTS earth_point earth GENERATED ALWAYS AS (ll_to_earth (lat, lon)) STORED;
 
--- Update existing rows to populate the new location column (if lat/lon exist)
--- This assumes you might have lat/lon data in other columns or will import it.
--- If not, this can be skipped or modified.
-UPDATE stores
-SET location = ST_SetSRID(ST_Point(lon, lat), 4326)::geography
-WHERE lat IS NOT NULL AND lon IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stores_earth_point ON stores USING GIST (earth_point);

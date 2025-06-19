@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS cube;
+CREATE EXTENSION IF NOT EXISTS earthdistance;
 
 -- Create an immutable unaccent function for use in indexes
 CREATE OR REPLACE FUNCTION f_unaccent(text)
