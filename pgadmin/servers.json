@@ -4,10 +4,10 @@
             "Name": "Cijene DB",
             "Group": "Docker",
             "Port": 5432,
-            "Username": "user",
+            "Username": "dmiric",
             "Host": "db",
             "SSLMode": "prefer",
-            "MaintenanceDB": "cijene_db"
+            "MaintenanceDB": "pricemice"
         }
     }
 }
