@@ -1,13 +1,10 @@
 include .env
-# Load and export environment variables from .env file
-# This ensures they are available to sub-shells and Docker commands
-ifeq (,$(shell which sed))
-    $(error "sed is not installed. Please install sed to use this Makefile.")
-endif
-ifeq (,$(shell which grep))
-    $(error "grep is not installed. Please install grep to use this Makefile.")
-endif
-$(eval $(shell grep -v '^#' .env | sed 's/^/export /'))
+export ENVIRONMENT
+export POSTGRES_USER
+export POSTGRES_PASSWORD
+export POSTGRES_DB
+export SSH_USER
+export SSH_IP
 
 DATE ?= $(shell date +%Y-%m-%d)
 #Near by
