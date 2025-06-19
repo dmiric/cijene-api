@@ -81,24 +81,20 @@ restore-tables: ## Restore specified database tables from the db_backups volume.
 	docker compose exec backup /scripts/restore_tables.sh $(TIMESTAMP)
 
 restore-database: ## Restore the entire database from a gzipped backup file. Usage: make restore-database [TIMESTAMP=YYYYMMDD_HHMMSS]
-	@echo "Copying backup files to container's /backups/..."
-	@if [ "$(ENVIRONMENT)" = "production" ]; then \
-		# On server, copy from server's local path to container
-		LATEST_DUMP_FILE=$$(ls -t /home/$(SSH_USER)/pricemice/backups/full_db_$(TIMESTAMP)*.sql.gz 2>/dev/null | head -n 1); \
-		if [ -z "$$LATEST_DUMP_FILE" ]; then \
-			echo "Error: No full database dump found on server host in /home/$(SSH_USER)/pricemice/backups/. Please ensure the file is there."; \
-			exit 1; \
-		fi; \
-		docker cp "$$LATEST_DUMP_FILE" pricemice-backup-1:/backups/; \
+	@if [ "$(ENVIRONMENT)" != "production" ]; then \
+		# On local dev (Windows), use PowerShell script for copying
+		pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)"; \
 	else \
-		# On local dev, copy from local host to container
-		docker cp ./backups/. cijene-api-clone-backup-1:/backups/; \
+		# On Linux (local or production server), use Bash script for copying
+		bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)"; \
 	fi; \
 	@echo "Starting full database restore..."
-	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
-		docker compose exec backup /scripts/restore_database.sh $(TIMESTAMP); \
+	@if [ "$(ENVIRONMENT)" != "production" ]; then \
+		# On local dev (Windows), use PowerShell script for restoring
+		pwsh -File ./scripts/restore_database.ps1 $$(TIMESTAMP); \
 	else \
-		pwsh -File ./scripts/restore_database.ps1 $(TIMESTAMP); \
+		# On Linux (local or production server), use Bash script for restoring
+		docker compose exec backup /scripts/restore_database.sh $$(TIMESTAMP); \
 	fi
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
