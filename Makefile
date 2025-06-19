@@ -15,7 +15,7 @@ SEARCH_DATE ?= 2025-06-08
 LIMIT ?= 100
 PRODUCT_NAME_FILTER ?= kokos
 
-.PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables
+.PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
 
 ## General Commands
 help: ## Display this help message
@@ -69,14 +69,29 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 	mkdir -p backups
 	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
 
+dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
+	docker compose exec backup /scripts/dump_database.sh
+	mkdir -p backups
+	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
+
 restore-tables: ## Restore specified database tables from the db_backups volume. Usage: make restore-tables [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@echo "Copying backup files from host's ./backups/ to container's /backups/..."
 	docker cp ./backups/. cijene-api-clone-backup-1:/backups/
 	@echo "Starting database restore..."
 	docker compose exec backup /scripts/restore_tables.sh $(TIMESTAMP)
 
+restore-database: ## Restore the entire database from a gzipped backup file. Usage: make restore-database [TIMESTAMP=YYYYMMDD_HHMMSS]
+	@echo "Copying backup files from host's ./backups/ to container's /backups/..."
+	docker cp ./backups/. cijene-api-clone-backup-1:/backups/
+	@echo "Starting full database restore..."
+	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
+		docker compose exec backup /scripts/restore_database.sh $(TIMESTAMP); \
+	else \
+		pwsh -File ./scripts/restore_database.ps1 $(TIMESTAMP); \
+	fi
+
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 5060:localhost:80 "$(SSH_USER)"@"$(SSH_IP)"
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 5060:localhost:80 $(SSH_USER)@$(SSH_IP)
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
@@ -138,4 +153,15 @@ logs-crawler-console: ## Continuously display console output from logs/crawler_c
 
 ## SSH Commands
 ssh-server: ## SSH into the VPS server
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh "$(SSH_USER)"@"$(SSH_IP)"
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh $(SSH_USER)@$(SSH_IP)
+
+upload-database-dump: ## Upload the latest full database dump to the remote server. Usage: make upload-database-dump [TIMESTAMP=YYYYMMDD_HHMMSS]
+	@echo "Finding latest database dump..."
+	$(eval LATEST_DUMP_FILE := $(shell ls -t backups/full_db_$(TIMESTAMP)*.sql.gz 2>/dev/null | head -n 1))
+	@if [ -z "$(LATEST_DUMP_FILE)" ]; then \
+		echo "Error: No full database dump found in backups/. Please run 'make dump-database' first or provide a TIMESTAMP."; \
+		exit 1; \
+	fi
+	@echo "Uploading $(LATEST_DUMP_FILE) to $(SSH_USER)@$(SSH_IP):/home/$(SSH_USER)/pricemice/backups/"
+	ssh-add ~/.ssh/github_actions_deploy_key; scp "$(LATEST_DUMP_FILE)" "$(SSH_USER)"@"$(SSH_IP)":/home/"$(SSH_USER)"/pricemice/backups/
+	@echo "Database dump uploaded successfully."
