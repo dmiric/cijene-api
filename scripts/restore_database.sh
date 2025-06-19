@@ -4,11 +4,12 @@
 set -e
 
 # Database connection details from environment variables
-DB_USER="${4}"
-DB_PASSWORD="${5}"
-DB_NAME="${6}"
-DB_HOST="${7}"
-DB_PORT="${8}"
+# Database connection details from environment variables
+DB_USER="${POSTGRES_USER}"
+DB_PASSWORD="${POSTGRES_PASSWORD}"
+DB_NAME="${POSTGRES_DB}"
+DB_HOST="db" # Service name in docker-compose
+DB_PORT="5432"
 
 # Export PGPASSWORD for pg_restore
 export PGPASSWORD="${DB_PASSWORD}"

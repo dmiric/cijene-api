@@ -3,14 +3,16 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-ENVIRONMENT="${1}"
-SSH_USER="${2}"
-TIMESTAMP="${3}"
-DB_USER="${4}"
-DB_PASSWORD="${5}"
-DB_NAME="${6}"
-DB_HOST="${7}"
-DB_PORT="${8}"
+TIMESTAMP="${1}"
+
+# Get variables from environment
+ENVIRONMENT="${ENVIRONMENT}"
+SSH_USER="${SSH_USER}"
+DB_USER="${POSTGRES_USER}"
+DB_PASSWORD="${POSTGRES_PASSWORD}"
+DB_NAME="${POSTGRES_DB}"
+DB_HOST="db" # Service name in docker-compose
+DB_PORT="5432"
 
 BACKUP_DIR_IN_CONTAINER="/backups"
 

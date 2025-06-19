@@ -102,9 +102,9 @@ ifeq ($(IS_WINDOWS), true)
 	pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
 else
 	# Linux/macOS commands
-	bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
+	bash ./scripts/copy_dump_to_container.sh "$(TIMESTAMP)"
 	@echo "Starting database restore..."
-	bash ./scripts/restore_database.sh "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
+	bash ./scripts/restore_database.sh "$(TIMESTAMP)"
 endif
 	@echo "Database restore process completed successfully."
 
