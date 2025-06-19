@@ -89,7 +89,7 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	@if [ "$(ENVIRONMENT)" != "production" ]; then \
 		pwsh -File ./scripts/universal_restore_database.ps1 "$(TIMESTAMP)"; \
 	else \
-		bash ./scripts/universal_restore_database.sh "$(TIMESTAMP)"; \
+		POSTGRES_USER="$(POSTGRES_USER)" POSTGRES_PASSWORD="$(POSTGRES_PASSWORD)" POSTGRES_DB="$(POSTGRES_DB)" bash ./scripts/universal_restore_database.sh "$(TIMESTAMP)"; \
 	fi
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060

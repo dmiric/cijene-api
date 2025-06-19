@@ -8,6 +8,11 @@ ENVIRONMENT="${ENVIRONMENT}"
 SSH_USER="${SSH_USER}"
 TIMESTAMP="${1}" # Passed as argument from Makefile
 
+# Export PostgreSQL credentials for sub-scripts
+export POSTGRES_USER="${POSTGRES_USER}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
+export POSTGRES_DB="${POSTGRES_DB}"
+
 # Determine OS for dispatching to PowerShell or Bash scripts
 # Check if pwsh is available (indicates Windows/PowerShell environment)
 if command -v pwsh &> /dev/null; then
