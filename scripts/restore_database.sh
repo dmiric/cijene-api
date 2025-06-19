@@ -41,9 +41,16 @@ echo "Starting full database restore from ${BACKUP_FILE_IN_CONTAINER}..."
 
 # Decompress and restore the database using a cleaner, more robust command.
 # We use `docker compose exec --env` to pass the password securely without quoting issues.
+# First, explicitly drop and recreate the database to ensure a clean slate
+echo "Dropping and recreating database '${DB_NAME}'..."
+docker compose exec -T --env "PGPASSWORD=${DB_PASSWORD}" db psql -U "${DB_USER}" -h "${DB_HOST}" -p "${DB_PORT}" -c "DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE);"
+docker compose exec -T --env "PGPASSWORD=${DB_PASSWORD}" db psql -U "${DB_USER}" -h "${DB_HOST}" -p "${DB_PORT}" -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+echo "Database '${DB_NAME}' recreated successfully."
+
+# Now, proceed with pg_restore
 docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | \
 docker compose exec -T --env "PGPASSWORD=${DB_PASSWORD}" db \
-  pg_restore --clean \
+  pg_restore --clean --no-owner --no-privileges \
              --username "${DB_USER}" \
              --dbname "${DB_NAME}" \
              --host "${DB_HOST}" \
