@@ -100,14 +100,14 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	@echo "Copying backup files to container..."
 ifeq ($(IS_WINDOWS), true)
 	# Windows commands
-	pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)"
+	pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
 	@echo "Starting database restore..."
-	pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)"
+	pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
 else
 	# Linux/macOS commands
-	bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)"
+	bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
 	@echo "Starting database restore..."
-	bash ./scripts/restore_database.sh "$(TIMESTAMP)"
+	bash ./scripts/restore_database.sh "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
 endif
 	@echo "Database restore process completed successfully."
 

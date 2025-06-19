@@ -6,6 +6,11 @@ set -e
 ENVIRONMENT="${1}"
 SSH_USER="${2}"
 TIMESTAMP="${3}"
+DB_USER="${4}"
+DB_PASSWORD="${5}"
+DB_NAME="${6}"
+DB_HOST="${7}"
+DB_PORT="${8}"
 
 BACKUP_DIR_IN_CONTAINER="/backups"
 

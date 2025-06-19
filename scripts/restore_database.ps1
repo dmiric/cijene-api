@@ -5,16 +5,17 @@ $ErrorActionPreference = "Stop"
 Write-Host "Running universal restore script. Environment: development"
 Write-Host "Executing local restore on development machine..."
 
-# Database connection details from environment variables
-$DB_USER = $env:POSTGRES_USER
-$DB_NAME = $env:POSTGRES_DB
-$DB_HOST = "db" # Service name in docker-compose
-$DB_PORT = "5432"
+# Database connection details from arguments
+$DB_USER = $args[1]
+$DB_PASSWORD = $args[2]
+$DB_NAME = $args[3]
+$DB_HOST = $args[4]
+$DB_PORT = $args[5]
 
 # Ensure the password environment variable is available for the script
-$PGPassword = $env:POSTGRES_PASSWORD
+$PGPassword = $DB_PASSWORD
 if ([string]::IsNullOrEmpty($PGPassword)) {
-    Write-Error "POSTGRES_PASSWORD environment variable is not set."
+    Write-Error "POSTGRES_PASSWORD argument is not set."
     exit 1
 }
 

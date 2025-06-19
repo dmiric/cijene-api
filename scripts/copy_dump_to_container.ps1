@@ -2,6 +2,11 @@
 $ErrorActionPreference = "Stop"
 
 $TIMESTAMP = $args[0]
+$DB_USER = $args[1]
+$DB_PASSWORD = $args[2]
+$DB_NAME = $args[3]
+$DB_HOST = $args[4]
+$DB_PORT = $args[5]
 
 $BACKUP_DIR_IN_CONTAINER = "/backups"
 
