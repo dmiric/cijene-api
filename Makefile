@@ -1,5 +1,10 @@
 include .env
 export ENVIRONMENT
+export POSTGRES_USER
+export POSTGRES_PASSWORD
+export POSTGRES_DB
+export SSH_USER
+export SSH_IP
 
 DATE ?= $(shell date +%Y-%m-%d)
 #Near by
@@ -82,19 +87,9 @@ restore-tables: ## Restore specified database tables from the db_backups volume.
 
 restore-database: ## Restore the entire database from a gzipped backup file. Usage: make restore-database [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@if [ "$(ENVIRONMENT)" != "production" ]; then \
-		# On local dev (Windows), use PowerShell script for copying
-		pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)"; \
+		pwsh -File ./scripts/universal_restore_database.ps1 "$(TIMESTAMP)"; \
 	else \
-		# On Linux (local or production server), use Bash script for copying
-		bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)"; \
-	fi; \
-	@echo "Starting full database restore..."
-	@if [ "$(ENVIRONMENT)" != "production" ]; then \
-		# On local dev (Windows), use PowerShell script for restoring
-		pwsh -File ./scripts/restore_database.ps1 $$(TIMESTAMP); \
-	else \
-		# On Linux (local or production server), use Bash script for restoring
-		docker compose exec backup /scripts/restore_database.sh $$(TIMESTAMP); \
+		ssh-add ~/.ssh/github_actions_deploy_key; ssh $(SSH_USER)@$(SSH_IP) "cd /home/$(SSH_USER)/pricemice && bash ./scripts/universal_restore_database.sh \"$(TIMESTAMP)\""; \
 	fi
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
@@ -125,7 +120,7 @@ migrate-db: ## Apply database migrations
 search-products: ## Search for products by name. Usage: make search-products QUERY="your query" API_KEY=your_api_key [STORE_IDS=val] [SEARCH_DATE=val]
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-products API_KEY=your_api_key [QUERY=your_query]"; exit 1; fi
 	$(eval ENCODED_QUERY=$(shell echo "$(QUERY)" | sed 's/ /+/g'))
-	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)&date=$(SEARCH_DATE)" | jq . > search-prod.json
+	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)&date=$(SEARCH_DATE)" | jq . > prod.json
 
 search-keywords: ## Get products to send to AI for keywording. Usage: make search-keywords API_KEY=your_api_key [LIMIT=val] [PRODUCT_NAME_FILTER=val]
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-keywords API_KEY=your_api_key"; exit 1; fi

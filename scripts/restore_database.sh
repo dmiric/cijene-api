@@ -20,11 +20,11 @@ BACKUP_DIR="/backups"
 TIMESTAMP=${1}
 
 if [ -z "$TIMESTAMP" ]; then
-    echo "No timestamp provided. Attempting to find the latest full database backup timestamp..."
-    # Find the latest timestamp from any of the backup files
-    LATEST_FILE=$(ls -t ${BACKUP_DIR}/full_db_*.sql.gz 2>/dev/null | head -n 1)
+    echo "No timestamp provided. Attempting to find the latest full database backup timestamp from host's ./backups/ directory..."
+    # Find the latest timestamp from any of the backup files on the host
+    LATEST_FILE=$(ls -t ./backups/full_db_*.sql.gz 2>/dev/null | head -n 1)
     if [ -z "$LATEST_FILE" ]; then
-        echo "Error: No full database backup files found in ${BACKUP_DIR}. Please run dump_database.sh first or provide a TIMESTAMP."
+        echo "Error: No full database backup files found in ./backups/ on the host. Please run 'make dump-database' first or provide a TIMESTAMP."
         exit 1
     fi
     # Extract timestamp from filename (e.g., full_db_YYYYMMDD_HHMMSS.sql.gz)
@@ -32,16 +32,13 @@ if [ -z "$TIMESTAMP" ]; then
     echo "Using latest timestamp: ${TIMESTAMP}"
 fi
 
-BACKUP_FILE="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
+BACKUP_FILE_ON_HOST="./backups/full_db_${TIMESTAMP}.sql.gz"
+BACKUP_FILE_IN_CONTAINER="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
 
-echo "Starting full database restore from ${BACKUP_FILE}..."
+echo "Starting full database restore from ${BACKUP_FILE_IN_CONTAINER}..."
 
-if [ ! -f "$BACKUP_FILE" ]; then
-    echo "Error: Backup file ${BACKUP_FILE} not found."
-    exit 1
-fi
-
-# Decompress and restore the database
-gzip -dc "$BACKUP_FILE" | pg_restore --clean -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
+# Decompress and restore the database using a cleaner, more robust command.
+# We use `docker compose exec --env` to pass the password securely without quoting issues.
+docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | docker compose exec -T --env "PGPASSWORD=$PGPASSWORD" db pg_restore --clean --username "$DB_USER" --dbname "$DB_NAME" --host "$DB_HOST" --port "$DB_PORT"
 
 echo "Full database restore completed successfully."
