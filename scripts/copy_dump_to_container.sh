@@ -18,10 +18,10 @@ if [ "$ENVIRONMENT" = "production" ]; then
         echo "Error: No full database dump found on server host in /home/${SSH_USER}/pricemice/backups/. Please ensure the file is there."
         exit 1
     fi
-    docker cp "$LATEST_DUMP_FILE" pricemice-backup-1:"${BACKUP_DIR_IN_CONTAINER}"/
+    docker compose cp "$LATEST_DUMP_FILE" backup:"${BACKUP_DIR_IN_CONTAINER}"/
 else
     # On local dev (Linux), copy from local host to container
-    docker cp ./backups/. cijene-api-clone-backup-1:"${BACKUP_DIR_IN_CONTAINER}"/
+    docker compose cp ./backups/. backup:"${BACKUP_DIR_IN_CONTAINER}"/
 fi
 
 echo "Backup file copied successfully."

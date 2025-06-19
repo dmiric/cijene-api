@@ -1,10 +1,13 @@
 include .env
-export ENVIRONMENT
-export POSTGRES_USER
-export POSTGRES_PASSWORD
-export POSTGRES_DB
-export SSH_USER
-export SSH_IP
+# Load and export environment variables from .env file
+# This ensures they are available to sub-shells and Docker commands
+ifeq (,$(shell which sed))
+    $(error "sed is not installed. Please install sed to use this Makefile.")
+endif
+ifeq (,$(shell which grep))
+    $(error "grep is not installed. Please install grep to use this Makefile.")
+endif
+$(eval $(shell grep -v '^#' .env | sed 's/^/export /'))
 
 DATE ?= $(shell date +%Y-%m-%d)
 #Near by
@@ -85,12 +88,28 @@ restore-tables: ## Restore specified database tables from the db_backups volume.
 	@echo "Starting database restore..."
 	docker compose exec backup /scripts/restore_tables.sh $(TIMESTAMP)
 
+# A helper variable to detect the OS
+ifeq ($(OS),Windows_NT)
+    IS_WINDOWS := true
+else
+    IS_WINDOWS := false
+endif
+
 restore-database: ## Restore the entire database from a gzipped backup file. Usage: make restore-database [TIMESTAMP=YYYYMMDD_HHMMSS]
-	@if [ "$(ENVIRONMENT)" != "production" ]; then \
-		pwsh -File ./scripts/universal_restore_database.ps1 "$(TIMESTAMP)"; \
-	else \
-		POSTGRES_USER="$(POSTGRES_USER)" POSTGRES_PASSWORD="$(POSTGRES_PASSWORD)" POSTGRES_DB="$(POSTGRES_DB)" bash ./scripts/universal_restore_database.sh "$(TIMESTAMP)"; \
-	fi
+	@# This target now handles OS detection directly
+	@echo "Copying backup files to container..."
+ifeq ($(IS_WINDOWS), true)
+	# Windows commands
+	pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)"
+	@echo "Starting database restore..."
+	pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)"
+else
+	# Linux/macOS commands
+	bash ./scripts/copy_dump_to_container.sh "$(ENVIRONMENT)" "$(SSH_USER)" "$(TIMESTAMP)"
+	@echo "Starting database restore..."
+	bash ./scripts/restore_database.sh "$(TIMESTAMP)"
+endif
+	@echo "Database restore process completed successfully."
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
 	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 $(SSH_USER)@$(SSH_IP)

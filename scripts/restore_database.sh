@@ -39,6 +39,6 @@ echo "Starting full database restore from ${BACKUP_FILE_IN_CONTAINER}..."
 
 # Decompress and restore the database using a cleaner, more robust command.
 # We use `docker compose exec --env` to pass the password securely without quoting issues.
-docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | docker compose exec -T db pg_restore --clean -U postgres --dbname "$DB_NAME" --host "$DB_HOST" --port "$DB_PORT"
+docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | docker compose exec -T --env "PGPASSWORD=$PGPASSWORD" db pg_restore --clean --username "$DB_USER" --dbname "$DB_NAME" --host "$DB_HOST" --port "$DB_PORT"
 
 echo "Full database restore completed successfully."
