@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Exit immediately if a command exits with a non-zero status.
+set -x # Enable debugging output
 set -e
 
 # Database connection details from environment variables
