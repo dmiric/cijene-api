@@ -89,7 +89,7 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	@if [ "$(ENVIRONMENT)" != "production" ]; then \
 		pwsh -File ./scripts/universal_restore_database.ps1 "$(TIMESTAMP)"; \
 	else \
-		ssh-add ~/.ssh/github_actions_deploy_key; ssh $(SSH_USER)@$(SSH_IP) "cd /home/$(SSH_USER)/pricemice && bash ./scripts/universal_restore_database.sh \"$(TIMESTAMP)\""; \
+		bash ./scripts/universal_restore_database.sh "$(TIMESTAMP)"; \
 	fi
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
