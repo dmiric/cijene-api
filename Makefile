@@ -43,10 +43,10 @@ rebuild-api: ## Rebuild and restart only the API service
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api
 
 rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation
-	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
-		bash ./scripts/rebuild.sh; \
-	else \
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh -File ./scripts/rebuild.ps1; \
+	else \
+		bash ./scripts/rebuild.sh; \
 	fi
 
 
