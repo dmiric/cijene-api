@@ -51,6 +51,7 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           cd ${{ secrets.APP_PATH }}
+          git pull origin main # Pull the latest code from the main branch
           docker compose pull
           docker compose up -d --remove-orphans
           docker image prune -f # Clean up old images
