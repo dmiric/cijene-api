@@ -47,6 +47,8 @@ services:
     image: dpage/pgadmin4
     env_file:
       - ./.env
+    environment:
+      PGADMIN_CONFIG_SERVER_MODE: "False" # Allow access from non-standard hosts/proxies
     depends_on:
       - db
     ports:

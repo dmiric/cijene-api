@@ -91,7 +91,7 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	fi
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8080:localhost:80 $(SSH_USER)@$(SSH_IP)
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 $(SSH_USER)@$(SSH_IP)
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
