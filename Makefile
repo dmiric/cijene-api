@@ -15,7 +15,7 @@ RADIUS ?= 1500
 STORE_IDS ?= 107,616
 QUERY ?= kokos
 API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
-SEARCH_DATE ?= 2025-06-08
+SEARCH_DATE ?= 
 # Search keywords
 LIMIT ?= 100
 PRODUCT_NAME_FILTER ?= kokos
@@ -136,7 +136,8 @@ migrate-db: ## Apply database migrations
 search-products: ## Search for products by name. Usage: make search-products QUERY="your query" API_KEY=your_api_key [STORE_IDS=val] [SEARCH_DATE=val]
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-products API_KEY=your_api_key [QUERY=your_query]"; exit 1; fi
 	$(eval ENCODED_QUERY=$(shell echo "$(QUERY)" | sed 's/ /+/g'))
-	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)&date=$(SEARCH_DATE)" | jq . > prod.json
+	$(eval DATE_PARAM=$(if $(SEARCH_DATE),&date=$(SEARCH_DATE),))
+	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)$(DATE_PARAM)" | jq . > prod.json
 
 search-keywords: ## Get products to send to AI for keywording. Usage: make search-keywords API_KEY=your_api_key [LIMIT=val] [PRODUCT_NAME_FILTER=val]
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-keywords API_KEY=your_api_key"; exit 1; fi
