@@ -14,11 +14,15 @@ if [ "$confirm" = "y" ]; then
 
     echo "Docker Desktop Service restart might be needed manually if issues arise."
 
-    echo "Rebuilding and restarting Docker services..."
-    docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate
+    echo "Rebuilding and restarting Docker services. Output redirected to logs/docker-build.log..."
+    mkdir -p logs # Ensure directory exists
+    docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> logs/docker-build.log 2>&1
+    echo "Docker services rebuilt and restarted. Check logs/docker-build.log for details."
 
     echo "Applying database migrations..."
     make migrate-db
+
+    docker compose ps
 
     echo "Operation completed."
 else

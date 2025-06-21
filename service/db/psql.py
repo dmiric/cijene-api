@@ -152,11 +152,6 @@ class PostgresDatabase(Database):
             return [ChainStats(**row) for row in rows]  # type: ignore
 
     async def add_store(self, store: Store) -> int:
-        # Prepare location geometry if lat and lon are provided
-        location_geom = None
-        if store.lat is not None and store.lon is not None:
-            location_geom = f"ST_SetSRID(ST_Point({store.lon}, {store.lat}), 4326)::geometry" # Changed to geometry
-
         return await self._fetchval(
             f"""
             INSERT INTO stores (chain_id, code, type, address, city, zipcode, lat, lon, phone)
@@ -334,18 +329,20 @@ class PostgresDatabase(Database):
         Finds and lists stores within a specified radius of a given lat/lon.
         Results include chain code and distance from the center point, ordered by distance.
         """
+        self.debug_print(f"get_stores_within_radius received: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}")
         async with self._get_conn() as conn:
             # Create a geometry point for the center of the search (matching DB column type)
-            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry" # Changed to geometry
+            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
+            self.debug_print(f"Generated center_point: {center_point}")
 
             query = f"""
                 SELECT
                     s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.lat, s.lon,
                     c.code AS chain_code,
-                    ST_Distance(s.location, {center_point}) AS distance_meters
+                    ST_Distance(s.location::geography, {center_point}::geography) AS distance_meters
                 FROM stores s
                 JOIN chains c ON s.chain_id = c.id
-                WHERE ST_DWithin(s.location, {center_point}, $1)
+                WHERE ST_DWithin(s.location::geography, {center_point}::geography, $1)
             """
             params = [radius_meters]
 
@@ -932,9 +929,6 @@ class PostgresDatabase(Database):
         """
         lat = location_data.get("lat")
         lon = location_data.get("lon")
-        location_geom = None
-        if lat is not None and lon is not None:
-            location_geom = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
 
         async with self._atomic() as conn:
             row = await conn.fetchrow(
@@ -949,7 +943,6 @@ class PostgresDatabase(Database):
                     lat = COALESCE($8, lat),
                     lon = COALESCE($9, lon),
                     location_name = COALESCE($10, location_name),
-                    location = COALESCE({location_geom if location_geom else 'NULL'}, location),
                     updated_at = NOW()
                 WHERE id = $1 AND user_id = $2
                 RETURNING id, user_id, address, city, state, zip_code, country, lat, lon, location_name, created_at, updated_at

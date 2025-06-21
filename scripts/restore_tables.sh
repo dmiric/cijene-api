@@ -44,7 +44,8 @@ for TABLE in "${TABLES[@]}"; do
         echo "Error: Backup file ${BACKUP_FILE} not found. Skipping table ${TABLE}."
         continue
     fi
-    pg_restore --clean -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t "$TABLE" -Fc "$BACKUP_FILE"
+    # Use --no-owner and --no-privileges to avoid issues with role mismatches
+    pg_restore --clean --no-owner --no-privileges -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t "$TABLE" -Fc "$BACKUP_FILE"
     echo "Finished restoring table ${TABLE}."
 done
 

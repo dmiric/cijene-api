@@ -32,6 +32,8 @@ services:
 
   crawler:
     build: .
+    env_file:
+      - ./.env
     environment:
       # DB_DSN is now defined directly in .env
       PYTHONUTF8: "1"

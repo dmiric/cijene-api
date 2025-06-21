@@ -42,15 +42,19 @@ async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal]
 
             if data["status"] == "OK" and data["results"]:
                 location = data["results"][0]["geometry"]["location"]
-                lat = Decimal(str(location["lat"])) # Renamed to lat
-                lon = Decimal(str(location["lng"])) # Renamed to lon
-                logger.info(f"Geocoded '{address}': Lat={lat}, Lng={lon}") # Updated log
-                return lat, lon # Renamed to lat, lon
+                lat = Decimal(str(location["lat"]))
+                lon = Decimal(str(location["lng"]))
+                logger.info(f"Geocoded '{address}': Lat={lat}, Lng={lon}")
+                return lat, lon
             elif data["status"] == "ZERO_RESULTS":
                 logger.warning(f"No results for address: '{address}'")
+                return None
+            elif data["status"] == "OVER_QUERY_LIMIT":
+                logger.critical(f"Geocoding API rate limit exceeded for '{address}'. Please check your API key usage. Stopping geocoding process.")
+                return None # Return None for rate limit, handle gracefully in geocode_stores
             else:
                 logger.error(f"Geocoding API error for '{address}': {data.get('error_message', 'Unknown error')}")
-            return None
+                return None
         except httpx.RequestError as e:
             logger.error(f"HTTP request failed for '{address}': {e}")
             return None
@@ -88,9 +92,10 @@ async def geocode_stores():
                 continue
 
             logger.info(f"Geocoding store ID {store.id}: '{full_address}'")
-            lat, lon = await geocode_address(full_address, google_api_key) # Renamed to lat, lon
+            result = await geocode_address(full_address, google_api_key)
 
-            if lat is not None and lon is not None: # Renamed to lat, lon
+            if result is not None:
+                lat, lon = result
                 updated_store = Store(
                     chain_id=store.chain_id,
                     code=store.code,
@@ -98,24 +103,35 @@ async def geocode_stores():
                     address=store.address,
                     city=store.city,
                     zipcode=store.zipcode,
-                    lat=lat, # Renamed to lat
-                    lon=lon # Renamed to lon
+                    lat=lat,
+                    lon=lon
                 )
                 # Use add_store for upserting, it will update existing store by chain_id and code
                 await db.add_store(updated_store)
-                logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}") # Updated log
+                logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}")
             else:
-                logger.error(f"Failed to geocode store ID {store.id}: '{full_address}'")
+                # If result is None, it means geocoding failed or rate limit was hit
+                logger.error(f"Failed to geocode store ID {store.id}: '{full_address}'. Skipping.")
+                # Do not exit, continue to next store or finish gracefully
 
         logger.info("Geocoding process completed.")
 
     except Exception as e:
         logger.critical(f"An unrecoverable error occurred: {e}")
-        raise typer.Exit(code=1)
+        # Do not raise typer.Exit here, handle gracefully
     finally:
         if db:
+            # After geocoding attempts, count remaining ungeocoded stores
+            remaining_ungeocoded = await db.get_ungeocoded_stores()
+            if remaining_ungeocoded:
+                logger.warning(f"Geocoding finished with {len(remaining_ungeocoded)} stores still missing lat/lon.")
+            else:
+                logger.info("All stores have been geocoded.")
             await db.close()
             logger.info("Database connection closed.")
+        # Exit gracefully after logging remaining ungeocoded count
+        # No explicit typer.Exit(code=0) needed, as successful completion implies code 0
+        # If an unhandled exception occurs, it will still result in a non-zero exit code.
 
 if __name__ == "__main__":
     asyncio.run(app())

@@ -18,9 +18,14 @@ if ($confirm -eq "y") {
         Write-Host $_.Exception.Message
     }
 
-    Write-Host "Rebuilding and restarting Docker services..."
-    docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate
+    Write-Host "Rebuilding and restarting Docker services. Output redirected to logs/docker-build.log..."
+    # Ensure the directory exists
+    New-Item -ItemType Directory -Force -Path "logs" | Out-Null
+    docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> logs/docker-build.log 2>&1
+    Write-Host "Docker services rebuilt and restarted. Check logs/docker-build.log for details."
 
+    docker compose ps
+    
     Write-Host "Applying database migrations..."
     make migrate-db
 

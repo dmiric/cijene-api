@@ -1,4 +1,4 @@
 ALTER TABLE stores
-ADD COLUMN IF NOT EXISTS earth_point earth GENERATED ALWAYS AS (ll_to_earth (lat, lon)) STORED;
+ADD COLUMN IF NOT EXISTS location GEOMETRY(Point, 4326) GENERATED ALWAYS AS (ST_SetSRID(ST_Point(lon, lat), 4326)) STORED;
 
-CREATE INDEX IF NOT EXISTS idx_stores_earth_point ON stores USING GIST (earth_point);
+CREATE INDEX IF NOT EXISTS idx_stores_location ON stores USING GIST (location);

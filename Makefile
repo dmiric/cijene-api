@@ -6,10 +6,16 @@ export POSTGRES_DB
 export SSH_USER
 export SSH_IP
 
+ifeq ($(OS),Windows_NT)
+    DOCKER_BUILD_LOG_FILE := logs/docker-build.log
+else
+    DOCKER_BUILD_LOG_FILE := logs/docker-build.log
+endif
+
 DATE ?= $(shell date +%Y-%m-%d)
 #Near by
-LATITUDE ?= 45.29278835973543
-LONGITUDE ?= 18.791376990006086
+LAT ?= 45.29278835973543
+LON ?= 18.791376990006086
 RADIUS ?= 1500
 # Search products
 STORE_IDS ?= 107,616
@@ -37,10 +43,26 @@ help: ## Display this help message
 
 ## Docker & Build Commands
 rebuild: ## Rebuild and restart all Docker containers
-	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate
+	@echo "Building and restarting Docker containers. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null"
+else
+	@mkdir -p logs # Ensure directory exists
+endif
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+	@echo "Docker containers rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
+	@docker compose ps
 
 rebuild-api: ## Rebuild and restart only the API service
-	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api
+	@echo "Building and restarting API service. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null"
+else
+	@mkdir -p logs # Ensure directory exists
+endif
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
+	@docker compose ps
 
 rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
@@ -146,7 +168,7 @@ search-keywords: ## Get products to send to AI for keywording. Usage: make searc
 
 test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITUDE=val] [LONGITUDE=val] [RADIUS=val] API_KEY=your_api_key
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi
-	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?latitude=$(LATITUDE)&longitude=$(LONGITUDE)&radius_meters=$(RADIUS)" | jq .
+	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?lat=$(LAT)&lon=$(LON)&radius_meters=$(RADIUS)" | jq .
 
 
 ## Logging Commands
