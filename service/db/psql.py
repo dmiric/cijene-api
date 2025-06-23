@@ -9,8 +9,9 @@ from typing import (
 import os
 from datetime import date, datetime # Import datetime
 from decimal import Decimal # Import Decimal
-import uuid # Import uuid for API key generation
+from uuid import UUID, uuid4 # Import UUID and uuid4 for API key generation and session IDs
 import sys # Import sys for direct print to stderr
+import json # Import json for tool_calls and tool_outputs
 
 from .base import Database
 from .models import (
@@ -26,7 +27,9 @@ from .models import (
     StoreWithId,
     ChainProductWithId,
     User,
-    UserLocation, # Added UserLocation
+    UserLocation,
+    ChatMessage, # Added ChatMessage
+    UserPreference, # Added UserPreference
 )
 
 
@@ -448,6 +451,98 @@ class PostgresDatabase(Database):
                 for row in rows
             ]
 
+    async def save_chat_message(self, message: ChatMessage) -> None:
+        """
+        Saves a chat message to the database.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                message.id,
+                message.user_id,
+                message.session_id,
+                message.sender,
+                message.message_text,
+                message.timestamp,
+                json.dumps(message.tool_calls) if message.tool_calls else None,
+                json.dumps(message.tool_outputs) if message.tool_outputs else None,
+            )
+        self.debug_print(f"Saved chat message: {message.id}")
+
+    async def get_chat_messages(self, user_id: int, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
+        """
+        Retrieves chat messages for a given user and session, ordered by timestamp.
+        """
+        async with self._get_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs
+                FROM chat_messages
+                WHERE user_id = $1 AND session_id = $2
+                ORDER BY timestamp ASC
+                LIMIT $3
+                """,
+                user_id,
+                session_id,
+                limit,
+            )
+            return [
+                ChatMessage(
+                    id=str(row["id"]),
+                    user_id=row["user_id"],
+                    session_id=str(row["session_id"]),
+                    sender=row["sender"],
+                    message_text=row["message_text"],
+                    timestamp=row["timestamp"],
+                    tool_calls=row["tool_calls"],
+                    tool_outputs=row["tool_outputs"],
+                )
+                for row in rows
+            ]
+
+    async def save_user_preference(self, user_id: int, preference_key: str, preference_value: str) -> UserPreference:
+        """
+        Saves or updates a user's shopping preference.
+        """
+        async with self._atomic() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_preferences (user_id, preference_key, preference_value, created_at, updated_at)
+                VALUES ($1, $2, $3, NOW(), NOW())
+                ON CONFLICT (user_id, preference_key) DO UPDATE SET
+                    preference_value = EXCLUDED.preference_value,
+                    updated_at = NOW()
+                RETURNING id, user_id, preference_key, preference_value, created_at, updated_at
+                """,
+                user_id,
+                preference_key,
+                preference_value,
+            )
+            if row is None:
+                raise RuntimeError(f"Failed to save user preference for user {user_id}, key {preference_key}")
+            return UserPreference(**row)
+
+    async def get_user_preference(self, user_id: int, preference_key: str) -> UserPreference | None:
+        """
+        Retrieves a specific user preference.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id, preference_key, preference_value, created_at, updated_at
+                FROM user_preferences
+                WHERE user_id = $1 AND preference_key = $2
+                """,
+                user_id,
+                preference_key,
+            )
+            if row:
+                return UserPreference(**row)
+            return None
+
     async def update_product(self, product: Product) -> bool:
         """
         Update product information by EAN code.
@@ -808,6 +903,23 @@ class PostgresDatabase(Database):
                 api_key,
             )
 
+            if row:
+                return User(**row)  # type: ignore
+            return None
+
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        """
+        Retrieve a user by their ID.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, name, api_key, is_active, created_at
+                FROM users
+                WHERE id = $1
+                """,
+                user_id,
+            )
             if row:
                 return User(**row)  # type: ignore
             return None

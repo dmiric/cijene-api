@@ -1,6 +1,7 @@
 from typing import Optional
 from datetime import date, datetime
 from decimal import Decimal
+import uuid
 
 from dataclasses import dataclass, fields
 
@@ -12,6 +13,28 @@ class User:
     api_key: str
     is_active: bool
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ChatMessage:
+    id: str # UUID
+    user_id: int
+    session_id: str # UUID
+    sender: str
+    message_text: str
+    timestamp: datetime
+    tool_calls: Optional[dict] = None
+    tool_outputs: Optional[dict] = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UserPreference:
+    id: str # UUID
+    user_id: int
+    preference_key: str
+    preference_value: str
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

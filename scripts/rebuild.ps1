@@ -4,8 +4,8 @@ if ($confirm -eq "y") {
     docker stop (docker ps -aq)
     docker rm (docker ps -aq)
 
-    Write-Host "Removing all Docker volumes..."
-    docker volume rm (docker volume ls -q)
+    Write-Host "Removing Docker volumes (excluding crawler_data)..."
+    docker volume ls -q | Where-Object { $_ -notlike "*cijene-api-clone_crawler_data*" } | ForEach-Object { docker volume rm $_ }
 
     Write-Host "Restarting Docker Desktop Service..."
     # This command might fail if Docker Desktop is not running with admin privileges or if it's managed differently.

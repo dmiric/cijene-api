@@ -12,8 +12,14 @@ DB_PORT="5432"
 # Export PGPASSWORD for pg_restore
 export PGPASSWORD="${POSTGRES_PASSWORD}"
 
-# Tables to restore
-TABLES=("search_keywords" "user_locations" "users")
+# Tables to restore (ordered by dependency: users first, then dependents)
+TABLES=("users" "user_locations" "chat_messages" "user_preferences" "search_keywords")
+
+# Drop dependent tables first to avoid foreign key conflicts when restoring 'users'
+echo "Dropping dependent tables to avoid foreign key conflicts..."
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "DROP TABLE IF EXISTS chat_messages CASCADE;"
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "DROP TABLE IF EXISTS user_preferences CASCADE;"
+echo "Dependent tables dropped."
 
 # Backup directory inside the container (mounted from db_backups volume)
 BACKUP_DIR="/backups"
