@@ -894,7 +894,7 @@ class PostgresDatabase(Database):
                 """
                 SELECT
                     id, user_id, address, city, state, zip_code, country,
-                    lat, lon, location_name, created_at, updated_at
+                    latitude, longitude, location_name, created_at, updated_at
                 FROM user_locations
                 WHERE user_id = $1
                 ORDER BY created_at
@@ -912,7 +912,7 @@ class PostgresDatabase(Database):
                 """
                 SELECT
                     id, user_id, address, city, state, zip_code, country,
-                    lat, lon, location_name, created_at, updated_at
+                    latitude, longitude, location_name, created_at, updated_at
                 FROM user_locations
                 WHERE id = $1 AND user_id = $2
                 """,
@@ -940,12 +940,12 @@ class PostgresDatabase(Database):
                     state = COALESCE($5, state),
                     zip_code = COALESCE($6, zip_code),
                     country = COALESCE($7, country),
-                    lat = COALESCE($8, lat),
-                    lon = COALESCE($9, lon),
+                    latitude = COALESCE($8, latitude),
+                    longitude = COALESCE($9, longitude),
                     location_name = COALESCE($10, location_name),
                     updated_at = NOW()
                 WHERE id = $1 AND user_id = $2
-                RETURNING id, user_id, address, city, state, zip_code, country, lat, lon, location_name, created_at, updated_at
+                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
                 """,
                 location_id,
                 user_id,
