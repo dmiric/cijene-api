@@ -192,7 +192,7 @@ CREATE TABLE g_products (
     variants JSONB, -- Stores an array of variant details (e.g., [{"weight_g": 270}, {"weight_g": 300}]).
     text_for_embedding TEXT,
     keywords TEXT[],
-    embedding VECTOR(1024), -- CRITICAL: 1024 dimensions for gemini-embedding-001
+    embedding VECTOR(768),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
