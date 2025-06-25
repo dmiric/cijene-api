@@ -14,7 +14,7 @@ endif
 
 DATE ?= $(shell date +%Y-%m-%d)
 # Define default excluded volumes for rebuild-everything
-EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data
+EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data #,cijene-api-clone_pgadmin_data
 #Near by
 LAT ?= 45.29278835973543
 LON ?= 18.791376990006086
@@ -84,15 +84,15 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	$(MAKE) migrate-db
 
 	@echo "Checking for existing crawled data..."
-	@if [ ! -f "./output/$(DATE).zip" ]; then \
+	@if [ ! -f "./output/2025-06-25.zip" ]; then \
 		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
 		$(MAKE) crawl-sample; \
 	else \
-		echo "Existing zip found: ./output/$(DATE).zip"; \
+		echo "Existing zip found: ./output/2025-06-25.zip"; \
 	fi
 
 	@echo "Importing data..."
-	$(MAKE) import-data
+	$(MAKE) import-data DATE=2025-06-25
 
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
@@ -103,6 +103,9 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Enriching users, user locations, and search keywords from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
 	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
+	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
+	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
 
 	@echo "Development fresh start completed."
 
@@ -209,18 +212,6 @@ search-keywords: ## Get products to send to AI for keywording. Usage: make searc
 test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITUDE=val] [LONGITUDE=val] [RADIUS=val] API_KEY=your_api_key
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi
 	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?lat=$(LAT)&lon=$(LON)&radius_meters=$(RADIUS)" | jq .
-
-chat: ## Send a message to the AI chat endpoint. Usage: make chat MESSAGE="your message" USER_ID=1 API_KEY=your_api_key [SESSION_ID=your_session_id]
-	@if [ -z "$(MESSAGE)" ]; then echo "Error: MESSAGE is required. Usage: make chat MESSAGE=\"your message\""; exit 1; fi
-	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make chat MESSAGE=\"your message\" API_KEY=your_api_key"; exit 1; fi
-	@if [ -z "$(USER_ID)" ]; then echo "Error: USER_ID is required. Please provide a user ID (e.g., 1 for a test user). Usage: make chat MESSAGE=\"your message\" USER_ID=1"; exit 1; fi
-	$(eval SESSION_ID_PARAM=$(if $(SESSION_ID),\"session_id\": \"$(SESSION_ID)\",))
-	curl -s -N -X POST "http://localhost:8000/v2/chat" \
-	-H "Authorization: Bearer $(API_KEY)" \
-	-H "Content-Type: application/json" \
-	-H "Accept: text/event-stream" \
-	-d '{$(SESSION_ID_PARAM)"user_id": $(USER_ID), "message_text": "$(MESSAGE)"}'
-
 
 ## Logging Commands
 logs-api: ## Display logs for the API service and save to ./logs/api.log (empties file first)

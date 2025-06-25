@@ -1,14 +1,14 @@
 from service.config import settings
 import sys
 import json
-from typing import Optional
+from typing import Optional, List, Any
 from decimal import Decimal
 from datetime import date
 
 from .ai_helpers import pydantic_to_dict # A new helper file
 
 db_v2 = settings.get_db_v2()
-db = settings.get_db()
+db = settings.get_db() # Still needed for get_user_locations_tool
 
 def debug_print(*args, **kwargs):
     print("[DEBUG AI_TOOLS]", *args, file=sys.stderr, **kwargs)
@@ -18,33 +18,68 @@ async def search_products_tool_v2(
     q: str,
     limit: int = 20,
     offset: int = 0,
-    sort_by: Optional[str] = None, # Note: original search_products in psql.py doesn't support sort_by, category, brand
+    sort_by: Optional[str] = None,
     category: Optional[str] = None,
     brand: Optional[str] = None,
+    store_ids: Optional[str] = None, # Added store_ids
 ):
     """
-    Search for products by name using keyword search.
+    Search for products by name using hybrid search (vector + keyword) and optionally filter by stores.
     Args:
         q (str): The user's natural language query.
         limit (int): Maximum number of results to return.
         offset (int): Number of results to skip.
-        sort_by (Optional[str]): Not directly supported by current db.search_products.
-        category (Optional[str]): Not directly supported by current db.search_products.
-        brand (Optional[str]): Not directly supported by current db.search_products.
+        sort_by (Optional[str]): How to sort the results (e.g., 'best_value_kg', 'relevance').
+        category (Optional[str]): Filter by product category.
+        brand (Optional[str]): Filter by product brand.
+        store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
     """
-    debug_print(f"Tool Call: search_products_tool_v2(q={q}, limit={limit}, offset={offset})")
+    debug_print(f"Tool Call: search_products_tool_v2(q={q}, limit={limit}, offset={offset}, sort_by={sort_by}, category={category}, brand={brand}, store_ids={store_ids})")
     try:
-        # db.search_products uses search_keywords table and returns ProductWithId
-        # It doesn't directly support offset, sort_by, category, brand.
-        # We will pass the query and then slice/filter in Python if needed,
-        # or note the limitation. For now, just pass q.
-        products = await db.search_products(query=q)
-        
-        # Apply limit and offset in Python for now, as db.search_products doesn't support it
-        products_to_return = products[offset:offset+limit]
+        # Step 1: Perform hybrid search using db_v2.get_g_products_hybrid_search
+        products = await db_v2.get_g_products_hybrid_search(
+            query=q,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            category=category,
+            brand=brand,
+        )
 
-        return pydantic_to_dict({"products": products_to_return})
+        if not products:
+            return {"products": []}
+
+        # Step 2: If store_ids are provided, filter products by their availability in those stores
+        if store_ids:
+            parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
+            filtered_products_with_prices = []
+            
+            for product in products:
+                product_id = product.get("id")
+                if product_id is None:
+                    continue
+
+                # Fetch prices for this product in the specified stores
+                # CORRECTED: Use db.get_product_prices (from psql.py) instead of db_v2.get_g_product_prices_by_location
+                prices_in_stores = await db.get_product_prices(
+                    product_ids=[product_id],
+                    date=date.today(), # Use today's date for price lookup
+                    store_ids=parsed_store_ids
+                )
+                
+                if prices_in_stores:
+                    # If prices are found in the specified stores, add the product and its prices
+                    product_with_prices = product.copy()
+                    product_with_prices["prices_in_stores"] = prices_in_stores
+                    filtered_products_with_prices.append(product_with_prices)
+            
+            return pydantic_to_dict({"products": filtered_products_with_prices})
+        
+        # If no store_ids, return products from hybrid search directly
+        return pydantic_to_dict({"products": products})
+
     except Exception as e:
+        debug_print(f"Error in search_products_tool_v2: {e}")
         return {"error": str(e)}
 
 
@@ -59,12 +94,10 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
     try:
         parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
         
-        # db.get_product_prices takes product_ids (list), date, and optional store_ids (list)
-        # We need to provide a date. Let's use today's date for now.
-        today = date.today()
+        # CORRECTED: Use db.get_product_prices (from psql.py) instead of db_v2.get_g_product_prices_by_location
         prices_data = await db.get_product_prices(
             product_ids=[product_id],
-            date=today,
+            date=date.today(), # Use today's date for price lookup
             store_ids=parsed_store_ids,
         )
         return pydantic_to_dict({"prices": prices_data})
@@ -80,22 +113,11 @@ async def get_product_details_tool_v2(product_id: int):
     """
     debug_print(f"Tool Call: get_product_details_tool_v2(product_id={product_id})")
     try:
-        # psql.py does not have a direct get_product_details by ID.
-        # We need to fetch by EAN. This is a placeholder.
-        # For a proper implementation, we'd need to get EAN from product_id first,
-        # or add a get_product_by_id method to psql.py.
-        # For now, returning a dummy response or an error.
-        # Assuming product_id can be used to get EAN for testing purposes.
-        # This part needs proper implementation in psql.py if product_id is the only input.
-        # For now, let's return a generic message or an empty dict.
-        # If we assume product_id maps directly to EAN for simplicity in testing:
-        # product_ean = str(product_id) # This is a hack for testing
-        # products = await db.get_products_by_ean([product_ean])
-        # if products:
-        #     return pydantic_to_dict(products[0])
-        # else:
-        #     return {"error": f"Product with ID {product_id} not found."}
-        return {"message": f"Product details for ID {product_id} (details retrieval not fully implemented yet)."}
+        details = await db_v2.get_g_product_details(product_id)
+        if details:
+            return pydantic_to_dict(details)
+        else:
+            return {"message": f"Product with ID {product_id} not found."}
     except Exception as e:
         return {"error": str(e)}
 
@@ -116,7 +138,7 @@ async def find_nearby_stores_tool_v2(
     """
     debug_print(f"Tool Call: find_nearby_stores_tool_v2(lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code})")
     try:
-        # Use db.get_stores_within_radius which queries the 'stores' table
+        # CORRECTED: Use db (psql.py) and get_stores_within_radius for 'stores' table
         response = await db.get_stores_within_radius(
             lat=Decimal(str(lat)), # Convert float to Decimal for db method
             lon=Decimal(str(lon)), # Convert float to Decimal for db method

@@ -12,6 +12,7 @@ from decimal import Decimal # Import Decimal
 from uuid import UUID, uuid4 # Import UUID and uuid4 for API key generation and session IDs
 import sys # Import sys for direct print to stderr
 import json # Import json for tool_calls and tool_outputs
+import pgvector.asyncpg # Import pgvector.asyncpg
 
 from .base import Database
 from .models import (
@@ -31,6 +32,9 @@ from .models import (
     ChatMessage, # Added ChatMessage
     UserPreference, # Added UserPreference
     SearchKeyword, # Added SearchKeyword
+    GProduct, # Added GProduct
+    GPrice, # Added GPrice
+    GProductBestOffer, # Added GProductBestOffer
 )
 
 
@@ -59,7 +63,13 @@ class PostgresDatabase(Database):
             dsn=self.dsn,
             min_size=self.min_size,
             max_size=self.max_size,
+            init=self._init_connection, # Add init function
         )
+
+    async def _init_connection(self, conn):
+        # Register the 'vector' type for asyncpg
+        # Register the 'vector' type for asyncpg using pgvector's utility
+        await pgvector.asyncpg.register_vector(conn)
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
@@ -1261,6 +1271,168 @@ class PostgresDatabase(Database):
                 """
             )
             await conn.execute("DROP TABLE temp_search_keywords")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount
+
+    async def add_many_g_products(self, g_products: List[GProduct]) -> int:
+        """
+        Bulk insert g_products into the database.
+        On conflict (ean), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_g_products (
+                    ean VARCHAR(255),
+                    canonical_name TEXT,
+                    brand TEXT,
+                    category TEXT,
+                    base_unit_type VARCHAR(50),
+                    variants JSONB,
+                    text_for_embedding TEXT,
+                    keywords TEXT[],
+                    embedding VECTOR(768),
+                    created_at TIMESTAMP WITH TIME ZONE,
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_g_products",
+                records=(
+                    (
+                        gp.ean,
+                        gp.canonical_name,
+                        gp.brand,
+                        gp.category,
+                        gp.base_unit_type,
+                        json.dumps(gp.variants) if gp.variants else None,
+                        gp.text_for_embedding,
+                        gp.keywords, # asyncpg handles list to TEXT[] conversion
+                        gp.embedding, # asyncpg handles list to VECTOR conversion
+                        gp.created_at,
+                        gp.updated_at,
+                    )
+                    for gp in g_products
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO g_products(
+                    ean, canonical_name, brand, category, base_unit_type,
+                    variants, text_for_embedding, keywords, embedding,
+                    created_at, updated_at
+                )
+                SELECT
+                    ean, canonical_name, brand, category, base_unit_type::unit_type_enum,
+                    variants, text_for_embedding, keywords, embedding,
+                    created_at, updated_at
+                FROM temp_g_products
+                ON CONFLICT (ean) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_g_products")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount
+
+    async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
+        """
+        Bulk insert g_prices into the database.
+        On conflict (product_id, store_id, price_date), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_g_prices (
+                    product_id INTEGER,
+                    store_id INTEGER,
+                    price_date DATE,
+                    regular_price DECIMAL(10, 2),
+                    special_price DECIMAL(10, 2),
+                    is_on_special_offer BOOLEAN
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_g_prices",
+                records=(
+                    (
+                        gp.product_id,
+                        gp.store_id,
+                        gp.price_date,
+                        gp.regular_price,
+                        gp.special_price,
+                        gp.is_on_special_offer,
+                    )
+                    for gp in g_prices
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO g_prices(
+                    product_id, store_id, price_date, regular_price,
+                    special_price, is_on_special_offer
+                )
+                SELECT
+                    product_id, store_id, price_date, regular_price,
+                    special_price, is_on_special_offer
+                FROM temp_g_prices
+                ON CONFLICT (product_id, store_id, price_date) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_g_prices")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount
+
+    async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
+        """
+        Bulk insert g_product_best_offers into the database.
+        On conflict (product_id), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_g_product_best_offers (
+                    product_id INTEGER,
+                    best_unit_price_per_kg DECIMAL(10, 4),
+                    best_unit_price_per_l DECIMAL(10, 4),
+                    best_unit_price_per_piece DECIMAL(10, 4),
+                    best_price_store_id INTEGER,
+                    best_price_found_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_g_product_best_offers",
+                records=(
+                    (
+                        go.product_id,
+                        go.best_unit_price_per_kg,
+                        go.best_unit_price_per_l,
+                        go.best_unit_price_per_piece,
+                        go.best_price_store_id,
+                        go.best_price_found_at,
+                    )
+                    for go in g_offers
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO g_product_best_offers(
+                    product_id, best_unit_price_per_kg, best_unit_price_per_l,
+                    best_unit_price_per_piece, best_price_store_id, best_price_found_at
+                )
+                SELECT
+                    product_id, best_unit_price_per_kg, best_unit_price_per_l,
+                    best_unit_price_per_piece, best_price_store_id, best_price_found_at
+                FROM temp_g_product_best_offers
+                ON CONFLICT (product_id) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_g_product_best_offers")
             _, _, rowcount = result.split(" ")
             rowcount = int(rowcount)
             return rowcount

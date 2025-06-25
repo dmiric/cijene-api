@@ -7,10 +7,11 @@ from pathlib import Path
 from csv import DictReader
 from time import time
 from typing import List, Dict
-from datetime import datetime # Import datetime for parsing timestamps
+from datetime import date, datetime # Import datetime for parsing timestamps
+import json # Import json for parsing variants
 
 from service.config import settings
-from service.db.models import Product, User, UserLocation, SearchKeyword # Import new models
+from service.db.models import Product, User, UserLocation, SearchKeyword, GProduct, GPrice, GProductBestOffer # Import new models
 
 logger = logging.getLogger("enricher")
 
@@ -390,6 +391,179 @@ async def enrich_search_keywords(csv_path: Path) -> None:
     logger.info(f"Enriched {added_count} search keywords from {csv_path.name} in {dt} seconds")
 
 
+async def enrich_g_products(csv_path: Path) -> None:
+    """
+    Enrich g_products table from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing g_products data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {
+        "id", "ean", "canonical_name", "brand", "category", "base_unit_type",
+        "variants", "text_for_embedding", "keywords", "embedding", "created_at", "updated_at"
+    }
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for g_products")
+
+    logger.info(f"Starting g_products enrichment from {csv_path} with {len(data)} entries")
+    t0 = time()
+
+    g_products_to_add = []
+    for row in data:
+        # Handle optional fields and type conversions
+        variants = json.loads(row["variants"]) if row["variants"] else None
+        keywords = [k.strip() for k in row["keywords"].strip('{}').split(',') if k.strip()] if row["keywords"] else None
+        embedding = [float(e) for e in row["embedding"].strip('[]').split(',') if e.strip()] if row["embedding"] else None
+
+        g_products_to_add.append(
+            GProduct(
+                ean=row["ean"],
+                canonical_name=row["canonical_name"],
+                brand=row["brand"] if row["brand"] else None,
+                category=row["category"],
+                base_unit_type=row["base_unit_type"],
+                variants=variants,
+                text_for_embedding=row["text_for_embedding"] if row["text_for_embedding"] else None,
+                keywords=keywords,
+                embedding=embedding,
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+        )
+    
+    added_count = await db.add_many_g_products(g_products_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} g_products from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_prices(csv_path: Path) -> None:
+    """
+    Enrich g_prices table from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing g_prices data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {
+        "id", "product_id", "store_id", "price_date", "regular_price",
+        "special_price", "is_on_special_offer"
+    }
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for g_prices")
+
+    logger.info(f"Starting g_prices enrichment from {csv_path} with {len(data)} entries")
+    t0 = time()
+
+    prices_to_add = []
+    for row in data:
+        prices_to_add.append(
+            GPrice(
+                product_id=int(row["product_id"]),
+                store_id=int(row["store_id"]),
+                price_date=datetime.fromisoformat(row["price_date"]).date(),
+                regular_price=(
+                    Decimal(row["regular_price"])
+                    if row["regular_price"] and row["regular_price"].lower() != "null"
+                    else None
+                ),
+                special_price=(
+                    Decimal(row["special_price"])
+                    if row["special_price"] and row["special_price"].lower() != "null"
+                    else None
+                ),
+                is_on_special_offer=row["is_on_special_offer"].lower() == "true",
+            )
+        )
+    
+    added_count = await db.add_many_g_prices(prices_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} g_prices from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_product_best_offers(csv_path: Path) -> None:
+    """
+    Enrich g_product_best_offers table from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing g_product_best_offers data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {
+        "product_id", "best_unit_price_per_kg", "best_unit_price_per_l",
+        "best_unit_price_per_piece", "best_price_store_id", "best_price_found_at"
+    }
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for g_product_best_offers")
+
+    logger.info(f"Starting g_product_best_offers enrichment from {csv_path} with {len(data)} entries")
+    t0 = time()
+
+    offers_to_add = []
+    for row in data:
+        # Helper to safely convert to Decimal, handling empty strings and "NULL"
+        def safe_decimal(value_str):
+            if value_str and value_str.lower() != "null":
+                try:
+                    return Decimal(value_str)
+                except decimal.InvalidOperation:
+                    logger.warning(f"Invalid Decimal value: '{value_str}'. Setting to None.")
+                    return None
+            return None
+
+        # Helper to safely convert to int, handling empty strings and "NULL"
+        def safe_int(value_str):
+            if value_str and value_str.lower() != "null":
+                try:
+                    return int(value_str)
+                except ValueError:
+                    logger.warning(f"Invalid Integer value: '{value_str}'. Setting to None.")
+                    return None
+            return None
+
+        offers_to_add.append(
+            GProductBestOffer(
+                product_id=safe_int(row["product_id"]),
+                best_unit_price_per_kg=safe_decimal(row["best_unit_price_per_kg"]),
+                best_unit_price_per_l=safe_decimal(row["best_unit_price_per_l"]),
+                best_unit_price_per_piece=safe_decimal(row["best_unit_price_per_piece"]),
+                best_price_store_id=safe_int(row["best_price_store_id"]),
+                best_price_found_at=datetime.fromisoformat(row["best_price_found_at"]) if row["best_price_found_at"] else None,
+            )
+        )
+    
+    added_count = await db.add_many_g_product_best_offers(offers_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} g_product_best_offers from {csv_path.name} in {dt} seconds")
+
+
 async def main():
     """
     Data enrichment tool for the price service API.
@@ -409,9 +583,9 @@ async def main():
     parser.add_argument(
         "--type",
         type=str,
-        choices=["products", "stores", "users", "user-locations", "search-keywords"],
+        choices=["products", "stores", "users", "user-locations", "search-keywords", "g_products", "g_prices", "g_product-best-offers"],
         required=True,
-        help="Type of data to enrich (products, stores, users, user-locations, search-keywords)",
+        help="Type of data to enrich (products, stores, users, user-locations, search-keywords, g_products, g_prices, g_product-best-offers)",
     )
 
     parser.add_argument(
@@ -439,6 +613,12 @@ async def main():
             await enrich_user_locations(args.csv_file)
         elif args.type == "search-keywords":
             await enrich_search_keywords(args.csv_file)
+        elif args.type == "g_products":
+            await enrich_g_products(args.csv_file)
+        elif args.type == "g_prices":
+            await enrich_prices(args.csv_file)
+        elif args.type == "g_product-best-offers":
+            await enrich_product_best_offers(args.csv_file)
     finally:
         await db.close()
 

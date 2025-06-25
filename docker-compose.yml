@@ -9,6 +9,8 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./service/db/psql.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/db/init-croatian-fts.sh:/docker-entrypoint-initdb.d/init-croatian-fts.sh
+      - ./docker/db/croatian.stop:/usr/share/postgresql/16/tsearch_data/croatian.stop
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 5s
@@ -59,6 +61,7 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json
+      - db_backups:/var/lib/pgadmin/backups
 
   backup:
     image: postgis/postgis:16-3.4

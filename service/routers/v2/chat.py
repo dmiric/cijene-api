@@ -55,12 +55,20 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     history = await db.get_chat_messages(user_id, session_id, limit=20)
     debug_print(f"Retrieved {len(history)} messages for session {session_id}")
 
-    # Define system message
-    system_message_content = "\n".join(INITIAL_SYSTEM_INSTRUCTIONS)
+    # Start with the static instructions from the new file
+    system_instructions = INITIAL_SYSTEM_INSTRUCTIONS.copy() 
+
+    # Add the dynamic instruction with the current user's ID
+    system_instructions.append(
+        f"VAŽNO: ID trenutnog korisnika je {user_id}. Uvijek koristi ovaj ID kada pozivaš alate koji zahtijevaju user_id."
+    )
+
+    # Define system message (for debugging/logging, not directly used by AI models)
+    system_message_content = "\n".join(system_instructions)
 
     # Format history for AI model
     ai_history = []
-    for instruction in INITIAL_SYSTEM_INSTRUCTIONS:
+    for instruction in system_instructions:
         if openai_client:
             ai_history.append({"role": "system", "content": instruction})
         elif gemini_client:
@@ -80,10 +88,19 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     {"id": "call_id_placeholder", "function": {"name": msg.tool_calls["name"], "arguments": json.dumps(msg.tool_calls["args"])}}
                 ]})
         elif msg.sender == "tool_output" and msg.tool_outputs:
+            # Ensure tool_outputs is a dictionary, not a string
+            tool_output_data = msg.tool_outputs
+            if isinstance(tool_output_data, str):
+                try:
+                    tool_output_data = json.loads(tool_output_data)
+                except json.JSONDecodeError:
+                    debug_print(f"Error decoding tool_outputs string: {tool_output_data}")
+                    continue # Skip this message if it's malformed JSON
+
             if gemini_client:
                 # The content of the response should be a dictionary, not a JSON string.
                 # The pydantic_to_dict helper should have already serialized it correctly.
-                response_content = msg.tool_outputs.get("content")
+                response_content = tool_output_data.get("content")
                 
                 # CORRECT STRUCTURE for Gemini:
                 # The "role" is "user" for the message containing the tool result,
@@ -92,7 +109,7 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     "role": "user",  # The role for the turn that PROVIDES the tool output is 'user'
                     "parts": [{
                         "function_response": {
-                            "name": msg.tool_outputs.get("name"),
+                            "name": tool_output_data.get("name"),
                             "response": response_content # Pass the dictionary directly, not nested under 'content'
                         }
                     }]
@@ -102,89 +119,101 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                 ai_history.append({
                     "role": "tool", 
                     "tool_call_id": "call_id_placeholder", 
-                    "content": json.dumps(msg.tool_outputs.get("content"))
+                    "content": json.dumps(tool_output_data.get("content"))
                 })
     
     ai_history.append({"role": "user", "parts": [user_message_text]})
 
     async def event_stream():
         full_ai_response_text = ""
-        tool_call_occurred = False
-        tool_call_info = None
-        tool_output_info = None
+        
+        # Loop to handle multi-turn tool orchestration within a single user request
+        while True:
+            tool_call_occurred_in_turn = False
+            current_tool_call_info = None
+            tool_outputs_for_history = [] # Collect tool outputs for this turn
 
-        try:
-            if gemini_client:
-                debug_print("Calling Gemini API (v2)...")
-                response_stream = gemini_client.generate_content(
-                    ai_history,
-                    tools=gemini_tools,
-                    stream=True
-                )
-            elif openai_client:
-                debug_print("Calling OpenAI API (v2)...")
-                openai_messages = []
-                for msg in ai_history:
-                    if msg["role"] == "user":
-                        openai_messages.append({"role": "user", "content": msg["parts"][0]})
-                    elif msg["role"] == "model":
-                        if "functionCall" in msg["parts"][0]:
-                            openai_messages.append({"role": "assistant", "tool_calls": [
-                                {"id": "call_id_placeholder", "function": {"name": msg["parts"][0]["functionCall"]["name"], "arguments": json.dumps(msg["parts"][0]["functionCall"]["args"])}}
-                            ]})
-                        else:
-                            openai_messages.append({"role": "assistant", "content": msg["parts"][0]})
-                    elif msg["role"] == "function":
-                        openai_messages.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(msg["content"])})
-                    elif msg["role"] == "system":
-                        openai_messages.append({"role": "system", "content": msg["content"]}) # Corrected for system message content
-
-                response_stream = openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=openai_messages,
-                    tools=openai_tools,
-                    tool_choice="auto",
-                    stream=True
-                )
-            else:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran.'})}\n\n"
-                return
-
-            for chunk in response_stream:
+            try:
+                # Make AI call
                 if gemini_client:
-                    if chunk.candidates and chunk.candidates[0].content.parts:
-                        for part in chunk.candidates[0].content.parts:
-                            if part.function_call:
-                                tool_call_occurred = True
-                                tool_call_info = {
-                                    "name": part.function_call.name,
-                                    "args": {k: v for k, v in part.function_call.args.items()}
-                                }
-                                debug_print(f"AI requested tool call: {tool_call_info}")
-                                yield f"data: {json.dumps({'type': 'tool_call', 'content': tool_call_info})}\n\n"
-                            elif part.text:
-                                full_ai_response_text += part.text
-                                yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
+                    debug_print("Calling Gemini API (v2)...")
+                    response_stream = gemini_client.generate_content(
+                        ai_history,
+                        tools=gemini_tools,
+                        stream=True
+                    )
                 elif openai_client:
-                    if chunk.choices:
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            full_ai_response_text += delta.content
-                            yield f"data: {json.dumps({'type': 'text', 'content': delta.content})}\n\n"
-                        if delta.tool_calls:
-                            tool_call_occurred = True
-                            for tc in delta.tool_calls:
-                                if tc.function:
-                                    tool_call_info = {
-                                        "name": tc.function.name,
-                                        "args": json.loads(tc.function.arguments) if tc.function.arguments else {}
-                                    }
-                                    debug_print(f"AI requested tool call: {tool_call_info}")
-                                    yield f"data: {json.dumps({'type': 'tool_call', 'content': tool_call_info})}\n\n"
+                    debug_print("Calling OpenAI API (v2)...")
+                    openai_messages = []
+                    for msg in ai_history:
+                        if msg["role"] == "user":
+                            openai_messages.append({"role": "user", "content": msg["parts"][0]})
+                        elif msg["role"] == "model":
+                            if "functionCall" in msg["parts"][0]:
+                                openai_messages.append({"role": "assistant", "tool_calls": [
+                                    {"id": "call_id_placeholder", "function": {"name": msg["parts"][0]["functionCall"]["name"], "arguments": json.dumps(msg["parts"][0]["functionCall"]["args"])}}
+                                ]})
+                            else:
+                                openai_messages.append({"role": "assistant", "content": msg["parts"][0]})
+                        elif msg["role"] == "function":
+                            openai_messages.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(msg["content"])})
+                        elif msg["role"] == "system":
+                            openai_messages.append({"role": "system", "content": msg["content"]})
 
-            if tool_call_occurred and tool_call_info:
-                tool_name = tool_call_info["name"]
-                tool_args = tool_call_info["args"]
+                    response_stream = openai_client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=openai_messages,
+                        tools=openai_tools,
+                        tool_choice="auto",
+                        stream=True
+                    )
+                else:
+                    yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran.'})}\n\n"
+                    break # Exit loop on error
+
+                # Process AI response chunks
+                for chunk in response_stream:
+                    if gemini_client:
+                        if chunk.candidates and chunk.candidates[0].content.parts:
+                            for part in chunk.candidates[0].content.parts:
+                                if part.function_call:
+                                    tool_call_occurred_in_turn = True
+                                    current_tool_call_info = {
+                                        "name": part.function_call.name,
+                                        "args": {k: v for k, v in part.function_call.args.items()}
+                                    }
+                                    debug_print(f"AI requested tool call: {current_tool_call_info}")
+                                    yield f"data: {json.dumps({'type': 'tool_call', 'content': current_tool_call_info})}\n\n"
+                                elif part.text:
+                                    full_ai_response_text += part.text
+                                    yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
+                    elif openai_client:
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            if delta.content:
+                                full_ai_response_text += delta.content
+                                yield f"data: {json.dumps({'type': 'text', 'content': delta.content})}\n\n"
+                            if delta.tool_calls:
+                                tool_call_occurred_in_turn = True
+                                for tc in delta.tool_calls:
+                                    if tc.function:
+                                        current_tool_call_info = {
+                                            "name": tc.function.name,
+                                            "args": json.loads(tc.function.arguments) if tc.function.arguments else {}
+                                        }
+                                        debug_print(f"AI requested tool call: {current_tool_call_info}")
+                                        yield f"data: {json.dumps({'type': 'tool_call', 'content': current_tool_call_info})}\n\n"
+                
+                # Check if AI requested a tool call in this turn
+                if not tool_call_occurred_in_turn:
+                    # If no tool call occurred, the AI is done with its thought process for this turn.
+                    # Break the loop to save the final text response and end the stream.
+                    debug_print("AI turn finished without a tool call. Exiting loop.")
+                    break
+                
+                # --- If we are here, a tool call occurred, so execute it and continue the loop ---
+                tool_name = current_tool_call_info["name"]
+                tool_args = current_tool_call_info["args"]
 
                 # Override user_id for get_user_locations tool with the actual user_id from the request
                 if tool_name == "get_user_locations":
@@ -203,13 +232,19 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                 )
                 await db.save_chat_message(tool_call_chat_message)
 
-                if tool_name in available_tools:
-                    debug_print(f"Executing tool: {tool_name} with args: {tool_args}")
+                if tool_name not in available_tools:
+                    error_message = f"Alat '{tool_name}' nije pronađen."
+                    debug_print(error_message)
+                    yield f"data: {json.dumps({'type': 'error', 'content': error_message})}\n\n"
+                    full_ai_response_text = error_message # Set error to break loop
+                    break
+                else:
+                    # Execute the primary tool
                     tool_output = await available_tools[tool_name](**tool_args)
-                    debug_print(f"Tool output: {tool_output}")
                     tool_output_info = {"name": tool_name, "content": tool_output}
-                    yield f"data: {json.dumps({'type': 'tool_output', 'content': tool_output_info})}\n\n"
-
+                    debug_print(f"Tool output: {tool_output}")
+                    
+                    # Save this first tool's output to the database and yield to the client
                     tool_output_chat_message = ChatMessage(
                         id=str(uuid4()),
                         user_id=user_id,
@@ -221,199 +256,84 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                         tool_outputs=tool_output_info,
                     )
                     await db.save_chat_message(tool_output_chat_message)
+                    yield f"data: {json.dumps({'type': 'tool_output', 'content': tool_output_info})}\n\n"
+                    tool_outputs_for_history.append(tool_output_info)
 
-                    # --- RESTRUCTURED ORCHESTRATION AND FOLLOW-UP LOGIC ---
-
-                    # PATH 1: Handle the special multi-turn location-based search
-                    if tool_name == "get_user_locations":
-                        locations = tool_output_info["content"]
-                        if locations and len(locations.get("locations", [])) > 0:
-                            first_location = locations["locations"][0]
+                    # --- Programmatic Orchestration for Location Search (chained call) ---
+                    # If the AI called get_user_locations, immediately call find_nearby_stores_v2
+                    if tool_name == "get_user_locations" and "error" not in tool_output:
+                        locations = tool_output.get("locations", [])
+                        if locations:
+                            first_location = locations[0]
                             lat = first_location.get("latitude")
                             lon = first_location.get("longitude")
 
                             if lat is not None and lon is not None:
-                                # This is the "happy path" for location search.
-                                # Perform the multi-step orchestration and make the follow-up call.
-                                debug_print(f"Found user location: lat={lat}, lon={lon}. Calling find_nearby_stores_tool_v2...")
+                                debug_print(f"Found user location: lat={lat}, lon={lon}. Programmatically calling find_nearby_stores_tool_v2...")
                                 nearby_stores_output = await find_nearby_stores_tool_v2(lat=float(lat), lon=float(lon), radius_meters=1500)
+                                nearby_stores_info = {"name": "find_nearby_stores_v2", "content": nearby_stores_output}
                                 debug_print(f"Nearby stores output: {nearby_stores_output}")
-
-                                # Append both tool outputs to history
-                                if gemini_client:
-                                    ai_history.append({
-                                        "role": "user",
-                                        "parts": [{
-                                            "function_response": {
-                                                "name": "get_user_locations",
-                                                "response": tool_output_info["content"] # Pass directly
-                                            }
-                                        }]
-                                    })
-                                    ai_history.append({
-                                        "role": "user",
-                                        "parts": [{
-                                            "function_response": {
-                                                "name": "find_nearby_stores_v2",
-                                                "response": nearby_stores_output # Pass directly
-                                            }
-                                        }]
-                                    })
-                                elif openai_client:
-                                    ai_history.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(tool_output_info["content"])})
-                                    ai_history.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(nearby_stores_output)})
                                 
-                                # Re-add user message
-                                ai_history.append({"role": "user", "parts": [user_message_text]})
-
-                                # Make a dedicated follow-up AI call
-                                debug_print("Making dedicated follow-up AI call for location orchestration...")
-                                follow_up_response_text = ""
-                                if gemini_client:
-                                    follow_up_stream = gemini_client.generate_content(
-                                        ai_history,
-                                        tools=gemini_tools,
-                                        stream=True
-                                    )
-                                elif openai_client:
-                                    openai_messages_follow_up = []
-                                    for msg in ai_history:
-                                        if msg["role"] == "user":
-                                            openai_messages_follow_up.append({"role": "user", "content": msg["parts"][0]})
-                                        elif msg["role"] == "model":
-                                            if "functionCall" in msg["parts"][0]:
-                                                openai_messages_follow_up.append({"role": "assistant", "tool_calls": [
-                                                    {"id": "call_id_placeholder", "function": {"name": msg["parts"][0]["functionCall"]["name"], "arguments": json.dumps(msg["parts"][0]["functionCall"]["args"])}}
-                                                ]})
-                                            else:
-                                                openai_messages_follow_up.append({"role": "assistant", "content": msg["parts"][0]})
-                                        elif msg["role"] == "function":
-                                            openai_messages_follow_up.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(msg["content"])})
-                                        elif msg["role"] == "system":
-                                            openai_messages_follow_up.append({"role": "system", "content": msg["content"]})
-
-                                    follow_up_stream = openai_client.chat.completions.create(
-                                        model="gpt-3.5-turbo",
-                                        messages=openai_messages_follow_up,
-                                        tools=openai_tools,
-                                        tool_choice="auto",
-                                        stream=True
-                                    )
-                                else:
-                                    yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran za nastavak.'})}\n\n"
-                                    return
-
-                                for follow_up_chunk in follow_up_stream:
-                                    if gemini_client:
-                                        if follow_up_chunk.candidates and follow_up_chunk.candidates[0].content.parts:
-                                            for part in follow_up_chunk.candidates[0].content.parts:
-                                                if part.text:
-                                                    follow_up_response_text += part.text
-                                                    yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
-                                    elif openai_client:
-                                        if follow_up_chunk.choices:
-                                            delta = follow_up_chunk.choices[0].delta
-                                            if delta.content:
-                                                follow_up_response_text += delta.content
-                                                yield f"data: {json.dumps({'type': 'text', 'content': delta.content})}\n\n"
-                                full_ai_response_text = follow_up_response_text # Set the final response text
+                                # Save the second tool's output message to the DB
+                                nearby_stores_chat_message = ChatMessage(
+                                    id=str(uuid4()),
+                                    user_id=user_id,
+                                    session_id=str(session_id),
+                                    sender="tool_output",
+                                    message_text=f"Tool output for find_nearby_stores_v2: {nearby_stores_output}",
+                                    timestamp=datetime.datetime.now(datetime.timezone.utc),
+                                    tool_calls=None,
+                                    tool_outputs=nearby_stores_info,
+                                )
+                                await db.save_chat_message(nearby_stores_chat_message)
+                                yield f"data: {json.dumps({'type': 'tool_output', 'content': nearby_stores_info})}\n\n"
+                                
+                                tool_outputs_for_history.append(nearby_stores_info)
                             else:
                                 debug_print("User location found but missing lat/lon. Informing user.")
                                 full_ai_response_text = "Pronašao/pronašla sam vašu spremljenu lokaciju, ali nedostaju zemljopisna širina i dužina. Ažurirajte detalje lokacije kako biste omogućili pretraživanje temeljeno na lokaciji."
                         else:
                             debug_print("No user locations found. Informing user.")
                             full_ai_response_text = "Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji."
-                    
-                    # PATH 2: Handle the general follow-up for ALL OTHER tools
-                    else: # This 'else' block now correctly handles every tool *except* get_user_locations.
-                        debug_print("Making general follow-up AI call with tool output...")
-                        follow_up_response_text = ""
-                        # Add the current tool output to history before making the follow-up call
+                
+                    # Append all collected tool outputs to the history for the next AI turn
+                    for tool_out in tool_outputs_for_history:
                         if gemini_client:
                             ai_history.append({
                                 "role": "user",
                                 "parts": [{
                                     "function_response": {
-                                        "name": tool_output_info["name"],
-                                        "response": tool_output_info["content"] # Pass directly
+                                        "name": tool_out["name"],
+                                        "response": tool_out["content"]
                                     }
                                 }]
                             })
                         elif openai_client:
-                            ai_history.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(tool_output_info["content"])})
+                            ai_history.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(tool_out["content"])})
+                    
+                    # The loop will continue, effectively re-prompting the AI with the updated history.
+                    # No explicit 'continue' needed here as it's the end of the 'if' block.
 
-                        if gemini_client:
-                            follow_up_stream = gemini_client.generate_content(
-                                ai_history,
-                                tools=gemini_tools,
-                                stream=True
-                            )
-                        elif openai_client:
-                            openai_messages_follow_up = []
-                            for msg in ai_history:
-                                if msg["role"] == "user":
-                                    openai_messages_follow_up.append({"role": "user", "content": msg["parts"][0]})
-                                elif msg["role"] == "model":
-                                    if "functionCall" in msg["parts"][0]:
-                                        openai_messages_follow_up.append({"role": "assistant", "tool_calls": [
-                                            {"id": "call_id_placeholder", "function": {"name": msg["parts"][0]["functionCall"]["name"], "arguments": json.dumps(msg["parts"][0]["functionCall"]["args"])}}
-                                        ]})
-                                    else:
-                                        openai_messages_follow_up.append({"role": "assistant", "content": msg["parts"][0]})
-                                elif msg["role"] == "function":
-                                    openai_messages_follow_up.append({"role": "tool", "tool_call_id": "call_id_placeholder", "content": json.dumps(msg["content"])})
-                                elif msg["role"] == "system":
-                                    openai_messages_follow_up.append({"role": "system", "content": msg["content"]})
+            except Exception as e:
+                debug_print(f"Error in event_stream: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                break # Break loop on exception
 
-                            follow_up_stream = openai_client.chat.completions.create(
-                                model="gpt-3.5-turbo",
-                                messages=openai_messages_follow_up,
-                                tools=openai_tools,
-                                tool_choice="auto",
-                                stream=True
-                            )
-                        else:
-                            yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran za nastavak.'})}\n\n"
-                            return
-
-                        for follow_up_chunk in follow_up_stream:
-                            if gemini_client:
-                                if follow_up_chunk.candidates and follow_up_chunk.candidates[0].content.parts:
-                                    for part in follow_up_chunk.candidates[0].content.parts:
-                                        if part.text:
-                                            follow_up_response_text += part.text
-                                            yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
-                            elif openai_client:
-                                if follow_up_chunk.choices:
-                                    delta = follow_up_chunk.choices[0].delta
-                                    if delta.content:
-                                        follow_up_response_text += delta.content
-                                        yield f"data: {json.dumps({'type': 'text', 'content': delta.content})}\n\n"
-                        full_ai_response_text = follow_up_response_text
-                else:
-                    error_message = f"Alat '{tool_name}' nije pronađen."
-                    debug_print(error_message)
-                    yield f"data: {json.dumps({'type': 'error', 'content': error_message})}\n\n"
-                    full_ai_response_text = error_message
-
-            if full_ai_response_text:
-                ai_chat_message = ChatMessage(
-                    id=str(uuid4()),
-                    user_id=user_id,
-                    session_id=str(session_id),
-                    sender="ai",
-                    message_text=full_ai_response_text,
-                    timestamp=datetime.datetime.now(datetime.timezone.utc),
-                    tool_calls=None,
-                    tool_outputs=None,
-                )
-                await db.save_chat_message(ai_chat_message)
-            
-            yield f"data: {json.dumps({'type': 'end', 'session_id': str(session_id)})}\n\n"
-
-        except Exception as e:
-            debug_print(f"Error in chat_endpoint_v2: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        # Save AI's final text response to DB (after loop breaks)
+        if full_ai_response_text:
+            ai_chat_message = ChatMessage(
+                id=str(uuid4()),
+                user_id=user_id,
+                session_id=str(session_id),
+                sender="ai",
+                message_text=full_ai_response_text,
+                timestamp=datetime.datetime.now(datetime.timezone.utc),
+                tool_calls=None,
+                tool_outputs=None,
+            )
+            await db.save_chat_message(ai_chat_message)
+        
+        yield f"data: {json.dumps({'type': 'end', 'session_id': str(session_id)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 print("<<< Finished importing in chat_v2.py")
