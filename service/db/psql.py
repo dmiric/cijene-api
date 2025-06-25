@@ -30,6 +30,7 @@ from .models import (
     UserLocation,
     ChatMessage, # Added ChatMessage
     UserPreference, # Added UserPreference
+    SearchKeyword, # Added SearchKeyword
 )
 
 
@@ -673,6 +674,7 @@ class PostgresDatabase(Database):
                     p.regular_price,
                     p.special_price,
                     p.unit_price,
+                    p.best_price_30, -- Add best_price_30
                     p.anchor_price -- Added anchor_price
                 FROM prices p
                 JOIN chain_products cpr ON p.chain_product_id = cpr.id
@@ -934,7 +936,7 @@ class PostgresDatabase(Database):
         Returns:
             The created User object.
         """
-        api_key = str(uuid.uuid4()) # Generate a random UUID for the API key
+        api_key = str(uuid4()) # Generate a random UUID for the API key
         created_at = datetime.now()
         is_active = True # New users are active by default
 
@@ -1121,3 +1123,144 @@ class PostgresDatabase(Database):
                 {"ean": row["ean"], "product_name": row["product_name"], "brand_name": row["brand_name"]}
                 for row in rows
             ]
+
+    async def add_many_users(self, users: List[User]) -> int:
+        """
+        Bulk insert users into the database.
+        On conflict (id), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_users (
+                    id INTEGER,
+                    name VARCHAR(255),
+                    api_key VARCHAR(64),
+                    is_active BOOLEAN,
+                    created_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_users",
+                records=(
+                    (
+                        u.id,
+                        u.name,
+                        u.api_key,
+                        u.is_active,
+                        u.created_at,
+                    )
+                    for u in users
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO users(id, name, api_key, is_active, created_at)
+                SELECT * from temp_users
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_users")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount
+
+    async def add_many_user_locations(self, locations: List[UserLocation]) -> int:
+        """
+        Bulk insert user locations into the database.
+        On conflict (id), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_user_locations (
+                    id INTEGER,
+                    user_id INTEGER,
+                    address TEXT,
+                    city TEXT,
+                    state TEXT,
+                    zip_code TEXT,
+                    country TEXT,
+                    latitude DECIMAL(10, 7),
+                    longitude DECIMAL(10, 7),
+                    location_name TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE,
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_user_locations",
+                records=(
+                    (
+                        loc.id,
+                        loc.user_id,
+                        loc.address,
+                        loc.city,
+                        loc.state,
+                        loc.zip_code,
+                        loc.country,
+                        loc.latitude,
+                        loc.longitude,
+                        loc.location_name,
+                        loc.created_at,
+                        loc.updated_at,
+                    )
+                    for loc in locations
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO user_locations(
+                    id, user_id, address, city, state, zip_code, country,
+                    latitude, longitude, location_name, created_at, updated_at
+                )
+                SELECT * from temp_user_locations
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_user_locations")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount
+
+    async def add_many_search_keywords(self, keywords: List[SearchKeyword]) -> int:
+        """
+        Bulk insert search keywords into the database.
+        On conflict (ean, keyword), do nothing.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                CREATE TEMP TABLE temp_search_keywords (
+                    id INTEGER,
+                    ean VARCHAR(255),
+                    keyword TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+            await conn.copy_records_to_table(
+                "temp_search_keywords",
+                records=(
+                    (
+                        sk.id,
+                        sk.ean,
+                        sk.keyword,
+                        sk.created_at,
+                    )
+                    for sk in keywords
+                ),
+            )
+            result = await conn.execute(
+                """
+                INSERT INTO search_keywords(id, ean, keyword, created_at)
+                SELECT * from temp_search_keywords
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+            await conn.execute("DROP TABLE temp_search_keywords")
+            _, _, rowcount = result.split(" ")
+            rowcount = int(rowcount)
+            return rowcount

@@ -1,0 +1,16 @@
+# We recommend using a stable version like 16 instead of the development version 17
+# for better extension compatibility and stability.
+FROM postgis/postgis:16-3.4
+# The pgvector extension needs to be installed.
+# The package name must match the PostgreSQL version (e.g., postgresql-16-pgvector for PG16).
+# We also need build-essential and git to compile it from source if a pre-built package isn't available.
+# Let's try the packaged version first as it's cleaner.
+# Switch to root user to install packages
+USER root
+# Update package lists and install pgvector
+# Note: For Debian/Ubuntu-based images.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-16-pgvector \
+    && rm -rf /var/lib/apt/lists/*
+# Switch back to the default postgres user
+USER postgres

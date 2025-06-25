@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import logging
+import uuid
 from service.config import settings
 from service.db.psql import PostgresDatabase
 

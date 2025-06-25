@@ -13,6 +13,8 @@ else
 endif
 
 DATE ?= $(shell date +%Y-%m-%d)
+# Define default excluded volumes for rebuild-everything
+EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data
 #Near by
 LAT ?= 45.29278835973543
 LON ?= 18.791376990006086
@@ -21,7 +23,7 @@ RADIUS ?= 1500
 STORE_IDS ?= 107,616
 QUERY ?= kokos
 API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
-SEARCH_DATE ?= 
+SEARCH_DATE ?=
 # Search keywords
 LIMIT ?= 100
 PRODUCT_NAME_FILTER ?= kokos
@@ -33,13 +35,16 @@ help: ## Display this help message
 	@grep -E '^(## .*$$|[a-zA-Z_-]+:.*?## .*$$)' $(MAKEFILE_LIST) | sort | sed -E 's/^(## .*)$$/\x1b[33m\1\x1b[0m\n/;s/^(.*?):.*?## (.*)$$/\x1b[36m\1\x1b[0m              \2/'
 
 ## Brand new start:
+## For development use make dev-fresh-start
 ## make rebuild-everything
+## make migrate-db
 ## make crawl-all
-## make unzip-crawler-output
 ## make import-data
 ## make enrich-data
 ## make geocode-stores
-## make restore-tables
+## make enrich CSV_FILE=./backups/users.csv TYPE=users
+## make enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+## make enrich CSV_FILE=./backups/search_keywords.csv TYPE=search-keywords
 ## make migrate-db
 
 ## Docker & Build Commands
@@ -65,17 +70,48 @@ endif
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
-rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation
+rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation. Use EXCLUDE_VOLUMES="vol1,vol2" to preserve volumes.
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh -File ./scripts/rebuild.ps1; \
+		pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes "$(EXCLUDE_VOLUMES)"; \
 	else \
-		bash ./scripts/rebuild.sh; \
+		bash ./scripts/rebuild.sh --exclude="$(EXCLUDE_VOLUMES)"; \
 	fi
+
+dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
+	@echo "Starting development fresh start..."
+	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
+
+	@echo "Applying database migrations..."
+	$(MAKE) migrate-db
+
+	@echo "Checking for existing crawled data..."
+	@if [ ! -f "./output/$(DATE).zip" ]; then \
+		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+		$(MAKE) crawl-sample; \
+	else \
+		echo "Existing zip found: ./output/$(DATE).zip"; \
+	fi
+
+	@echo "Importing data..."
+	$(MAKE) import-data
+
+	@echo "Enriching data..."
+	$(MAKE) enrich-data
+
+	@echo "Geocoding stores..."
+	$(MAKE) geocode-stores
+
+	@echo "Enriching users, user locations, and search keywords from backups..."
+	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
+	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+	$(MAKE) enrich CSV_FILE=./backups/search_keywords.csv TYPE=search-keywords
+
+	@echo "Development fresh start completed."
 
 
 ## Crawler Commands
 crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output to logs/crawler_console.log
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain dm,lidl > logs/crawler_console.log 2>&1
+	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain spar,lidl,kaufland > logs/crawler_console.log 2>&1
 	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
 
 crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
@@ -86,8 +122,8 @@ import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --stores enrichment/stores.csv
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --products enrichment/products.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type products ./enrichment/products.csv
 
 
 ## Database Commands
@@ -144,8 +180,13 @@ unzip-crawler-output: ## Unzips the latest crawled data on the host. Usage: make
 	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
 		unzip -o './output/$(DATE).zip' -d './output/$(DATE)_unzipped'; \
 	else \
-		pwsh -Command "Expand-Archive -Path './output/$(DATE).zip' -DestinationPath './output/$(DATE)_unzipped' -Force"; \
+		pwsh -Command "Expand-Archive -Path '$(CURDIR)/output/$(DATE).zip' -DestinationPath '$(CURDIR)/output/$(DATE)_unzipped' -Force"; \
 	fi
+
+enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=products|stores|users|user-locations|search-keywords
+	@if [ -z "$(CSV_FILE)" ]; then echo "Error: CSV_FILE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
+	@if [ -z "$(TYPE)" ]; then echo "Error: TYPE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type $(TYPE) $(CSV_FILE)
 
 
 ## API & User Commands
@@ -205,7 +246,7 @@ logs-crawler-console: ## Continuously display console output from logs/crawler_c
 
 ## SSH Commands
 ssh-server: ## SSH into the VPS server
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh $(SSH_USER)@$(SSH_IP)
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 $(SSH_USER)@$(SSH_IP)
 
 upload-database-dump: ## Upload the latest full database dump to the remote server. Usage: make upload-database-dump [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@echo "Finding latest database dump..."

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import logging
 import sys # Import sys for stdout
 
+from decimal import Decimal # Import Decimal
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.exceptions import HTTPException
@@ -35,6 +36,14 @@ app = FastAPI(
         "securitySchemes": {"HTTPBearer": {"type": "http", "scheme": "bearer"}}
     },
 )
+
+# Custom JSON serializer for Decimal objects
+def json_decimal_encoder(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+app.json_encoder = json_decimal_encoder
 
 # Add CORS middleware to allow all origins
 app.add_middleware(

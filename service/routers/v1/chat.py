@@ -15,6 +15,7 @@ import google.generativeai as genai
 from openai import OpenAI
 
 from service.config import settings
+from service.routers.v1.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
 from service.db.models import ChainStats, ProductWithId, StorePrice, User, UserLocation, ChatMessage, UserPreference
 from service.routers.auth import verify_authentication
 from fastapi.responses import StreamingResponse
@@ -38,7 +39,7 @@ if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     gemini_client = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
 else:
-    debug_print("GOOGLE_API_KEY not found. Gemini client not initialized.")
+    debug_print("GOOGLE_API_KEY nije pronađen. Gemini klijent nije inicijaliziran.")
     gemini_client = None
 
 # OpenAI
@@ -46,7 +47,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if OPENAI_API_KEY:
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
 else:
-    debug_print("OPENAI_API_KEY not found. OpenAI client not initialized.")
+    debug_print("OPENAI_API_KEY nije pronađen. OpenAI klijent nije inicijaliziran.")
     openai_client = None
 
 
@@ -178,14 +179,14 @@ gemini_tools = [
         "function_declarations": [
             {
                 "name": "search_products",
-                "description": "Search for products by name.",
+                "description": "Pretraživanje proizvoda po nazivu.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "q": {"type": "string", "description": "Search query for product names."},
-                        "date": {"type": "string", "format": "date-time", "description": "Date in YYYY-MM-DD format, defaults to today."},
-                        "chains": {"type": "string", "description": "Comma-separated list of chain codes to include."},
-                        "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter by."},
+                        "q": {"type": "string", "description": "Upit za pretraživanje naziva proizvoda."},
+                        "date": {"type": "string", "format": "date-time", "description": "Datum u formatu GGGG-MM-DD, zadano je današnji datum."},
+                        "chains": {"type": "string", "description": "Popis kodova lanaca odvojenih zarezima za uključivanje."},
+                        "store_ids": {"type": "string", "description": "Popis ID-ova trgovina odvojenih zarezima za filtriranje."},
                     },
                     "required": ["q"],
                 },
@@ -196,14 +197,14 @@ gemini_tools = [
         "function_declarations": [
             {
                 "name": "list_nearby_stores",
-                "description": "Finds and lists stores within a specified radius of a given lat/lon. Results are ordered by distance from the center point.",
+                "description": "Pronalazi i popisuje trgovine unutar određenog radijusa od zadane zemljopisne širine/dužine. Rezultati su poredani po udaljenosti od središnje točke.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "lat": {"type": "number", "format": "float", "description": "Latitude of the center point."},
-                        "lon": {"type": "number", "format": "float", "description": "Longitude of the center point."},
-                        "radius_meters": {"type": "integer", "description": "Radius in meters to search within."},
-                        "chain_code": {"type": "string", "description": "Optional: Filter by chain code."},
+                        "lat": {"type": "number", "format": "float", "description": "Zemljopisna širina središnje točke."},
+                        "lon": {"type": "number", "format": "float", "description": "Zemljopisna dužina središnje točke."},
+                        "radius_meters": {"type": "integer", "description": "Radijus u metrima za pretraživanje."},
+                        "chain_code": {"type": "string", "description": "Neobavezno: Filtriranje po kodu lanca."},
                     },
                     "required": ["lat", "lon", "radius_meters"],
                 },
@@ -214,13 +215,13 @@ gemini_tools = [
         "function_declarations": [
             {
                 "name": "save_shopping_preference",
-                "description": "Saves a user's shopping preference. Use this when the user explicitly states a preference like 'I only want full fat milk' or 'I only buy dark chocolate'.",
+                "description": "Sprema korisničke preferencije kupnje. Koristite ovo kada korisnik izričito navede preferenciju poput 'Želim samo punomasno mlijeko' ili 'Kupujem samo tamnu čokoladu'.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "integer", "description": "The ID of the user for whom to save the preference."},
-                        "preference_key": {"type": "string", "description": "A concise key for the preference (e.g., 'milk_type', 'chocolate_type', 'brand')."},
-                        "preference_value": {"type": "string", "description": "The specific value of the preference (e.g., 'full_fat', 'dark', 'Nestle')."},
+                        "user_id": {"type": "integer", "description": "ID korisnika za kojeg se sprema preferencija."},
+                        "preference_key": {"type": "string", "description": "Kratki ključ za preferenciju (npr. 'vrsta_mlijeka', 'vrsta_čokolade', 'marka')."},
+                        "preference_value": {"type": "string", "description": "Specifična vrijednost preferencije (npr. 'punomasno', 'tamna', 'Nestle')."},
                     },
                     "required": ["user_id", "preference_key", "preference_value"],
                 },
@@ -231,11 +232,11 @@ gemini_tools = [
         "function_declarations": [
             {
                 "name": "get_user_locations",
-                "description": "Retrieves a user's saved locations.",
+                "description": "Dohvaća spremljene lokacije korisnika.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "integer", "description": "The ID of the user."},
+                        "user_id": {"type": "integer", "description": "ID korisnika."},
                     },
                     "required": ["user_id"],
                 },
@@ -249,14 +250,14 @@ openai_tools = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search for products by name.",
+            "description": "Pretraživanje proizvoda po nazivu.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "q": {"type": "string", "description": "Search query for product names."},
-                    "date": {"type": "string", "format": "date-time", "description": "Date in YYYY-MM-DD format, defaults to today."},
-                    "chains": {"type": "string", "description": "Comma-separated list of chain codes to include."},
-                    "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter by."},
+                    "q": {"type": "string", "description": "Upit za pretraživanje naziva proizvoda."},
+                    "date": {"type": "string", "format": "date-time", "description": "Datum u formatu GGGG-MM-DD, zadano je današnji datum."},
+                    "chains": {"type": "string", "description": "Popis kodova lanaca odvojenih zarezima za uključivanje."},
+                    "store_ids": {"type": "string", "description": "Popis ID-ova trgovina odvojenih zarezima za filtriranje."},
                 },
                 "required": ["q"],
             },
@@ -266,14 +267,14 @@ openai_tools = [
         "type": "function",
         "function": {
             "name": "list_nearby_stores",
-            "description": "Finds and lists stores within a specified radius of a given lat/lon. Results are ordered by distance from the center point.",
+            "description": "Pronalazi i popisuje trgovine unutar određenog radijusa od zadane zemljopisne širine/dužine. Rezultati su poredani po udaljenosti od središnje točke.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "lat": {"type": "number", "format": "float", "description": "Latitude of the center point."},
-                    "lon": {"type": "number", "format": "float", "description": "Longitude of the center point."},
-                    "radius_meters": {"type": "integer", "description": "Radius in meters to search within."},
-                    "chain_code": {"type": "string", "description": "Optional: Filter by chain code."},
+                    "lat": {"type": "number", "format": "float", "description": "Zemljopisna širina središnje točke."},
+                    "lon": {"type": "number", "format": "float", "description": "Zemljopisna dužina središnje točke."},
+                    "radius_meters": {"type": "integer", "description": "Radijus u metrima za pretraživanje."},
+                    "chain_code": {"type": "string", "description": "Neobavezno: Filtriranje po kodu lanca."},
                 },
                 "required": ["lat", "lon", "radius_meters"],
             },
@@ -283,13 +284,13 @@ openai_tools = [
         "type": "function",
         "function": {
             "name": "save_shopping_preference",
-            "description": "Saves a user's shopping preference. Use this when the user explicitly states a preference like 'I only want full fat milk' or 'I only buy dark chocolate'.",
+            "description": "Sprema korisničke preferencije kupnje. Koristite ovo kada korisnik izričito navede preferenciju poput 'Želim samo punomasno mlijeko' ili 'Kupujem samo tamnu čokoladu'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_id": {"type": "integer", "description": "The ID of the user for whom to save the preference."},
-                    "preference_key": {"type": "string", "description": "A concise key for the preference (e.g., 'milk_type', 'chocolate_type', 'brand')."},
-                    "preference_value": {"type": "string", "description": "The specific value of the preference (e.g., 'full_fat', 'dark', 'Nestle')."},
+                    "user_id": {"type": "integer", "description": "ID korisnika za kojeg se sprema preferencija."},
+                    "preference_key": {"type": "string", "description": "Kratki ključ za preferenciju (npr. 'vrsta_mlijeka', 'vrsta_čokolade', 'marka')."},
+                    "preference_value": {"type": "string", "description": "Specifična vrijednost preferencije (npr. 'punomasno', 'tamna', 'Nestle')."},
                 },
                 "required": ["user_id", "preference_key", "preference_value"],
             },
@@ -299,11 +300,11 @@ openai_tools = [
         "type": "function",
         "function": {
             "name": "get_user_locations",
-            "description": "Retrieves a user's saved locations.",
+            "description": "Dohvaća spremljene lokacije korisnika.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_id": {"type": "integer", "description": "The ID of the user."},
+                    "user_id": {"type": "integer", "description": "ID korisnika."},
                 },
                 "required": ["user_id"],
             },
@@ -341,11 +342,19 @@ async def chat_endpoint(chat_request: ChatRequest) -> StreamingResponse:
     history = await db.get_chat_messages(user_id, session_id, limit=20) # Fetch last 20 messages
     debug_print(f"Retrieved {len(history)} messages for session {session_id}")
 
+    # Define system message
+    system_message_content = "\n".join(INITIAL_SYSTEM_INSTRUCTIONS)
+
     # Format history for AI model
     ai_history = []
-    # System instructions are typically passed as a separate parameter or implicitly handled by the model.
-    # For Gemini, direct "system" role in `contents` is not standard.
-    # We will rely on the model's inherent capabilities and tool definitions.
+    # Add system messages as the first entries
+    for instruction in INITIAL_SYSTEM_INSTRUCTIONS:
+        if openai_client: # For OpenAI, use the dedicated 'system' role
+            ai_history.append({"role": "system", "content": instruction})
+        elif gemini_client: # For Gemini, we can try adding it as a user message for initial context
+            ai_history.append({"role": "user", "parts": [instruction]})
+            # For Gemini, add a model response to acknowledge the system instruction
+            ai_history.append({"role": "model", "parts": ["Razumijem. Kako vam mogu pomoći?"]})
 
     for msg in history:
         if msg.sender == "user":
@@ -405,7 +414,7 @@ async def chat_endpoint(chat_request: ChatRequest) -> StreamingResponse:
                     stream=True
                 )
             else:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'No AI client initialized.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran.'})}\n\n"
                 return
 
             for chunk in response_stream:
@@ -541,13 +550,13 @@ async def chat_endpoint(chat_request: ChatRequest) -> StreamingResponse:
                                     pass # Continue to the final AI call below
                                 else:
                                     debug_print("No nearby stores found. Informing user.")
-                                    full_ai_response_text = "I couldn't find any stores near your location. Please try a different location or broaden your search."
+                                    full_ai_response_text = "Nisam pronašao/pronašla trgovine u blizini vaše lokacije. Pokušajte s drugom lokacijom ili proširite pretragu."
                             else:
                                 debug_print("User location found but missing lat/lon. Informing user.")
-                                full_ai_response_text = "I found your saved location, but it's missing latitude and longitude. Please update your location details to enable location-based searches."
+                                full_ai_response_text = "Pronašao/pronašla sam vašu spremljenu lokaciju, ali nedostaju zemljopisna širina i dužina. Ažurirajte detalje lokacije kako biste omogućili pretraživanje temeljeno na lokaciji."
                         else:
                             debug_print("No user locations found. Informing user.")
-                            full_ai_response_text = "I couldn't find any saved locations for you. Please add a location to enable location-based searches."
+                            full_ai_response_text = "Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji."
                     
                     # Make another AI call with tool output to get a natural language response
                     # This is the general follow-up for any tool call.
@@ -590,7 +599,7 @@ async def chat_endpoint(chat_request: ChatRequest) -> StreamingResponse:
                                 stream=True
                             )
                         else:
-                            yield f"data: {json.dumps({'type': 'error', 'content': 'No AI client initialized for follow-up.'})}\n\n"
+                            yield f"data: {json.dumps({'type': 'error', 'content': 'Nijedan AI klijent nije inicijaliziran za nastavak.'})}\n\n"
                             return
 
                         for follow_up_chunk in follow_up_stream:
@@ -609,7 +618,7 @@ async def chat_endpoint(chat_request: ChatRequest) -> StreamingResponse:
                         full_ai_response_text = follow_up_response_text # Update full response for saving
 
                 else:
-                    error_message = f"Tool '{tool_name}' not found."
+                    error_message = f"Alat '{tool_name}' nije pronađen."
                     debug_print(error_message)
                     yield f"data: {json.dumps({'type': 'error', 'content': error_message})}\n\n"
                     full_ai_response_text = error_message

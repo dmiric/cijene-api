@@ -1,132 +1,231 @@
+-- DROP TABLE IF EXISTS g_product_best_offers CASCADE;
+-- DROP TABLE IF EXISTS g_prices CASCADE;
+-- DROP TABLE IF EXISTS g_products CASCADE;
+-- DROP TYPE IF EXISTS unit_type_enum CASCADE;
+-- DROP TABLE IF EXISTS chain_prices CASCADE;
+-- DROP TABLE IF EXISTS prices CASCADE;
+-- DROP TABLE IF EXISTS chain_products CASCADE;
+-- DROP TABLE IF EXISTS stores CASCADE;
+-- DROP TABLE IF EXISTS chains CASCADE;
+-- DROP TABLE IF EXISTS products CASCADE;
+-- DROP TABLE IF EXISTS users CASCADE;
+-- DROP TABLE IF EXISTS user_locations CASCADE;
+-- DROP TABLE IF EXISTS chat_messages CASCADE;
+-- DROP TABLE IF EXISTS user_preferences CASCADE;
+-- DROP TABLE IF EXISTS search_keywords CASCADE;
+-- DROP TABLE IF EXISTS schema_migrations CASCADE;
+
+CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS unaccent;
-CREATE EXTENSION IF NOT EXISTS cube;
-CREATE EXTENSION IF NOT EXISTS earthdistance;
+CREATE EXTENSION IF NOT EXISTS vector;
 
--- Create an immutable unaccent function for use in indexes
-CREATE OR REPLACE FUNCTION f_unaccent(text)
-  RETURNS text
-AS
-$$
-  SELECT unaccent($1)
-$$
-LANGUAGE sql IMMUTABLE;
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(255) PRIMARY KEY,
+    applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
 
--- Users table to store API users
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    api_key VARCHAR(64) UNIQUE NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    api_key VARCHAR(255) UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_api_key ON users (api_key);
+CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY,
+    ean VARCHAR(255) UNIQUE NOT NULL,
+    brand VARCHAR(255),
+    name TEXT,
+    quantity DECIMAL(10, 4),
+    unit VARCHAR(50)
+);
 
--- Chains table to store retailer chains
 CREATE TABLE IF NOT EXISTS chains (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(50) UNIQUE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    code VARCHAR(255) UNIQUE NOT NULL
 );
 
--- Chain stats table to store statistics of loaded data per chain
-CREATE TABLE IF NOT EXISTS chain_stats (
+CREATE TABLE IF NOT EXISTS stores (
     id SERIAL PRIMARY KEY,
-    chain_id INTEGER NOT NULL REFERENCES chains (id),
+    chain_id INTEGER NOT NULL REFERENCES chains(id),
+    code VARCHAR(255) NOT NULL,
+    type VARCHAR(255),
+    address TEXT,
+    city VARCHAR(255),
+    zipcode VARCHAR(20),
+    lat DECIMAL(10, 7),
+    lon DECIMAL(10, 7),
+    phone VARCHAR(50),
+    UNIQUE (chain_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS chain_products (
+    id SERIAL PRIMARY KEY,
+    chain_id INTEGER NOT NULL REFERENCES chains(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    code VARCHAR(255) NOT NULL,
+    name TEXT NOT NULL,
+    brand VARCHAR(255),
+    category VARCHAR(255),
+    unit VARCHAR(50),
+    quantity VARCHAR(255),
+    UNIQUE (chain_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS prices (
+    chain_product_id INTEGER NOT NULL REFERENCES chain_products(id),
+    store_id INTEGER NOT NULL REFERENCES stores(id),
+    price_date DATE NOT NULL,
+    regular_price DECIMAL(10, 2),
+    special_price DECIMAL(10, 2),
+    unit_price DECIMAL(10, 4),
+    best_price_30 DECIMAL(10, 2),
+    anchor_price DECIMAL(10, 2),
+    PRIMARY KEY (chain_product_id, store_id, price_date)
+);
+
+CREATE TABLE IF NOT EXISTS chain_prices (
+    chain_product_id INTEGER NOT NULL REFERENCES chain_products(id),
+    price_date DATE NOT NULL,
+    min_price DECIMAL(10, 2),
+    max_price DECIMAL(10, 2),
+    avg_price DECIMAL(10, 2),
+    PRIMARY KEY (chain_product_id, price_date)
+);
+
+CREATE TABLE IF NOT EXISTS chain_stats (
+    chain_id INTEGER NOT NULL REFERENCES chains(id),
     price_date DATE NOT NULL,
     price_count INTEGER NOT NULL,
     store_count INTEGER NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (chain_id, price_date)
+    PRIMARY KEY (chain_id, price_date)
 );
 
--- Stores table to store retailer locations
-CREATE TABLE IF NOT EXISTS stores (
+-- Search Keywords table to store EAN and keyword combinations
+CREATE TABLE IF NOT EXISTS search_keywords (
     id SERIAL PRIMARY KEY,
-    chain_id INTEGER NOT NULL REFERENCES chains (id),
-    code VARCHAR(100) NOT NULL,
-    type VARCHAR(100),
+    ean VARCHAR(50) NOT NULL REFERENCES products (ean),
+    keyword VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (ean, keyword)
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_keywords_ean ON search_keywords (ean);
+CREATE INDEX IF NOT EXISTS trgm_idx_search_keywords_keyword ON search_keywords USING GIN (keyword gin_trgm_ops);
+
+ALTER TABLE stores
+ADD COLUMN IF NOT EXISTS location GEOMETRY(Point, 4326) GENERATED ALWAYS AS (ST_SetSRID(ST_Point(lon, lat), 4326)) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_stores_location ON stores USING GIST (location);
+
+CREATE TABLE user_locations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     address VARCHAR(255),
     city VARCHAR(100),
-    zipcode VARCHAR(20),
-    lat DOUBLE PRECISION,
-    lon DOUBLE PRECISION,
-    phone VARCHAR(50),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (chain_id, code)
+    state VARCHAR(100),
+    zip_code VARCHAR(20),
+    country VARCHAR(100),
+    latitude NUMERIC,
+    longitude NUMERIC,
+    location GEOMETRY(Point, 4326),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Add new columns to existing stores table if they don't exist
-ALTER TABLE stores
-ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION,
-ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION,
-ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+CREATE INDEX idx_user_locations_user_id ON user_locations (user_id);
+CREATE INDEX idx_user_locations_location ON user_locations USING GIST (location);
 
--- Requires "cube" and "earthdistance" extensions for geospatial queries
-ALTER TABLE stores
-ADD COLUMN IF NOT EXISTS earth_point earth GENERATED ALWAYS AS (ll_to_earth (lat, lon)) STORED;
+ALTER TABLE user_locations
+ADD COLUMN location_name VARCHAR(255);
 
-CREATE INDEX IF NOT EXISTS idx_stores_earth_point ON stores USING GIST (earth_point);
+CREATE TABLE chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id INTEGER NOT NULL,
+    session_id UUID NOT NULL,
+    sender TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    tool_calls JSONB NULL,
+    tool_outputs JSONB NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_chat_messages_user_id ON chat_messages (user_id);
+CREATE INDEX idx_chat_messages_session_id ON chat_messages (session_id);
 
--- Products table to store global product information
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE user_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id INTEGER NOT NULL,
+    preference_key TEXT NOT NULL,
+    preference_value TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (user_id, preference_key)
+);
+CREATE INDEX idx_user_preferences_user_id ON user_preferences (user_id);
+
+ALTER TABLE chain_products ADD COLUMN is_processed BOOLEAN DEFAULT FALSE;
+CREATE INDEX idx_chain_products_processed_status ON chain_products (is_processed);
+
+-- Step 1: Create the ENUM type for standardization (run once).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'unit_type_enum') THEN
+        CREATE TYPE unit_type_enum AS ENUM ('WEIGHT', 'VOLUME', 'COUNT');
+    END IF;
+END$$;
+
+-- Step 2: Create the new tables with the 'g_' prefix.
+
+-- Table 2.1: g_products (The Canonical Product Record)
+-- Stores the single, AI-cleaned source of truth for every product.
+CREATE TABLE g_products (
     id SERIAL PRIMARY KEY,
-    ean VARCHAR(50) UNIQUE NOT NULL,
-    brand VARCHAR(255),
-    name VARCHAR(255),
-    quantity DECIMAL(10, 3),
-    unit VARCHAR(10) CHECK (unit IN ('L', 'kg', 'm', 'kom')),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    ean VARCHAR(255) UNIQUE NOT NULL,
+    canonical_name TEXT NOT NULL,
+    brand TEXT,
+    category TEXT NOT NULL,
+    base_unit_type unit_type_enum NOT NULL,
+    variants JSONB, -- Stores an array of variant details (e.g., [{"weight_g": 270}, {"weight_g": 300}]).
+    text_for_embedding TEXT,
+    keywords TEXT[],
+    embedding VECTOR(1024), -- CRITICAL: 1024 dimensions for gemini-embedding-001
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_products_ean ON products (ean);
-
--- Chain products table to store retailer-specific product information
-CREATE TABLE IF NOT EXISTS chain_products (
+-- Table 2.2: g_prices (Centralized, Time-Series Pricing Data)
+-- Tracks the price of a product at a specific store over time.
+CREATE TABLE g_prices (
     id SERIAL PRIMARY KEY,
-    chain_id INTEGER NOT NULL REFERENCES chains (id),
-    product_id INTEGER REFERENCES products (id),
-    code VARCHAR(100) NOT NULL,
-    brand VARCHAR(255),
-    name VARCHAR(255) NOT NULL,
-    category VARCHAR(255),
-    unit VARCHAR(50),
-    quantity VARCHAR(50),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (chain_id, code)
-);
-
-CREATE INDEX IF NOT EXISTS idx_chain_products_product_id ON chain_products (product_id);
-
--- Add GIN index for fuzzy search on product names using pg_trgm
-CREATE INDEX IF NOT EXISTS trgm_idx_chain_products_name ON chain_products USING GIN (name gin_trgm_ops);
-
--- Add GIN index for unaccented fuzzy search on product names
-CREATE INDEX IF NOT EXISTS trgm_idx_chain_products_unaccent_name ON chain_products USING GIN (f_unaccent(name) gin_trgm_ops);
-
--- Prices table to store product prices
-CREATE TABLE IF NOT EXISTS prices (
-    id BIGSERIAL PRIMARY KEY,
-    chain_product_id INTEGER NOT NULL REFERENCES chain_products (id),
-    store_id INTEGER NOT NULL REFERENCES stores (id),
+    product_id INTEGER NOT NULL REFERENCES g_products(id) ON DELETE CASCADE,
+    store_id INTEGER NOT NULL, -- This assumes a 'stores' table with integer IDs exists.
     price_date DATE NOT NULL,
     regular_price DECIMAL(10, 2),
     special_price DECIMAL(10, 2),
-    unit_price DECIMAL(10, 2),
-    -- current_price DECIMAL(10, 2) NOT NULL,
-    best_price_30 DECIMAL(10, 2),
-    anchor_price DECIMAL(10, 2),
-    UNIQUE (chain_product_id, store_id, price_date)
+    is_on_special_offer BOOLEAN DEFAULT FALSE,
+    UNIQUE(product_id, store_id, price_date)
 );
 
--- Prices table to store min/max/avg prices per chain
-CREATE TABLE IF NOT EXISTS chain_prices (
-    id SERIAL PRIMARY KEY,
-    chain_product_id INTEGER NOT NULL REFERENCES chain_products (id),
-    price_date DATE NOT NULL,
-    min_price DECIMAL(10, 2) NOT NULL,
-    max_price DECIMAL(10, 2) NOT NULL,
-    avg_price DECIMAL(10, 2) NOT NULL,
-    UNIQUE (chain_product_id, price_date)
+-- Table 2.3: g_product_best_offers (The "Best Value" Lookup Table)
+-- Stores the absolute best unit price found anywhere in the system for fast sorting.
+CREATE TABLE g_product_best_offers (
+    product_id INTEGER PRIMARY KEY REFERENCES g_products(id) ON DELETE CASCADE,
+    best_unit_price_per_kg DECIMAL(10, 4),
+    best_unit_price_per_l DECIMAL(10, 4),
+    best_unit_price_per_piece DECIMAL(10, 4),
+    best_price_store_id INTEGER, -- Links to the store with the best offer.
+    best_price_found_at TIMESTAMP WITH TIME ZONE
 );
+
+-- Step 3: Create essential indexes for performance.
+CREATE INDEX idx_g_products_brand ON g_products (brand);
+CREATE INDEX idx_g_products_category ON g_products (category);
+CREATE INDEX idx_g_products_keywords ON g_products USING GIN (keywords);
+CREATE INDEX idx_g_prices_lookup ON g_prices (product_id, store_id, price_date DESC);
+CREATE INDEX idx_g_product_best_offers_kg ON g_product_best_offers (best_unit_price_per_kg ASC NULLS LAST);
+CREATE INDEX idx_g_product_best_offers_l ON g_product_best_offers (best_unit_price_per_l ASC NULLS LAST);
+CREATE INDEX idx_g_product_best_offers_piece ON g_product_best_offers (best_unit_price_per_piece ASC NULLS LAST);

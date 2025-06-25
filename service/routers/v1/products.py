@@ -22,17 +22,28 @@ class StorePriceResponse(BaseModel):
     """Response schema for a single store's price."""
     price_date: datetime.date = Field(..., description="Date of the price.")
     regular_price: Decimal = Field(..., description="Regular price at this store.")
+    special_price: Decimal | None = Field(None, description="Special promotional price at this store.")
     special_offer: bool | None = Field(None, description="True if there is a special price/offer.")
     unit_price: Decimal | None = Field(None, description="Unit price at this store.")
+    best_price_30: Decimal | None = Field(None, description="Best (lowest) price in the last 30 days at this store.")
     anchor_price: Decimal | None = Field(None, description="Anchor price at this store.")
+
+    class Config:
+        json_encoders = {
+            Decimal: float
+        }
 
 
 class ChainProductResponse(BaseModel):
     """Chain product with individual store price information response schema."""
 
     chain: str = Field(..., description="Chain code.")
-    quantity: str | None = Field(..., description="Product quantity within the chain.")
     store_prices: list[StorePriceResponse] = Field(..., description="List of individual store prices.")
+
+    class Config:
+        json_encoders = {
+            Decimal: float
+        }
 
 
 class ProductResponse(BaseModel):
@@ -41,9 +52,16 @@ class ProductResponse(BaseModel):
     ean: str = Field(..., description="EAN barcode of the product.")
     brand: str | None = Field(None, description="Brand of the product.")
     name: str | None = Field(None, description="Name of the product.")
+    quantity: Decimal | None = Field(None, description="Quantity of the product.")
+    unit: str | None = Field(None, description="Unit of the product (e.g., 'L', 'kg').")
     chains: list[ChainProductResponse] = Field(
         ..., description="List of chain-specific product information."
     )
+
+    class Config:
+        json_encoders = {
+            Decimal: float
+        }
 
 
 class ProductSearchResponse(BaseModel):
@@ -94,6 +112,8 @@ async def prepare_product_response(
             ean=product.ean,
             brand=product.brand,
             name=product.name,
+            quantity=product.quantity, # Add quantity from product
+            unit=product.unit,         # Add unit from product
             chains=[],
         )
         for product in products
@@ -116,8 +136,7 @@ async def prepare_product_response(
 
         cpr_data = {
             "chain": chain_code,
-            "quantity": cp.quantity,
-            "store_prices": []
+            "store_prices": [] # Removed quantity from here
         }
         
         store_prices_list = []
@@ -125,7 +144,9 @@ async def prepare_product_response(
             store_prices_data = {
                 "price_date": price_entry["price_date"],
                 "regular_price": price_entry["regular_price"],
+                "special_price": price_entry["special_price"], # Add special_price
                 "unit_price": price_entry["unit_price"],
+                "best_price_30": price_entry["best_price_30"], # Add best_price_30
                 "anchor_price": price_entry["anchor_price"],
                 "special_offer": price_entry["special_price"] is not None,
             }
@@ -137,19 +158,17 @@ async def prepare_product_response(
         if store_prices_list:
             product_response_map[product_id].chains.append(ChainProductResponse(**cpr_data))
 
-    # Fixup global product brand and name using original chain product data
+    # Fixup global product brand and name using original product data (not chain product)
     for product_id, product_response in product_response_map.items():
-        if not product_response.brand or not product_response.name:
-            original_product = next((p for p in products if p.id == product_id), None)
-            if original_product:
-                for cp in chain_products:
-                    if cp.product_id == product_id:
-                        if not product_response.brand and cp.brand:
-                            product_response.brand = cp.brand.capitalize()
-                        if not product_response.name and cp.name:
-                            product_response.name = cp.name.capitalize()
-                        if product_response.brand and product_response.name:
-                            break
+        original_product = next((p for p in products if p.id == product_id), None)
+        if original_product:
+            if not product_response.brand and original_product.brand:
+                product_response.brand = original_product.brand.capitalize()
+            if not product_response.name and original_product.name:
+                product_response.name = original_product.name.capitalize()
+            # Quantity and unit are already set from original_product during map creation
+            # No need to fixup here unless they were None and we want to try chain_product
+            # But the request was to pull from products table, so this is fine.
 
     return [p for p in product_response_map.values() if p.chains]
 

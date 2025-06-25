@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-import asyncio
 import argparse
+import asyncio
 import logging
 from decimal import Decimal
 from pathlib import Path
 from csv import DictReader
 from time import time
 from typing import List, Dict
+from datetime import datetime # Import datetime for parsing timestamps
 
 from service.config import settings
-from service.db.models import Product
+from service.db.models import Product, User, UserLocation, SearchKeyword # Import new models
 
 logger = logging.getLogger("enricher")
 
@@ -239,15 +240,162 @@ async def enrich_stores(csv_path: Path) -> None:
     logger.info(f"Enriched {updated_count} stores from {csv_path.name} in {dt} seconds")
 
 
+async def enrich_users(csv_path: Path) -> None:
+    """
+    Enrich user information from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing user data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {"id", "name", "api_key", "is_active", "created_at"}
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for users")
+
+    logger.info(f"Starting user enrichment from {csv_path} with {len(data)} users")
+    t0 = time()
+
+    users_to_add = []
+    for row in data:
+        users_to_add.append(
+            User(
+                id=int(row["id"]),
+                name=row["name"],
+                api_key=row["api_key"],
+                is_active=row["is_active"].lower() == "true",
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        )
+    
+    added_count = await db.add_many_users(users_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} users from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_user_locations(csv_path: Path) -> None:
+    """
+    Enrich user location information from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing user location data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {
+        "id", "user_id", "address", "city", "state", "zip_code", "country",
+        "latitude", "longitude", "location", "location_name", "created_at", "updated_at"
+    }
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for user locations")
+
+    logger.info(f"Starting user location enrichment from {csv_path} with {len(data)} locations")
+    t0 = time()
+
+    locations_to_add = []
+    for row in data:
+        locations_to_add.append(
+            UserLocation(
+                id=int(row["id"]),
+                user_id=int(row["user_id"]),
+                address=row["address"] if row["address"] else None,
+                city=row["city"] if row["city"] else None,
+                state=row["state"] if row["state"] else None,
+                zip_code=row["zip_code"] if row["zip_code"] else None,
+                country=row["country"] if row["country"] else None,
+                latitude=Decimal(row["latitude"]) if row["latitude"] else None,
+                longitude=Decimal(row["longitude"]) if row["longitude"] else None,
+                location_name=row["location_name"] if row["location_name"] else None,
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+        )
+    
+    added_count = await db.add_many_user_locations(locations_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} user locations from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_search_keywords(csv_path: Path) -> None:
+    """
+    Enrich search keyword information from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing search keyword data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {"id", "ean", "keyword", "created_at"}
+    if csv_columns != expected_columns:
+        raise ValueError("CSV file headers do not match expected columns for search keywords")
+
+    logger.info(f"Starting search keyword enrichment from {csv_path} with {len(data)} keywords")
+    t0 = time()
+
+    # Collect all unique EANs from the CSV
+    all_eans_in_csv = list(set(row["ean"] for row in data))
+
+    # Get existing products by EAN
+    existing_products_by_ean = {
+        product.ean: product
+        for product in await db.get_products_by_ean(all_eans_in_csv)
+    }
+
+    # Identify and add missing EANs to the products table
+    missing_eans = [ean for ean in all_eans_in_csv if ean not in existing_products_by_ean]
+    if missing_eans:
+        logger.info(f"Found {len(missing_eans)} missing EANs in products table. Adding them...")
+        for ean in missing_eans:
+            await db.add_ean(ean) # Add minimal product entry
+        # Re-fetch or update existing_products_by_ean if necessary, or assume add_ean makes them available
+        # For simplicity, assuming add_ean makes them immediately available for FK check.
+
+    keywords_to_add = []
+    for row in data:
+        keywords_to_add.append(
+            SearchKeyword(
+                id=int(row["id"]),
+                ean=row["ean"],
+                keyword=row["keyword"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        )
+    
+    added_count = await db.add_many_search_keywords(keywords_to_add)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} search keywords from {csv_path.name} in {dt} seconds")
+
+
 async def main():
     """
     Data enrichment tool for the price service API.
 
     This script enriches existing database records with additional information
-    from CSV files. Currently supports product enrichment with plans for
-    store enrichment in the future.
-
-    Database connection settings are loaded from the service configuration.
+    from CSV files.
     """
     parser = argparse.ArgumentParser(
         description=main.__doc__,
@@ -258,18 +406,12 @@ async def main():
         "csv_file", type=Path, help="Path to the CSV file containing enrichment data"
     )
 
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "-p",
-        "--products",
-        action="store_true",
-        help="Enrich product information",
-    )
-    group.add_argument(
-        "-s",
-        "--stores",
-        action="store_true",
-        help="Enrich store information (not yet implemented)",
+    parser.add_argument(
+        "--type",
+        type=str,
+        choices=["products", "stores", "users", "user-locations", "search-keywords"],
+        required=True,
+        help="Type of data to enrich (products, stores, users, user-locations, search-keywords)",
     )
 
     parser.add_argument(
@@ -284,13 +426,19 @@ async def main():
     )
 
     await db.connect()
-    await db.create_tables()
+    # await db.create_tables() # Removed this line
 
     try:
-        if args.products:
+        if args.type == "products":
             await enrich_products(args.csv_file)
-        elif args.stores:
+        elif args.type == "stores":
             await enrich_stores(args.csv_file)
+        elif args.type == "users":
+            await enrich_users(args.csv_file)
+        elif args.type == "user-locations":
+            await enrich_user_locations(args.csv_file)
+        elif args.type == "search-keywords":
+            await enrich_search_keywords(args.csv_file)
     finally:
         await db.close()
 

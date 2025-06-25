@@ -12,7 +12,7 @@ from time import time
 from typing import Any, Dict, List
 
 from service.config import settings
-from service.db.models import Chain, ChainProduct, Price, Store
+from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, SearchKeyword # Added User, UserLocation, SearchKeyword
 
 logger = logging.getLogger("importer")
 
@@ -69,7 +69,6 @@ async def process_stores(stores_path: Path, chain_id: int) -> dict[str, int]:
 
     logger.debug(f"Processed {len(stores_data)} stores")
     return store_map
-
 
 async def process_products(
     products_path: Path,
@@ -397,7 +396,7 @@ async def main():
     await db.connect()
 
     try:
-        await db.create_tables()
+        # await db.create_tables() # Removed this line
 
         for path in args.paths:
             if path.is_dir():
