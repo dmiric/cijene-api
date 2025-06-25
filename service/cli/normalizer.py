@@ -225,6 +225,18 @@ def process_unprocessed_data() -> None:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # 1. Extract: Query unprocessed data grouped by EAN
+        # Define the list of EANs to filter by
+        ean_filter_list = [
+            "0011210000018", "0011210000155", "0011210006508", "0011210007253",
+            "0011210009530", "0011210607040", "0011210697003", "0013051665654",
+            "0022796976116", "0022796976123", "0022796976710", "0022796977519",
+            "0022796977526", "0039047003880", "0054881000017", "0054881000024",
+            "0054881000031", "0054881000048", "0054881000055", "0054881000062",
+            "0054881000208", "0054881005517", "0054881005555", "0054881005593",
+            "0054881005630", "0054881005654", "0054881005845", "0054881005890",
+            "0054881005906", "0054881006163", "0054881007115", "0054881007511",
+            "0054881007535", "0054881008020", "0054881008594"
+        ]
         cur.execute("""
             SELECT
                 p.ean,
@@ -239,10 +251,11 @@ def process_unprocessed_data() -> None:
                 products p ON cp.product_id = p.id
             WHERE
                 cp.is_processed = FALSE
+                AND p.ean = ANY(%s) -- Add the EAN filter here
             GROUP BY
                 p.ean
             LIMIT %s;
-        """, (int(os.getenv("NORMALIZER_BATCH_LIMIT")),))
+        """, (ean_filter_list, int(os.getenv("NORMALIZER_BATCH_LIMIT")),))
         unprocessed_eans = cur.fetchall()
 
         for record in unprocessed_eans:

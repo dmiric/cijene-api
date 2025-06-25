@@ -44,7 +44,6 @@ help: ## Display this help message
 ## make geocode-stores
 ## make enrich CSV_FILE=./backups/users.csv TYPE=users
 ## make enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-## make enrich CSV_FILE=./backups/search_keywords.csv TYPE=search-keywords
 ## make migrate-db
 
 ## Docker & Build Commands
@@ -104,7 +103,6 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Enriching users, user locations, and search keywords from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
 	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-	$(MAKE) enrich CSV_FILE=./backups/search_keywords.csv TYPE=search-keywords
 
 	@echo "Development fresh start completed."
 
@@ -212,15 +210,16 @@ test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITU
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi
 	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?lat=$(LAT)&lon=$(LON)&radius_meters=$(RADIUS)" | jq .
 
-chat: ## Send a message to the AI chat endpoint. Usage: make chat MESSAGE="your message" USER_ID=1 API_KEY=your_api_key
+chat: ## Send a message to the AI chat endpoint. Usage: make chat MESSAGE="your message" USER_ID=1 API_KEY=your_api_key [SESSION_ID=your_session_id]
 	@if [ -z "$(MESSAGE)" ]; then echo "Error: MESSAGE is required. Usage: make chat MESSAGE=\"your message\""; exit 1; fi
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make chat MESSAGE=\"your message\" API_KEY=your_api_key"; exit 1; fi
 	@if [ -z "$(USER_ID)" ]; then echo "Error: USER_ID is required. Please provide a user ID (e.g., 1 for a test user). Usage: make chat MESSAGE=\"your message\" USER_ID=1"; exit 1; fi
-	curl -s -N -X POST "http://localhost:8000/v1/chat" \
+	$(eval SESSION_ID_PARAM=$(if $(SESSION_ID),\"session_id\": \"$(SESSION_ID)\",))
+	curl -s -N -X POST "http://localhost:8000/v2/chat" \
 	-H "Authorization: Bearer $(API_KEY)" \
 	-H "Content-Type: application/json" \
 	-H "Accept: text/event-stream" \
-	-d '{"user_id": $(USER_ID), "message_text": "$(MESSAGE)"}'
+	-d '{$(SESSION_ID_PARAM)"user_id": $(USER_ID), "message_text": "$(MESSAGE)"}'
 
 
 ## Logging Commands

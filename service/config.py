@@ -13,6 +13,7 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     _db: "Database | None" = None
+    _db_v2: "Database | None" = None # New instance for v2 database
 
     def __init__(self):
         self.version: str = os.getenv("VERSION", "0.1.0")
@@ -53,6 +54,20 @@ class Settings:
             )
 
         return self._db
+
+    def get_db_v2(self) -> "Database":
+        """
+        Get the v2 database instance based on the configured settings.
+        """
+        from service.db.psql_v2 import PostgresDatabaseV2 # Import the v2 database class
+
+        if self._db_v2 is None:
+            self._db_v2 = PostgresDatabaseV2(
+                self.db_dsn,
+                min_size=self.db_min_connections,
+                max_size=self.db_max_connections,
+            )
+        return self._db_v2
 
 
 settings = Settings()

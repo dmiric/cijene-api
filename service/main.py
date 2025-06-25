@@ -10,11 +10,14 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from service.routers import v0
 from service.routers.v1 import router as v1_router
+from service.routers.v2.products import router as v2_products_router
+from service.routers.v2.stores import router as v2_stores_router
+from service.routers.v2.chat import router as v2_chat_router
 from service.config import settings
 
 db = settings.get_db()
+db_v2 = settings.get_db_v2() # Get the v2 database instance
 
 
 @asynccontextmanager
@@ -22,8 +25,11 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager to handle startup and shutdown events."""
     await db.connect()
     await db.create_tables()
+    await db_v2.connect() # Connect to the v2 database
+    # await db_v2.create_tables() # v2 tables are assumed to exist, no need to create them here
     yield
     await db.close()
+    await db_v2.close() # Close the v2 database connection
 
 
 app = FastAPI(
@@ -55,8 +61,10 @@ app.add_middleware(
 )
 
 # Include versioned routers
-app.include_router(v0.router, prefix="/v0")
 app.include_router(v1_router, prefix="/v1")
+app.include_router(v2_products_router, prefix="/v2")
+app.include_router(v2_stores_router, prefix="/v2")
+app.include_router(v2_chat_router, prefix="/v2")
 
 
 @app.exception_handler(404)

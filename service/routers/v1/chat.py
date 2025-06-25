@@ -15,7 +15,7 @@ import google.generativeai as genai
 from openai import OpenAI
 
 from service.config import settings
-from service.routers.v1.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
+from service.routers.v2.chat_components.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
 from service.db.models import ChainStats, ProductWithId, StorePrice, User, UserLocation, ChatMessage, UserPreference
 from service.routers.auth import verify_authentication
 from fastapi.responses import StreamingResponse

@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
 # Set the working directory in the container
 WORKDIR /app
 
-# Set PYTHONPATH to include the application directory
-ENV PYTHONPATH=/app
+# Set PYTHONPATH to include the application directory and the service directory
+ENV PYTHONPATH=/app:/app/service
 
 # Copy requirements.txt for dependency installation
 COPY requirements.txt ./

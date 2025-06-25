@@ -120,7 +120,7 @@ ADD COLUMN IF NOT EXISTS location GEOMETRY(Point, 4326) GENERATED ALWAYS AS (ST_
 
 CREATE INDEX IF NOT EXISTS idx_stores_location ON stores USING GIST (location);
 
-CREATE TABLE user_locations (
+CREATE TABLE IF NOT EXISTS user_locations (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     address VARCHAR(255),
@@ -135,13 +135,13 @@ CREATE TABLE user_locations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_user_locations_user_id ON user_locations (user_id);
-CREATE INDEX idx_user_locations_location ON user_locations USING GIST (location);
+CREATE INDEX IF NOT EXISTS idx_user_locations_user_id ON user_locations (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_locations_location ON user_locations USING GIST (location);
 
 ALTER TABLE user_locations
-ADD COLUMN location_name VARCHAR(255);
+ADD COLUMN IF NOT EXISTS location_name VARCHAR(255);
 
-CREATE TABLE chat_messages (
+CREATE TABLE IF NOT EXISTS chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id INTEGER NOT NULL,
     session_id UUID NOT NULL,
@@ -152,10 +152,10 @@ CREATE TABLE chat_messages (
     tool_outputs JSONB NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-CREATE INDEX idx_chat_messages_user_id ON chat_messages (user_id);
-CREATE INDEX idx_chat_messages_session_id ON chat_messages (session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages (user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages (session_id);
 
-CREATE TABLE user_preferences (
+CREATE TABLE IF NOT EXISTS user_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id INTEGER NOT NULL,
     preference_key TEXT NOT NULL,
@@ -165,10 +165,10 @@ CREATE TABLE user_preferences (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE (user_id, preference_key)
 );
-CREATE INDEX idx_user_preferences_user_id ON user_preferences (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences (user_id);
 
-ALTER TABLE chain_products ADD COLUMN is_processed BOOLEAN DEFAULT FALSE;
-CREATE INDEX idx_chain_products_processed_status ON chain_products (is_processed);
+ALTER TABLE chain_products ADD COLUMN IF NOT EXISTS is_processed BOOLEAN DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_chain_products_processed_status ON chain_products (is_processed);
 
 -- Step 1: Create the ENUM type for standardization (run once).
 DO $$
@@ -182,7 +182,7 @@ END$$;
 
 -- Table 2.1: g_products (The Canonical Product Record)
 -- Stores the single, AI-cleaned source of truth for every product.
-CREATE TABLE g_products (
+CREATE TABLE IF NOT EXISTS g_products (
     id SERIAL PRIMARY KEY,
     ean VARCHAR(255) UNIQUE NOT NULL,
     canonical_name TEXT NOT NULL,
@@ -199,7 +199,7 @@ CREATE TABLE g_products (
 
 -- Table 2.2: g_prices (Centralized, Time-Series Pricing Data)
 -- Tracks the price of a product at a specific store over time.
-CREATE TABLE g_prices (
+CREATE TABLE IF NOT EXISTS g_prices (
     id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES g_products(id) ON DELETE CASCADE,
     store_id INTEGER NOT NULL, -- This assumes a 'stores' table with integer IDs exists.
@@ -212,7 +212,7 @@ CREATE TABLE g_prices (
 
 -- Table 2.3: g_product_best_offers (The "Best Value" Lookup Table)
 -- Stores the absolute best unit price found anywhere in the system for fast sorting.
-CREATE TABLE g_product_best_offers (
+CREATE TABLE IF NOT EXISTS g_product_best_offers (
     product_id INTEGER PRIMARY KEY REFERENCES g_products(id) ON DELETE CASCADE,
     best_unit_price_per_kg DECIMAL(10, 4),
     best_unit_price_per_l DECIMAL(10, 4),
@@ -222,10 +222,10 @@ CREATE TABLE g_product_best_offers (
 );
 
 -- Step 3: Create essential indexes for performance.
-CREATE INDEX idx_g_products_brand ON g_products (brand);
-CREATE INDEX idx_g_products_category ON g_products (category);
-CREATE INDEX idx_g_products_keywords ON g_products USING GIN (keywords);
-CREATE INDEX idx_g_prices_lookup ON g_prices (product_id, store_id, price_date DESC);
-CREATE INDEX idx_g_product_best_offers_kg ON g_product_best_offers (best_unit_price_per_kg ASC NULLS LAST);
-CREATE INDEX idx_g_product_best_offers_l ON g_product_best_offers (best_unit_price_per_l ASC NULLS LAST);
-CREATE INDEX idx_g_product_best_offers_piece ON g_product_best_offers (best_unit_price_per_piece ASC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_g_products_brand ON g_products (brand);
+CREATE INDEX IF NOT EXISTS idx_g_products_category ON g_products (category);
+CREATE INDEX IF NOT EXISTS idx_g_products_keywords ON g_products USING GIN (keywords);
+CREATE INDEX IF NOT EXISTS idx_g_prices_lookup ON g_prices (product_id, store_id, price_date DESC);
+CREATE INDEX IF NOT EXISTS idx_g_product_best_offers_kg ON g_product_best_offers (best_unit_price_per_kg ASC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_g_product_best_offers_l ON g_product_best_offers (best_unit_price_per_l ASC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_g_product_best_offers_piece ON g_product_best_offers (best_unit_price_per_piece ASC NULLS LAST);
