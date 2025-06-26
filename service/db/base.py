@@ -1,21 +1,35 @@
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Any
+from typing import Any, AsyncGenerator, AsyncIterator
 
-from .models import (
-    Chain,
-    ChainStats,
-    ChainWithId,
-    Product,
-    ProductWithId,
-    Store,
-    ChainProduct,
-    Price,
-    StorePrice,
-    StoreWithId,
-    ChainProductWithId,
-    User,
-)
+
+class BaseRepository(ABC):
+    """Base abstract class for all repositories, providing common connection management."""
+
+    @abstractmethod
+    async def connect(self) -> None:
+        """Initialize the database connection."""
+        pass
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Close all database connections."""
+        pass
+
+    @abstractmethod
+    async def _get_conn(self) -> AsyncGenerator[Any, None]:
+        """Context manager to acquire a connection from the pool."""
+        pass
+
+    @abstractmethod
+    async def _atomic(self) -> AsyncIterator[Any]:
+        """Context manager for atomic transactions."""
+        pass
+
+    @abstractmethod
+    async def _fetchval(self, query: str, *args: Any) -> Any:
+        """Fetch a single value from the database."""
+        pass
 
 
 class Database(ABC):
@@ -37,7 +51,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def add_chain(self, chain: Chain) -> int:
+    async def add_chain(self, chain: Any) -> int:
         """
         Add a new chain or get existing one and return its ID.
 
@@ -50,7 +64,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def list_chains(self) -> list[ChainWithId]:
+    async def list_chains(self) -> list[Any]:
         """
         List all chains in the database.
 
@@ -60,7 +74,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def list_latest_chain_stats(self) -> list[ChainStats]:
+    async def list_latest_chain_stats(self) -> list[Any]:
         """
         Returns the latest available chain stats for each chain.
 
@@ -70,7 +84,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def add_store(self, store: Store) -> int:
+    async def add_store(self, store: Any) -> int:
         """
         Add a new store or update existing one and return its ID.
 
@@ -115,7 +129,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def list_stores(self, chain_code: str) -> list[StoreWithId]:
+    async def list_stores(self, chain_code: str) -> list[Any]:
         """
         List all stores for a particular chain.
 
@@ -136,7 +150,7 @@ class Database(ABC):
         lat: float | None = None,
         lon: float | None = None,
         d: float = 10.0,
-    ) -> list[StoreWithId]:
+    ) -> list[Any]:
         """
         Filter stores by chain codes, city, address, and/or geolocation.
 
@@ -177,6 +191,7 @@ class Database(ABC):
         Returns:
             A dictionary mapping product codes to product IDs in the database.
         """
+        pass
 
     @abstractmethod
     async def add_ean(self, ean: str) -> int:
@@ -192,7 +207,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def get_products_by_ean(self, ean: list[str]) -> list[ProductWithId]:
+    async def get_products_by_ean(self, ean: list[Any]) -> list[Any]:
         """
         Get products by their EAN codes.
 
@@ -205,7 +220,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def update_product(self, product: "Product") -> bool:
+    async def update_product(self, product: Any) -> bool:
         """
         Update product information by EAN code.
 
@@ -223,7 +238,7 @@ class Database(ABC):
         self,
         product_ids: list[int],
         chain_ids: list[int] | None = None,
-    ) -> list[ChainProductWithId]:
+    ) -> list[Any]:
         """
         Get all chain products for specified product IDs.
 
@@ -237,7 +252,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def search_products(self, query: str) -> list[ProductWithId]:
+    async def search_products(self, query: str) -> list[Any]:
         """
         Search for products by name using full text search.
 
@@ -251,7 +266,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def add_many_prices(self, prices: list[Price]) -> int:
+    async def add_many_prices(self, prices: list[Any]) -> int:
         """
         Add multiple prices in a batch operation.
 
@@ -268,7 +283,7 @@ class Database(ABC):
     @abstractmethod
     async def add_many_chain_products(
         self,
-        chain_products: list[ChainProduct],
+        chain_products: list[Any],
     ) -> int:
         """
         Add multiple chain products in a batch operation.
@@ -341,7 +356,7 @@ class Database(ABC):
         self,
         product_id: int,
         chain_ids: list[int] | None,
-    ) -> list[StorePrice]:
+    ) -> list[Any]:
         """
         For a given product return latest available prices per store.
 
@@ -355,7 +370,7 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    async def get_user_by_api_key(self, api_key: str) -> User | None:
+    async def get_user_by_api_key(self, api_key: str) -> Any | None:
         """
         Get active user by API key.
 

@@ -7,12 +7,12 @@ from pathlib import Path
 from csv import DictReader
 from time import time
 from typing import List, Dict
-from datetime import date, datetime # Import datetime for parsing timestamps
-from dateutil import parser # Add this line
-import json # Import json for parsing variants
+from datetime import date, datetime
+from dateutil import parser
+import json
 
 from service.config import settings
-from service.db.models import Product, User, UserLocation, SearchKeyword, GProduct, GPrice, GProductBestOffer # Import new models
+from service.db.models import Product, User, UserLocation, SearchKeyword, GProduct, GPrice, GProductBestOffer
 
 logger = logging.getLogger("enricher")
 
@@ -31,7 +31,7 @@ async def read_csv(file_path: Path) -> List[Dict[str, str]]:
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            reader = DictReader(f)  # type: ignore
+            reader = DictReader(f)
             return [row for row in reader]
     except Exception as e:
         logger.error(f"Error reading {file_path}: {e}")
@@ -100,7 +100,7 @@ async def enrich_products(csv_path: Path) -> None:
     # Get existing products by EAN
     existing_products = {
         product.ean: product
-        for product in await db.get_products_by_ean(
+        for product in await db.products.get_products_by_ean( # Changed db.get_products_by_ean
             list(set(row["barcode"] for row in data))
         )
     }
@@ -111,7 +111,7 @@ async def enrich_products(csv_path: Path) -> None:
 
         if not product:
             # This shouldn't happen but we can gracefully handle it
-            await db.add_ean(row["barcode"])
+            await db.products.add_ean(row["barcode"]) # Changed db.add_ean
             product = Product(
                 ean=row["barcode"],
                 brand="",
@@ -132,7 +132,7 @@ async def enrich_products(csv_path: Path) -> None:
             unit=unit,
         )
 
-        was_updated = await db.update_product(updated_product)
+        was_updated = await db.products.update_product(updated_product) # Changed db.update_product
         if was_updated:
             updated_count += 1
 
@@ -177,7 +177,7 @@ async def enrich_stores(csv_path: Path) -> None:
     t0 = time()
 
     # Fetch all chains and build a code -> id map
-    chains = await db.list_chains()
+    chains = await db.products.list_chains() # Changed db.list_chains
     chain_code_to_id = {chain.code: chain.id for chain in chains}
 
     updated_count = 0
@@ -220,7 +220,7 @@ async def enrich_stores(csv_path: Path) -> None:
         if not any([address, city, zipcode, lat, lon, phone]):
             continue
 
-        was_updated = await db.update_store(
+        was_updated = await db.stores.update_store( # Changed db.update_store
             chain_id=chain_id,
             store_code=store_code,
             address=address,
@@ -276,7 +276,7 @@ async def enrich_users(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_users(users_to_add)
+    added_count = await db.users.add_many_users(users_to_add) # Changed db.add_many_users
 
     t1 = time()
     dt = int(t1 - t0)
@@ -327,7 +327,7 @@ async def enrich_user_locations(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_user_locations(locations_to_add)
+    added_count = await db.users.add_many_user_locations(locations_to_add) # Changed db.add_many_user_locations
 
     t1 = time()
     dt = int(t1 - t0)
@@ -362,7 +362,7 @@ async def enrich_search_keywords(csv_path: Path) -> None:
     # Get existing products by EAN
     existing_products_by_ean = {
         product.ean: product
-        for product in await db.get_products_by_ean(all_eans_in_csv)
+        for product in await db.products.get_products_by_ean(all_eans_in_csv) # Changed db.get_products_by_ean
     }
 
     # Identify and add missing EANs to the products table
@@ -370,7 +370,7 @@ async def enrich_search_keywords(csv_path: Path) -> None:
     if missing_eans:
         logger.info(f"Found {len(missing_eans)} missing EANs in products table. Adding them...")
         for ean in missing_eans:
-            await db.add_ean(ean) # Add minimal product entry
+            await db.products.add_ean(ean) # Changed db.add_ean
         # Re-fetch or update existing_products_by_ean if necessary, or assume add_ean makes them available
         # For simplicity, assuming add_ean makes them immediately available for FK check.
 
@@ -385,7 +385,7 @@ async def enrich_search_keywords(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_search_keywords(keywords_to_add)
+    added_count = await db.products.add_many_search_keywords(keywords_to_add) # Changed db.add_many_search_keywords
 
     t1 = time()
     dt = int(t1 - t0)
@@ -440,7 +440,7 @@ async def enrich_g_products(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_g_products(g_products_to_add)
+    added_count = await db.golden_products.add_many_g_products(g_products_to_add) # Changed db.add_many_g_products
 
     t1 = time()
     dt = int(t1 - t0)
@@ -493,7 +493,7 @@ async def enrich_prices(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_g_prices(prices_to_add)
+    added_count = await db.golden_products.add_many_g_prices(prices_to_add) # Changed db.add_many_g_prices
 
     t1 = time()
     dt = int(t1 - t0)
@@ -558,7 +558,7 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.add_many_g_product_best_offers(offers_to_add)
+    added_count = await db.golden_products.add_many_g_product_best_offers(offers_to_add) # Changed db.add_many_g_product_best_offers
 
     t1 = time()
     dt = int(t1 - t0)

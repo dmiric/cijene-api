@@ -78,7 +78,7 @@ async def geocode_stores():
     try:
         db = await get_db()
         logger.info("Fetching ungeocoded stores...")
-        ungeocoded_stores = await db.get_ungeocoded_stores()
+        ungeocoded_stores = await db.stores.get_ungeocoded_stores()
         logger.info(f"Found {len(ungeocoded_stores)} stores to geocode.")
 
         if not ungeocoded_stores:
@@ -107,7 +107,7 @@ async def geocode_stores():
                     lon=lon
                 )
                 # Use add_store for upserting, it will update existing store by chain_id and code
-                await db.add_store(updated_store)
+                await db.stores.add_store(updated_store)
                 logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}")
             else:
                 # If result is None, it means geocoding failed or rate limit was hit
@@ -122,7 +122,7 @@ async def geocode_stores():
     finally:
         if db:
             # After geocoding attempts, count remaining ungeocoded stores
-            remaining_ungeocoded = await db.get_ungeocoded_stores()
+            remaining_ungeocoded = await db.stores.get_ungeocoded_stores()
             if remaining_ungeocoded:
                 logger.warning(f"Geocoding finished with {len(remaining_ungeocoded)} stores still missing lat/lon.")
             else:
