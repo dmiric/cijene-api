@@ -39,20 +39,18 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     debug_print(f"Chat V2 request received: user_id={user_id}, session_id={session_id}, message='{user_message_text}'")
 
     # Save user message to DB
-    user_chat_message = ChatMessage(
-        id=str(uuid4()),
+    await db.save_chat_message(
         user_id=user_id,
         session_id=str(session_id),
-        sender="user",
         message_text=user_message_text,
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
+        is_user_message=True,
         tool_calls=None,
         tool_outputs=None,
+        ai_response=None,
     )
-    await db.save_chat_message(user_chat_message)
 
     # Retrieve chat history
-    history = await db.get_chat_messages(user_id, session_id, limit=20)
+    history = await db.chat.get_chat_messages(user_id, session_id, limit=20)
     debug_print(f"Retrieved {len(history)} messages for session {session_id}")
 
     # Start with the static instructions from the new file
@@ -220,17 +218,15 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     debug_print(f"Overriding user_id for get_user_locations from {tool_args.get('user_id')} to {user_id}")
                     tool_args["user_id"] = user_id
                 
-                tool_call_chat_message = ChatMessage(
-                    id=str(uuid4()),
+                await db.save_chat_message(
                     user_id=user_id,
                     session_id=str(session_id),
-                    sender="tool_call",
                     message_text=f"Tool call: {tool_name}({tool_args})",
-                    timestamp=datetime.datetime.now(datetime.timezone.utc),
+                    is_user_message=False, # Tool calls are not user messages
                     tool_calls={"name": tool_name, "args": tool_args},
                     tool_outputs=None,
+                    ai_response=None,
                 )
-                await db.save_chat_message(tool_call_chat_message)
 
                 if tool_name not in available_tools:
                     error_message = f"Alat '{tool_name}' nije pronađen."
@@ -245,17 +241,15 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     debug_print(f"Tool output: {tool_output}")
                     
                     # Save this first tool's output to the database and yield to the client
-                    tool_output_chat_message = ChatMessage(
-                        id=str(uuid4()),
+                    await db.save_chat_message(
                         user_id=user_id,
                         session_id=str(session_id),
-                        sender="tool_output",
                         message_text=f"Tool output for {tool_name}: {tool_output}",
-                        timestamp=datetime.datetime.now(datetime.timezone.utc),
+                        is_user_message=False,
                         tool_calls=None,
                         tool_outputs=tool_output_info,
+                        ai_response=None,
                     )
-                    await db.save_chat_message(tool_output_chat_message)
                     yield f"data: {json.dumps({'type': 'tool_output', 'content': tool_output_info})}\n\n"
                     tool_outputs_for_history.append(tool_output_info)
 
@@ -275,17 +269,15 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                 debug_print(f"Nearby stores output: {nearby_stores_output}")
                                 
                                 # Save the second tool's output message to the DB
-                                nearby_stores_chat_message = ChatMessage(
-                                    id=str(uuid4()),
+                                await db.save_chat_message(
                                     user_id=user_id,
                                     session_id=str(session_id),
-                                    sender="tool_output",
                                     message_text=f"Tool output for find_nearby_stores_v2: {nearby_stores_output}",
-                                    timestamp=datetime.datetime.now(datetime.timezone.utc),
+                                    is_user_message=False,
                                     tool_calls=None,
                                     tool_outputs=nearby_stores_info,
+                                    ai_response=None,
                                 )
-                                await db.save_chat_message(nearby_stores_chat_message)
                                 yield f"data: {json.dumps({'type': 'tool_output', 'content': nearby_stores_info})}\n\n"
                                 
                                 tool_outputs_for_history.append(nearby_stores_info)
@@ -321,17 +313,15 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
 
         # Save AI's final text response to DB (after loop breaks)
         if full_ai_response_text:
-            ai_chat_message = ChatMessage(
-                id=str(uuid4()),
+            await db.save_chat_message(
                 user_id=user_id,
                 session_id=str(session_id),
-                sender="ai",
                 message_text=full_ai_response_text,
-                timestamp=datetime.datetime.now(datetime.timezone.utc),
+                is_user_message=False,
                 tool_calls=None,
                 tool_outputs=None,
+                ai_response=full_ai_response_text,
             )
-            await db.save_chat_message(ai_chat_message)
         
         yield f"data: {json.dumps({'type': 'end', 'session_id': str(session_id)})}\n\n"
 

@@ -138,7 +138,21 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             self.debug_print(f"get_g_products_hybrid_search: Final Query: {final_query}")
             self.debug_print(f"get_g_products_hybrid_search: Params: {params}")
             rows = await conn.fetch(final_query, *params)
-            return [ProductSearchItemV2(**dict(row)) for row in rows]
+            
+            # Manually convert embedding string to list of floats if it's a string
+            results = []
+            for row in rows:
+                row_dict = dict(row)
+                if isinstance(row_dict.get("embedding"), str):
+                    try:
+                        # Convert string representation of vector to list of floats
+                        # Example: "[1.0,2.0,3.0]" -> [1.0, 2.0, 3.0]
+                        row_dict["embedding"] = json.loads(row_dict["embedding"])
+                    except json.JSONDecodeError:
+                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
+                        row_dict["embedding"] = None # Set to None if decoding fails
+                results.append(ProductSearchItemV2(**row_dict))
+            return results
 
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]

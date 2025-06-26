@@ -8,7 +8,7 @@ from typing import (
     Optional,
 )
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 import sys
@@ -68,15 +68,44 @@ class ChatRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    async def save_chat_message(self, message: ChatMessage) -> None:
+    async def save_chat_message(
+        self,
+        user_id: int,
+        session_id: str,
+        message_text: str,
+        is_user_message: bool,
+        tool_calls: Optional[List[dict]] = None,
+        tool_outputs: Optional[List[dict]] = None,
+        ai_response: Optional[str] = None,
+    ) -> int:
         """
         Saves a chat message to the database.
         """
+        # Determine sender based on is_user_message
+        sender = "user" if is_user_message else "ai"
+        if tool_calls:
+            sender = "tool_call"
+        elif tool_outputs:
+            sender = "tool_output"
+
+        # Create ChatMessage object
+        message = ChatMessage(
+            id=str(uuid4()),
+            user_id=user_id,
+            session_id=session_id,
+            sender=sender,
+            message_text=message_text,
+            timestamp=datetime.now(timezone.utc),
+            tool_calls=tool_calls,
+            tool_outputs=tool_outputs,
+            ai_response=ai_response,
+        )
+
         async with self._atomic() as conn:
             await conn.execute(
                 """
-                INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs, ai_response)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """,
                 message.id,
                 message.user_id,
@@ -86,8 +115,10 @@ class ChatRepository(BaseRepository): # Changed inheritance
                 message.timestamp,
                 json.dumps(message.tool_calls) if message.tool_calls else None,
                 json.dumps(message.tool_outputs) if message.tool_outputs else None,
+                message.ai_response,
             )
         self.debug_print(f"Saved chat message: {message.id}")
+        return 1 # Return a dummy ID for now, as the method signature expects int
 
     async def get_chat_messages(self, user_id: int, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
         """

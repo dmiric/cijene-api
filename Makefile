@@ -55,7 +55,7 @@ else
 	@mkdir -p logs # Ensure directory exists
 	@> $(DOCKER_BUILD_LOG_FILE) # Empty the log file
 endif
-	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate --no-cache >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
 	@echo "Docker containers rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 

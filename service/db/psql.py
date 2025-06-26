@@ -212,8 +212,9 @@ class PostgresDatabase(Database):
         self,
         product_ids: list[int],
         date: date,
+        store_ids: list[int] | None = None, # Added store_ids
     ) -> list[dict[str, Any]]:
-        return await self.products.get_product_prices(product_ids, date)
+        return await self.products.get_product_prices(product_ids, date, store_ids) # Pass store_ids
 
     async def get_product_store_prices(
         self,
@@ -234,3 +235,26 @@ class PostgresDatabase(Database):
 
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         return await self.golden_products.add_many_g_product_best_offers(g_offers)
+
+    async def save_chat_message(
+        self,
+        user_id: int,
+        session_id: str,
+        message_text: str,
+        is_user_message: bool,
+        tool_calls: Optional[List[dict]] = None,
+        tool_outputs: Optional[List[dict]] = None,
+        ai_response: Optional[str] = None,
+    ) -> int:
+        return await self.chat.save_chat_message(
+            user_id, session_id, message_text, is_user_message, tool_calls, tool_outputs, ai_response
+        )
+
+    async def get_stores_within_radius(
+        self,
+        lat: Decimal,
+        lon: Decimal,
+        radius_meters: int,
+        chain_code: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await self.stores.get_stores_within_radius(lat, lon, radius_meters, chain_code)

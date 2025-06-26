@@ -55,7 +55,7 @@ async def search_products_tool_v2(
             filtered_products_with_prices = []
             
             for product in products:
-                product_id = product.get("id")
+                product_id = product.id # Access attribute directly
                 if product_id is None:
                     continue
 
@@ -69,14 +69,28 @@ async def search_products_tool_v2(
                 
                 if prices_in_stores:
                     # If prices are found in the specified stores, add the product and its prices
-                    product_with_prices = product.copy()
-                    product_with_prices["prices_in_stores"] = prices_in_stores
-                    filtered_products_with_prices.append(product_with_prices)
+                    product_dict = product.model_dump() # Convert Pydantic model to dict
+                    product_dict["prices_in_stores"] = prices_in_stores
+                    filtered_products_with_prices.append(product_dict)
             
-            return pydantic_to_dict({"products": filtered_products_with_prices})
+            # Exclude embedding from the final output for filtered products
+            cleaned_products = []
+            for p_dict in filtered_products_with_prices:
+                p_copy = p_dict.copy()
+                p_copy.pop("embedding", None) # Remove embedding field
+                cleaned_products.append(p_copy)
+            
+            return pydantic_to_dict({"products": cleaned_products})
         
         # If no store_ids, return products from hybrid search directly
-        return pydantic_to_dict({"products": products})
+        # Exclude embedding from the final output for all products
+        cleaned_products = []
+        for p in products:
+            p_dict = p.model_dump() # Convert Pydantic model to dict
+            p_dict.pop("embedding", None) # Remove embedding field
+            cleaned_products.append(p_dict)
+        
+        return pydantic_to_dict({"products": cleaned_products})
 
     except Exception as e:
         debug_print(f"Error in search_products_tool_v2: {e}")
@@ -115,7 +129,10 @@ async def get_product_details_tool_v2(product_id: int):
     try:
         details = await db_v2.get_g_product_details(product_id)
         if details:
-            return pydantic_to_dict(details)
+            # Exclude embedding from the final output
+            details_copy = details.copy()
+            details_copy.pop("embedding", None)
+            return pydantic_to_dict(details_copy)
         else:
             return {"message": f"Product with ID {product_id} not found."}
     except Exception as e:
@@ -161,7 +178,7 @@ async def get_user_locations_tool(user_id: int):
     debug_print(f"Tool Call: get_user_locations_tool(user_id={user_id})")
     try:
         # This still uses the original db as user locations are not g_tables
-        locations = await db.get_user_locations_by_user_id(user_id)
+        locations = await db.users.get_user_locations_by_user_id(user_id)
         return pydantic_to_dict({"locations": locations})
     except Exception as e:
         return {"error": str(e)}

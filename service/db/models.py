@@ -26,6 +26,7 @@ class ChatMessage:
     timestamp: datetime
     tool_calls: Optional[dict] = None
     tool_outputs: Optional[dict] = None
+    ai_response: Optional[str] = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

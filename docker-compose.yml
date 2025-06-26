@@ -35,7 +35,8 @@ services:
     volumes:
       - ./.env:/app/.env
       - crawler_data:/app/crawler_output
-    command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
+      - .:/app # Mount the entire project directory
+    command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Add --reload for development
 
   crawler:
     build:

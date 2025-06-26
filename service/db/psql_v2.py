@@ -1,6 +1,8 @@
 from typing import List, Any, Optional
-from service.db.models import ProductSearchItemV2 # Updated import
+from datetime import date # Added date import
+from service.db.models import ProductSearchItemV2
 from .repositories.golden_product_repo import GoldenProductRepository
+from .repositories.chat_repo import ChatRepository # Added ChatRepository import
 from .base import Database
 
 class PostgresDatabaseV2(Database):
@@ -11,12 +13,21 @@ class PostgresDatabaseV2(Database):
     def __init__(self, dsn: str, **kwargs):
         # This facade now only needs to know about the golden product repo.
         self.golden_products = GoldenProductRepository(dsn, **kwargs)
+        self.chat_repo = ChatRepository(dsn, **kwargs) # Initialize ChatRepository
 
     async def connect(self):
         await self.golden_products.connect()
+        await self.chat_repo.connect() # Connect chat_repo
 
     async def close(self):
         await self.golden_products.close()
+
+    async def create_tables(self) -> None:
+        """
+        Create all necessary tables and indices if they don't exist.
+        For V2 tables, this is typically handled by migrations, so this method can pass.
+        """
+        pass
 
     # Placeholder implementations for abstract methods from Database
     async def add_chain(self, chain: Any) -> int:
@@ -146,3 +157,17 @@ class PostgresDatabaseV2(Database):
 
     async def get_g_product_details(self, product_id: int) -> dict[str, Any] | None:
         return await self.golden_products.get_g_product_details(product_id)
+
+    async def save_chat_message(
+        self,
+        user_id: int,
+        session_id: str,
+        message_text: str,
+        is_user_message: bool,
+        tool_calls: Optional[List[dict]] = None,
+        tool_outputs: Optional[List[dict]] = None,
+        ai_response: Optional[str] = None,
+    ) -> int:
+        return await self.chat_repo.save_chat_message(
+            user_id, session_id, message_text, is_user_message, tool_calls, tool_outputs, ai_response
+        )
