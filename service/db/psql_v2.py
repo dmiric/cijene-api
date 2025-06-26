@@ -27,8 +27,8 @@ class PostgresDatabaseV2(Database):
         if not self.pool:
             self.pool = await asyncpg.create_pool(
                 dsn=self.dsn,
-                min_size=5,
-                max_size=20,
+                min_size=settings.db_min_connections,
+                max_size=settings.db_max_connections,
                 # This is the critical part for pgvector
                 init=pgvector.asyncpg.register_vector
             )
@@ -162,8 +162,9 @@ class PostgresDatabaseV2(Database):
         sort_by: Optional[str] = None,
         category: Optional[str] = None,
         brand: Optional[str] = None,
+        fields: Optional[List[str]] = None, # Add fields parameter
     ) -> list[ProductSearchItemV2]:
-        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
+        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand, fields) # Pass fields
 
     @timing_decorator
     async def get_g_stores_nearby(

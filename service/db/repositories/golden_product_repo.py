@@ -72,12 +72,21 @@ class GoldenProductRepository(BaseRepository):
         self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}, fields={fields}")
 
         if fields is None:
-            fields_to_select = PRODUCT_FULL_FIELDS # Default to full fields
+            fields_to_select = PRODUCT_AI_SEARCH_FIELDS # Default to AI search fields
         else:
             fields_to_select = fields
 
+        # Ensure 'rank' is selected if sorting by relevance (default or explicit)
+        if (sort_by is None or sort_by == 'relevance') and 'rank' not in fields_to_select:
+            fields_to_select.append('rank')
+
         # Basic validation for fields (can be more robust)
-        valid_fields = set(PRODUCT_FULL_FIELDS + ["rank"]) # Include rank for search
+        # Valid fields are actual columns from g_products plus 'rank'
+        valid_fields = set([
+            "id", "ean", "canonical_name", "brand", "category",
+            "base_unit_type", "variants", "text_for_embedding", "keywords",
+            "embedding", "created_at", "updated_at", "rank"
+        ])
         if not all(f in valid_fields for f in fields_to_select):
             raise ValueError("Invalid field requested for product search.")
 

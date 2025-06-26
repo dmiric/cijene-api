@@ -24,10 +24,8 @@ PRODUCT_FULL_FIELDS = [
 
 # Fields for AI product search results (excluding sensitive/large fields like embedding)
 PRODUCT_AI_SEARCH_FIELDS = [
-    "id", "name", "brand", "category", "image_url",
-    "regular_price", "special_price", "best_unit_price_per_kg",
-    "best_unit_price_per_l", "best_unit_price_per_piece",
-    "base_unit_type", "base_unit_value"
+    "id", "ean", "canonical_name", "brand", "category",
+    "base_unit_type", "variants", "text_for_embedding", "keywords"
 ]
 
 # Fields for AI product details (excluding embedding)
@@ -38,7 +36,7 @@ PRODUCT_AI_DETAILS_FIELDS = [
 
 # Fields for AI store information
 STORE_AI_FIELDS = [
-    "id", "name", "address", "city", "zipcode", "latitude", "longitude", "chain_code"
+    "id", "address", "city", "zipcode", "lat", "lon", "chain_code"
 ]
 
 # Fields for AI product prices

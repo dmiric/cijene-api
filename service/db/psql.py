@@ -231,9 +231,10 @@ class PostgresDatabase(Database):
         self,
         product_ids: list[int],
         date: date,
-        store_ids: list[int] | None = None, # Added store_ids
+        store_ids: list[int] | None = None,
+        fields: Optional[List[str]] = None, # Pass fields argument
     ) -> list[dict[str, Any]]:
-        return await self.products.get_product_prices(product_ids, date, store_ids) # Pass store_ids
+        return await self.products.get_product_prices(product_ids, date, store_ids, fields)
 
     @timing_decorator
     async def get_product_store_prices(
@@ -282,5 +283,6 @@ class PostgresDatabase(Database):
         lon: Decimal,
         radius_meters: int,
         chain_code: Optional[str] = None,
+        fields: Optional[List[str]] = None, # Pass fields argument
     ) -> list[dict[str, Any]]:
-        return await self.stores.get_stores_within_radius(lat, lon, radius_meters, chain_code)
+        return await self.stores.get_stores_within_radius(lat, lon, radius_meters, chain_code, fields)
