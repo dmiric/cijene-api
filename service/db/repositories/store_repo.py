@@ -13,44 +13,39 @@ from decimal import Decimal
 import sys
 import json
 import pgvector.asyncpg
+from service.utils.timing import timing_decorator # Import the decorator
 
-from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
+from service.db.base import BaseRepository
 from service.db.models import (
     Store,
     StoreWithId,
 )
+from service.db.field_configs import STORE_AI_FIELDS # Import AI fields for stores
 
 
-class StoreRepository(BaseRepository): # Changed inheritance
+class StoreRepository(BaseRepository):
     """
     Contains all logic for interacting with the 'legacy' store-related tables
     (stores, chains).
     """
 
-    def __init__(self, dsn: str, min_size: int = 10, max_size: int = 30):
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
+    def __init__(self):
         self.pool = None
         def debug_print_db(*args, **kwargs):
             print("[DEBUG store_repo]", *args, file=sys.stderr, **kwargs)
         self.debug_print = debug_print_db
 
-    async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=self.min_size,
-            max_size=self.max_size,
-            # Removed init=self._init_connection
-        )
-
-    # Removed async def _init_connection(self, conn):
-    #     await pgvector.asyncpg.register_vector(conn)
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """
+        Initializes the repository with an existing connection pool.
+        This repository does not create its own pool.
+        """
+        self.pool = pool
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
+            raise RuntimeError("Database pool is not initialized for StoreRepository")
         async with self.pool.acquire() as conn:
             yield conn
 
@@ -68,6 +63,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
+    @timing_decorator
     async def add_store(self, store: Store) -> int:
         return await self._fetchval(
             f"""
@@ -94,6 +90,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
             store.phone or None,
         )
 
+    @timing_decorator
     async def update_store(
         self,
         chain_id: int,
@@ -135,6 +132,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
+    @timing_decorator
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -151,6 +149,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
 
             return [StoreWithId(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def filter_stores(
         self,
         chain_codes: list[str] | None = None,
@@ -217,6 +216,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
             rows = await conn.fetch(query, *params)
             return [StoreWithId(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def get_ungeocoded_stores(self) -> list[StoreWithId]:
         """
         Fetches stores that have address information but are missing
@@ -235,28 +235,50 @@ class StoreRepository(BaseRepository): # Changed inheritance
             )
             return [StoreWithId(**row) for row in rows] # type: ignore
 
+    @timing_decorator
     async def get_stores_within_radius(
         self,
         lat: Decimal,
         lon: Decimal,
         radius_meters: int,
         chain_code: Optional[str] = None,
+        fields: Optional[List[str]] = None # New parameter for selectable fields
     ) -> list[dict[str, Any]]:
         """
-        Finds and lists stores within a specified radius of a given lat/lon.
+        Finds and lists stores within a specified radius of a given lat/lon, with selectable fields.
         Results include chain code and distance from the center point, ordered by distance.
         """
-        self.debug_print(f"get_stores_within_radius received: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}")
+        self.debug_print(f"get_stores_within_radius received: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}, fields={fields}")
+
+        if fields is None:
+            fields_to_select = STORE_AI_FIELDS # Default to AI fields for this common AI tool
+        else:
+            fields_to_select = fields
+
+        # Basic validation for fields
+        valid_fields = set(STORE_AI_FIELDS + ["distance_meters"]) # Include distance for sorting
+        if not all(f in valid_fields for f in fields_to_select):
+            raise ValueError("Invalid field requested for stores within radius.")
+
+        # Construct SELECT clause dynamically
+        select_parts = []
+        for field in fields_to_select:
+            if field == "chain_code":
+                select_parts.append("c.code AS chain_code")
+            elif field == "distance_meters":
+                select_parts.append(f"ST_Distance(s.location::geography, ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geography) AS distance_meters")
+            else:
+                select_parts.append(f"s.{field}") # Direct mapping for other fields
+
+        select_clause = ", ".join(select_parts)
+
         async with self._get_conn() as conn:
             # Create a geometry point for the center of the search (matching DB column type)
             center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
             self.debug_print(f"Generated center_point: {center_point}")
 
             query = f"""
-                SELECT
-                    s.id, s.chain_id, s.code, s.type, s.address, s.city, s.zipcode, s.lat, s.lon,
-                    c.code AS chain_code,
-                    ST_Distance(s.location::geography, {center_point}::geography) AS distance_meters
+                SELECT {select_clause}
                 FROM stores s
                 JOIN chains c ON s.chain_id = c.id
                 WHERE ST_DWithin(s.location::geography, {center_point}::geography, $1)
@@ -269,5 +291,7 @@ class StoreRepository(BaseRepository): # Changed inheritance
 
             query += f" ORDER BY ST_Distance(s.location, {center_point})"
 
+            self.debug_print(f"get_stores_within_radius: Final Query: {query}")
+            self.debug_print(f"get_stores_within_radius: Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]

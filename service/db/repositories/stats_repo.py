@@ -13,6 +13,7 @@ from decimal import Decimal
 import sys
 import json
 import pgvector.asyncpg
+from service.utils.timing import timing_decorator # Import the decorator
 
 from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
 from service.db.models import (
@@ -20,36 +21,29 @@ from service.db.models import (
 )
 
 
-class StatsRepository(BaseRepository): # Changed inheritance
+class StatsRepository(BaseRepository):
     """
     Contains all logic for interacting with stats-related tables
     (chain_stats).
     """
 
-    def __init__(self, dsn: str, min_size: int = 10, max_size: int = 30):
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
+    def __init__(self):
         self.pool = None
         def debug_print_db(*args, **kwargs):
             print("[DEBUG stats_repo]", *args, file=sys.stderr, **kwargs)
         self.debug_print = debug_print_db
 
-    async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=self.min_size,
-            max_size=self.max_size,
-            # Removed init=self._init_connection
-        )
-
-    # Removed async def _init_connection(self, conn):
-    #     await pgvector.asyncpg.register_vector(conn)
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """
+        Initializes the repository with an existing connection pool.
+        This repository does not create its own pool.
+        """
+        self.pool = pool
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
+            raise RuntimeError("Database pool is not initialized for StatsRepository")
         async with self.pool.acquire() as conn:
             yield conn
 
@@ -67,6 +61,7 @@ class StatsRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
+    @timing_decorator
     async def list_latest_chain_stats(self) -> list[ChainStats]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("""
@@ -87,6 +82,7 @@ class StatsRepository(BaseRepository): # Changed inheritance
             """)
             return [ChainStats(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def compute_chain_stats(self, date: date) -> None:
         async with self._atomic() as conn:
             stats = await conn.fetch(

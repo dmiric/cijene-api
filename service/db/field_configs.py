@@ -1,0 +1,48 @@
+# service/db/field_configs.py
+
+# --- User Locations ---
+# Fields typically needed for the main application UI or full data representation
+USER_LOCATION_FULL_FIELDS = [
+    "id", "user_id", "address", "city", "state", "zip_code", "country",
+    "latitude", "longitude", "location_name", "created_at", "updated_at"
+]
+
+# Fields optimized for AI tools (e.g., excluding timestamps if not needed for AI reasoning)
+USER_LOCATION_AI_FIELDS = [
+    "id", "user_id", "address", "city", "zip_code", "country",
+    "latitude", "longitude", "location_name"
+]
+
+# --- Products (Example) ---
+# Full fields for product details in the app
+PRODUCT_FULL_FIELDS = [
+    "id", "name", "description", "brand", "category", "image_url",
+    "regular_price", "special_price", "best_unit_price_per_kg",
+    "best_unit_price_per_l", "best_unit_price_per_piece",
+    "base_unit_type", "base_unit_value", "created_at", "updated_at", "embedding"
+]
+
+# Fields for AI product search results (excluding sensitive/large fields like embedding)
+PRODUCT_AI_SEARCH_FIELDS = [
+    "id", "name", "brand", "category", "image_url",
+    "regular_price", "special_price", "best_unit_price_per_kg",
+    "best_unit_price_per_l", "best_unit_price_per_piece",
+    "base_unit_type", "base_unit_value"
+]
+
+# Fields for AI product details (excluding embedding)
+PRODUCT_AI_DETAILS_FIELDS = [
+    "id", "ean", "canonical_name", "brand", "category", "base_unit_type",
+    "variants", "text_for_embedding", "keywords"
+]
+
+# Fields for AI store information
+STORE_AI_FIELDS = [
+    "id", "name", "address", "city", "zipcode", "latitude", "longitude", "chain_code"
+]
+
+# Fields for AI product prices
+PRODUCT_PRICE_AI_FIELDS = [
+    "chain_code", "product_id", "store_id", "store_code", "price_date",
+    "regular_price", "special_price", "unit_price", "best_price_30", "anchor_price"
+]

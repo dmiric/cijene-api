@@ -13,8 +13,9 @@ from decimal import Decimal
 import sys
 import json
 import pgvector.asyncpg
+from service.utils.timing import timing_decorator # Import the decorator
 
-from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
+from service.db.base import BaseRepository
 from service.db.models import (
     Chain,
     ChainStats,
@@ -36,38 +37,32 @@ from service.db.models import (
     GPrice,
     GProductBestOffer,
 )
+from service.db.field_configs import PRODUCT_PRICE_AI_FIELDS # Import AI fields for product prices
 
 
-class ProductRepository(BaseRepository): # Changed inheritance
+class ProductRepository(BaseRepository):
     """
     Contains all logic for interacting with the 'legacy' product-related tables
     (products, chain_products, prices, chain_prices, search_keywords).
     """
 
-    def __init__(self, dsn: str, min_size: int = 10, max_size: int = 30):
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
+    def __init__(self):
         self.pool = None
         def debug_print_db(*args, **kwargs):
             print("[DEBUG product_repo]", *args, file=sys.stderr, **kwargs)
         self.debug_print = debug_print_db
 
-    async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=self.min_size,
-            max_size=self.max_size,
-            # Removed init=self._init_connection
-        )
-
-    # Removed async def _init_connection(self, conn):
-    #     await pgvector.asyncpg.register_vector(conn)
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """
+        Initializes the repository with an existing connection pool.
+        This repository does not create its own pool.
+        """
+        self.pool = pool
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
+            raise RuntimeError("Database pool is not initialized for ProductRepository")
         async with self.pool.acquire() as conn:
             yield conn
 
@@ -85,11 +80,13 @@ class ProductRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
+    @timing_decorator
     async def get_product_barcodes(self) -> dict[str, int]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("SELECT id, ean FROM products")
             return {row["ean"]: row["id"] for row in rows}
 
+    @timing_decorator
     async def get_chain_product_map(self, chain_id: int) -> dict[str, int]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -100,6 +97,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             )
             return {row["code"]: row["id"] for row in rows}
 
+    @timing_decorator
     async def add_chain(self, chain: Chain) -> int:
         async with self._atomic() as conn:
             chain_id = await conn.fetchval(
@@ -116,11 +114,13 @@ class ProductRepository(BaseRepository): # Changed inheritance
                 raise RuntimeError(f"Failed to insert chain {chain.code}")
             return chain_id
 
+    @timing_decorator
     async def list_chains(self) -> list[ChainWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("SELECT id, code FROM chains")
             return [ChainWithId(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def add_ean(self, ean: str) -> int:
         """
         Add an empty product with only EAN barcode info.
@@ -136,6 +136,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             ean,
         )
 
+    @timing_decorator
     async def get_products_by_ean(self, ean: list[str]) -> list[ProductWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -147,6 +148,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             )
             return [ProductWithId(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def get_product_store_prices(
         self, product_id: int, chain_ids: list[int] | None
     ) -> list[StorePrice]:
@@ -214,6 +216,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
                 for row in rows
             ]
 
+    @timing_decorator
     async def update_product(self, product: Product) -> bool:
         """
         Update product information by EAN code.
@@ -245,6 +248,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
+    @timing_decorator
     async def get_chain_products_for_product(
         self,
         product_ids: list[int],
@@ -273,6 +277,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
                 rows = await conn.fetch(query, product_ids)
             return [ChainProductWithId(**row) for row in rows]  # type: ignore
 
+    @timing_decorator
     async def search_products(self, query: str) -> list[ProductWithId]:
         if not query.strip():
             return []
@@ -318,23 +323,49 @@ class ProductRepository(BaseRepository): # Changed inheritance
 
         return await self.get_products_by_ean(eans)
 
+    @timing_decorator
     async def get_product_prices(
-        self, product_ids: list[int], date: date, store_ids: list[int] | None = None
+        self,
+        product_ids: list[int],
+        date: date,
+        store_ids: list[int] | None = None,
+        fields: Optional[List[str]] = None # New parameter for selectable fields
     ) -> list[dict[str, Any]]:
+        """
+        Get computed chain prices across all chains for specified products
+        on a given date, with selectable fields.
+        """
+        self.debug_print(f"get_product_prices: product_ids={product_ids}, date={date}, store_ids={store_ids}, fields={fields}")
+
+        if fields is None:
+            fields_to_select = PRODUCT_PRICE_AI_FIELDS # Default to AI fields for this common AI tool
+        else:
+            fields_to_select = fields
+
+        # Basic validation for fields
+        valid_fields = set(PRODUCT_PRICE_AI_FIELDS + ["chain_product_id"]) # Include chain_product_id for internal joins
+        if not all(f in valid_fields for f in fields_to_select):
+            raise ValueError("Invalid field requested for product prices.")
+
+        # Construct SELECT clause dynamically
+        select_parts = []
+        for field in fields_to_select:
+            if field == "chain_code":
+                select_parts.append("c.code AS chain_code")
+            elif field == "store_code":
+                select_parts.append("s.code AS store_code")
+            elif field == "product_id":
+                select_parts.append("cpr.product_id")
+            elif field == "chain_product_id":
+                select_parts.append("cpr.id AS chain_product_id")
+            else:
+                select_parts.append(f"p.{field}") # Direct mapping for other fields
+
+        select_clause = ", ".join(select_parts)
+
         async with self._get_conn() as conn:
-            query = """
-                SELECT
-                    c.code AS chain_code,
-                    cpr.product_id,
-                    cpr.id AS chain_product_id,
-                    p.store_id,
-                    s.code AS store_code,
-                    p.price_date,
-                    p.regular_price,
-                    p.special_price,
-                    p.unit_price,
-                    p.best_price_30,
-                    p.anchor_price
+            query = f"""
+                SELECT {select_clause}
                 FROM prices p
                 JOIN chain_products cpr ON p.chain_product_id = cpr.id
                 JOIN chains c ON cpr.chain_id = c.id
@@ -359,6 +390,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 
+    @timing_decorator
     async def add_many_prices(self, prices: list[Price]) -> int:
         async with self._atomic() as conn:
             await conn.execute(
@@ -412,6 +444,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             rowcount = int(rowcount)
             return rowcount
 
+    @timing_decorator
     async def add_many_chain_products(
         self,
         chain_products: List[ChainProduct],
@@ -470,6 +503,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
             rowcount = int(rowcount)
             return rowcount
 
+    @timing_decorator
     async def compute_chain_prices(self, date: date) -> None:
         async with self._get_conn() as conn:
             await conn.execute(
@@ -518,6 +552,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
                 date,
             )
 
+    @timing_decorator
     async def get_products_for_keyword_generation(
         self, limit: int = 100, product_name_filter: str | None = None
     ) -> list[dict[str, Any]]:
@@ -550,6 +585,7 @@ class ProductRepository(BaseRepository): # Changed inheritance
                 for row in rows
             ]
 
+    @timing_decorator
     async def add_many_search_keywords(self, keywords: List[SearchKeyword]) -> int:
         """
         Bulk insert search keywords into the database.

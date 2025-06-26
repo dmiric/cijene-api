@@ -4,6 +4,14 @@ import json
 from typing import Optional, List, Any
 from decimal import Decimal
 from datetime import date
+from service.utils.timing import timing_decorator # Import the decorator
+from service.db.field_configs import (
+    USER_LOCATION_AI_FIELDS, # Import AI fields for user locations
+    PRODUCT_AI_SEARCH_FIELDS, # Import AI fields for product search
+    PRODUCT_AI_DETAILS_FIELDS, # Import AI fields for product details
+    STORE_AI_FIELDS, # Import AI fields for stores
+    PRODUCT_PRICE_AI_FIELDS # Import AI fields for product prices
+)
 
 from .ai_helpers import pydantic_to_dict # A new helper file
 
@@ -14,6 +22,7 @@ def debug_print(*args, **kwargs):
     print("[DEBUG AI_TOOLS]", *args, file=sys.stderr, **kwargs)
 
 # --- Tool Functions ---
+@timing_decorator
 async def search_products_tool_v2(
     q: str,
     limit: int = 20,
@@ -44,6 +53,7 @@ async def search_products_tool_v2(
             sort_by=sort_by,
             category=category,
             brand=brand,
+            fields=PRODUCT_AI_SEARCH_FIELDS # Pass AI-specific fields
         )
 
         if not products:
@@ -54,43 +64,29 @@ async def search_products_tool_v2(
             parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
             filtered_products_with_prices = []
             
-            for product in products:
-                product_id = product.id # Access attribute directly
+            for product_dict in products: # products are now dicts
+                product_id = product_dict.get("id")
                 if product_id is None:
                     continue
 
                 # Fetch prices for this product in the specified stores
-                # CORRECTED: Use db.get_product_prices (from psql.py) instead of db_v2.get_g_product_prices_by_location
                 prices_in_stores = await db.get_product_prices(
                     product_ids=[product_id],
                     date=date.today(), # Use today's date for price lookup
-                    store_ids=parsed_store_ids
+                    store_ids=parsed_store_ids,
+                    fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields for prices
                 )
                 
                 if prices_in_stores:
-                    # If prices are found in the specified stores, add the product and its prices
-                    product_dict = product.model_dump() # Convert Pydantic model to dict
                     product_dict["prices_in_stores"] = prices_in_stores
                     filtered_products_with_prices.append(product_dict)
             
-            # Exclude embedding from the final output for filtered products
-            cleaned_products = []
-            for p_dict in filtered_products_with_prices:
-                p_copy = p_dict.copy()
-                p_copy.pop("embedding", None) # Remove embedding field
-                cleaned_products.append(p_copy)
-            
-            return pydantic_to_dict({"products": cleaned_products})
+            # No need to pop embedding here, as it's already excluded by PRODUCT_AI_SEARCH_FIELDS
+            return pydantic_to_dict({"products": filtered_products_with_prices})
         
         # If no store_ids, return products from hybrid search directly
-        # Exclude embedding from the final output for all products
-        cleaned_products = []
-        for p in products:
-            p_dict = p.model_dump() # Convert Pydantic model to dict
-            p_dict.pop("embedding", None) # Remove embedding field
-            cleaned_products.append(p_dict)
-        
-        return pydantic_to_dict({"products": cleaned_products})
+        # No need to pop embedding here, as it's already excluded by PRODUCT_AI_SEARCH_FIELDS
+        return pydantic_to_dict({"products": products})
 
     except Exception as e:
         debug_print(f"Error in search_products_tool_v2: {e}")
@@ -108,17 +104,19 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
     try:
         parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
         
-        # CORRECTED: Use db.get_product_prices (from psql.py) instead of db_v2.get_g_product_prices_by_location
+        # Use db.get_product_prices (from psql.py)
         prices_data = await db.get_product_prices(
             product_ids=[product_id],
             date=date.today(), # Use today's date for price lookup
             store_ids=parsed_store_ids,
+            fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields
         )
         return pydantic_to_dict({"prices": prices_data})
     except Exception as e:
         return {"error": str(e)}
 
 
+@timing_decorator
 async def get_product_details_tool_v2(product_id: int):
     """
     Retrieves the full details for a single product.
@@ -127,18 +125,20 @@ async def get_product_details_tool_v2(product_id: int):
     """
     debug_print(f"Tool Call: get_product_details_tool_v2(product_id={product_id})")
     try:
-        details = await db_v2.get_g_product_details(product_id)
+        details = await db_v2.get_g_product_details(
+            product_id,
+            fields=PRODUCT_AI_DETAILS_FIELDS # Pass AI-specific fields
+        )
         if details:
-            # Exclude embedding from the final output
-            details_copy = details.copy()
-            details_copy.pop("embedding", None)
-            return pydantic_to_dict(details_copy)
+            # No need to pop embedding here, as it's already excluded by PRODUCT_AI_DETAILS_FIELDS
+            return pydantic_to_dict(details)
         else:
             return {"message": f"Product with ID {product_id} not found."}
     except Exception as e:
         return {"error": str(e)}
 
 
+@timing_decorator
 async def find_nearby_stores_tool_v2(
     lat: float,
     lon: float,
@@ -155,12 +155,13 @@ async def find_nearby_stores_tool_v2(
     """
     debug_print(f"Tool Call: find_nearby_stores_tool_v2(lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code})")
     try:
-        # CORRECTED: Use db (psql.py) and get_stores_within_radius for 'stores' table
+        # Use db (psql.py) and get_stores_within_radius for 'stores' table
         response = await db.get_stores_within_radius(
             lat=Decimal(str(lat)), # Convert float to Decimal for db method
             lon=Decimal(str(lon)), # Convert float to Decimal for db method
             radius_meters=radius_meters,
             chain_code=chain_code,
+            fields=STORE_AI_FIELDS # Pass AI-specific fields
         )
         return pydantic_to_dict({"stores": response})
     except Exception as e:
@@ -169,6 +170,7 @@ async def find_nearby_stores_tool_v2(
         return {"error": error_message}
 
 
+@timing_decorator
 async def get_user_locations_tool(user_id: int):
     """
     Retrieves a user's saved locations.
@@ -178,7 +180,10 @@ async def get_user_locations_tool(user_id: int):
     debug_print(f"Tool Call: get_user_locations_tool(user_id={user_id})")
     try:
         # This still uses the original db as user locations are not g_tables
-        locations = await db.users.get_user_locations_by_user_id(user_id)
+        locations = await db.users.get_user_locations_by_user_id(
+            user_id,
+            fields=USER_LOCATION_AI_FIELDS # Pass the specific fields for AI
+        )
         return pydantic_to_dict({"locations": locations})
     except Exception as e:
         return {"error": str(e)}

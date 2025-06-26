@@ -14,45 +14,40 @@ from uuid import UUID, uuid4
 import sys
 import json
 import pgvector.asyncpg
+from service.utils.timing import timing_decorator # Import the decorator
 
-from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
+from service.db.base import BaseRepository
 from service.db.models import (
     User,
     UserLocation,
     UserPreference,
 )
+from service.db.field_configs import USER_LOCATION_FULL_FIELDS, USER_LOCATION_AI_FIELDS
 
 
-class UserRepository(BaseRepository): # Changed inheritance
+class UserRepository(BaseRepository):
     """
     Contains all logic for interacting with user-related tables
     (users, user_locations, user_preferences).
     """
 
-    def __init__(self, dsn: str, min_size: int = 10, max_size: int = 30):
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
+    def __init__(self):
         self.pool = None
         def debug_print_db(*args, **kwargs):
             print("[DEBUG user_repo]", *args, file=sys.stderr, **kwargs)
         self.debug_print = debug_print_db
 
-    async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=self.min_size,
-            max_size=self.max_size,
-            # Removed init=self._init_connection
-        )
-
-    # Removed async def _init_connection(self, conn):
-    #     await pgvector.asyncpg.register_vector(conn)
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """
+        Initializes the repository with an existing connection pool.
+        This repository does not create its own pool.
+        """
+        self.pool = pool
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
+            raise RuntimeError("Database pool is not initialized for UserRepository")
         async with self.pool.acquire() as conn:
             yield conn
 
@@ -70,6 +65,7 @@ class UserRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
+    @timing_decorator
     async def get_user_by_api_key(self, api_key: str) -> User | None:
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
@@ -87,6 +83,7 @@ class UserRepository(BaseRepository): # Changed inheritance
                 return User(**row)  # type: ignore
             return None
 
+    @timing_decorator
     async def get_user_by_id(self, user_id: int) -> User | None:
         """
         Retrieve a user by their ID.
@@ -104,6 +101,7 @@ class UserRepository(BaseRepository): # Changed inheritance
                 return User(**row)  # type: ignore
             return None
 
+    @timing_decorator
     async def add_user(self, name: str) -> User:
         """
         Add a new user with a randomly generated API key.
@@ -141,6 +139,7 @@ class UserRepository(BaseRepository): # Changed inheritance
                 created_at=created_at,
             )
 
+    @timing_decorator
     async def add_user_location(self, user_id: int, location_data: dict) -> UserLocation:
         """
         Add a new location for a user.
@@ -176,24 +175,43 @@ class UserRepository(BaseRepository): # Changed inheritance
 
             return UserLocation(**row)
 
-    async def get_user_locations_by_user_id(self, user_id: int) -> list[UserLocation]:
+    @timing_decorator
+    async def get_user_locations_by_user_id(
+        self,
+        user_id: int,
+        fields: Optional[List[str]] = None
+    ) -> list[UserLocation]:
         """
-        Get all locations for a specific user.
+        Get all locations for a specific user, with selectable fields.
         """
+        if fields is None:
+            fields_to_select = USER_LOCATION_FULL_FIELDS
+        else:
+            fields_to_select = fields
+
+        # Basic validation to prevent SQL injection and ensure fields exist
+        valid_fields = set(USER_LOCATION_FULL_FIELDS)
+        if not all(f in valid_fields for f in fields_to_select):
+            raise ValueError("Invalid field requested for user locations.")
+
+        fields_str = ", ".join(fields_to_select)
+
         async with self._get_conn() as conn:
             rows = await conn.fetch(
-                """
-                SELECT
-                    id, user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, created_at, updated_at
+                f"""
+                SELECT {fields_str}
                 FROM user_locations
                 WHERE user_id = $1
                 ORDER BY created_at
                 """,
                 user_id,
             )
-            return [UserLocation(**row) for row in rows] # type: ignore
+            # Convert rows to dictionaries, as UserLocation(**row) might fail with partial data
+            # if the model expects all fields to be present.
+            # The AI tools will then convert these dictionaries to their desired format.
+            return [dict(row) for row in rows] # type: ignore
 
+    @timing_decorator
     async def get_user_location_by_id(self, user_id: int, location_id: int) -> UserLocation | None:
         """
         Get a specific user location by its ID and user ID.
@@ -214,16 +232,23 @@ class UserRepository(BaseRepository): # Changed inheritance
                 return UserLocation(**row) # type: ignore
             return None
 
-    async def update_user_location(self, user_id: int, location_id: int, location_data: dict) -> UserLocation | None:
-        """
-        Update an existing user location.
-        """
-        lat = location_data.get("lat")
-        lon = location_data.get("lon")
-
+    @timing_decorator
+    async def update_user_location(
+        self,
+        location_id: int,
+        user_id: int,
+        address: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        latitude: Optional[Decimal] = None,
+        longitude: Optional[Decimal] = None,
+        location_name: Optional[str] = None,
+    ) -> bool:
         async with self._atomic() as conn:
-            row = await conn.fetchrow(
-                f"""
+            result = await conn.execute(
+                """
                 UPDATE user_locations
                 SET
                     address = COALESCE($3, address),
@@ -240,19 +265,19 @@ class UserRepository(BaseRepository): # Changed inheritance
                 """,
                 location_id,
                 user_id,
-                location_data.get("address"),
-                location_data.get("city"),
-                location_data.get("state"),
-                location_data.get("zip_code"),
-                location_data.get("country"),
-                lat,
-                lon,
-                location_data.get("location_name"),
+                address,
+                city,
+                state,
+                zip_code,
+                country,
+                latitude,
+                longitude,
+                location_name,
             )
-            if row:
-                return UserLocation(**row)
-            return None
+            _, rowcount = result.split(" ")
+            return int(rowcount) == 1
 
+    @timing_decorator
     async def delete_user_location(self, user_id: int, location_id: int) -> bool:
         """
         Delete a user location.
@@ -269,48 +294,40 @@ class UserRepository(BaseRepository): # Changed inheritance
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
+    @timing_decorator
     async def add_many_users(self, users: List[User]) -> int:
         """
         Bulk insert users into the database.
         On conflict (id), do nothing.
         """
-        async with self._atomic() as conn:
-            await conn.execute(
-                """
-                CREATE TEMP TABLE temp_users (
-                    id INTEGER,
-                    name VARCHAR(255),
-                    api_key VARCHAR(64),
-                    is_active BOOLEAN,
-                    created_at TIMESTAMP WITH TIME ZONE
-                )
-                """
-            )
-            await conn.copy_records_to_table(
-                "temp_users",
-                records=(
-                    (
-                        u.id,
-                        u.name,
-                        u.api_key,
-                        u.is_active,
-                        u.created_at,
-                    )
-                    for u in users
-                ),
-            )
-            result = await conn.execute(
-                """
-                INSERT INTO users(id, name, api_key, is_active, created_at)
-                SELECT * from temp_users
-                ON CONFLICT (id) DO NOTHING
-                """
-            )
-            await conn.execute("DROP TABLE temp_users")
-            _, _, rowcount = result.split(" ")
-            rowcount = int(rowcount)
-            return rowcount
+        self.debug_print(f"add_many_users: Adding {len(users)} users.")
+        if not users:
+            return 0
 
+        records = [
+            (
+                u.id,
+                u.name,
+                u.api_key,
+                u.is_active,
+                u.created_at,
+            )
+            for u in users
+        ]
+        async with self._get_conn() as conn:
+            # Use copy_records_to_table for efficient bulk insert
+            # Ensure the order of columns matches the order in records
+            result = await conn.copy_records_to_table(
+                'users',
+                records=records,
+                columns=[
+                    'id', 'name', 'api_key', 'is_active', 'created_at'
+                ]
+            )
+            self.debug_print(f"add_many_users: Inserted {result} rows.")
+            return result
+
+    @timing_decorator
     async def add_many_user_locations(self, locations: List[UserLocation]) -> int:
         """
         Bulk insert user locations into the database.
@@ -370,6 +387,7 @@ class UserRepository(BaseRepository): # Changed inheritance
             rowcount = int(rowcount)
             return rowcount
 
+    @timing_decorator
     async def save_user_preference(self, user_id: int, preference_key: str, preference_value: str) -> UserPreference:
         """
         Saves or updates a user's shopping preference.
@@ -392,6 +410,7 @@ class UserRepository(BaseRepository): # Changed inheritance
                 raise RuntimeError(f"Failed to save user preference for user {user_id}, key {preference_key}")
             return UserPreference(**row)
 
+    @timing_decorator
     async def get_user_preference(self, user_id: int, preference_key: str) -> UserPreference | None:
         """
         Retrieves a specific user preference.

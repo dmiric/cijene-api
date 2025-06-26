@@ -5,6 +5,7 @@ import sys
 from typing import AsyncGenerator, Optional
 import json
 from uuid import UUID, uuid4
+from service.utils.timing import timing_decorator # Import the decorator
 
 from service.config import settings
 from service.routers.v2.chat_components.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
@@ -122,6 +123,7 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     
     ai_history.append({"role": "user", "parts": [user_message_text]})
 
+    @timing_decorator
     async def event_stream():
         full_ai_response_text = ""
         
@@ -326,4 +328,3 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
         yield f"data: {json.dumps({'type': 'end', 'session_id': str(session_id)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-print("<<< Finished importing in chat_v2.py")

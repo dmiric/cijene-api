@@ -5,43 +5,38 @@ import sys
 from datetime import date, datetime
 from decimal import Decimal
 import json
+from service.utils.timing import timing_decorator # Import the decorator
 
-from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
+from service.db.base import BaseRepository
 from service.db.models import (
     GProduct, GProductWithId, GPrice, GStore, GStoreWithId, GProductBestOffer,
     GProductBestOfferWithId, ProductSearchItemV2,
 )
+from service.db.field_configs import PRODUCT_FULL_FIELDS, PRODUCT_AI_SEARCH_FIELDS, PRODUCT_AI_DETAILS_FIELDS
 
-class GoldenProductRepository(BaseRepository): # Changed inheritance
+class GoldenProductRepository(BaseRepository):
     """
     Contains all logic for interacting with the 'golden record' tables (g_products,
     g_prices, g_product_best_offers) and the new g_stores table.
     """
 
-    def __init__(self, dsn: str, min_size: int = 10, max_size: int = 30):
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
+    def __init__(self):
         self.pool = None
         def debug_print_db(*args, **kwargs):
             print("[DEBUG golden_product_repo]", *args, file=sys.stderr, **kwargs)
         self.debug_print = debug_print_db
 
-    async def connect(self) -> None:
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=self.min_size,
-            max_size=self.max_size,
-            # Removed init=self._init_connection
-        )
-
-    # Removed async def _init_connection(self, conn):
-    #     await pgvector.asyncpg.register_vector(conn)
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """
+        Initializes the repository with an existing connection pool.
+        This repository does not create its own pool.
+        """
+        self.pool = pool
 
     @asynccontextmanager
     async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
         if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
+            raise RuntimeError("Database pool is not initialized for GoldenProductRepository")
         async with self.pool.acquire() as conn:
             yield conn
 
@@ -59,6 +54,7 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
+    @timing_decorator
     async def get_g_products_hybrid_search(
         self,
         query: str,
@@ -67,16 +63,59 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
         sort_by: Optional[str] = None,
         category: Optional[str] = None,
         brand: Optional[str] = None,
-    ) -> list[ProductSearchItemV2]:
+        fields: Optional[List[str]] = None # New parameter for selectable fields
+    ) -> list[dict[str, Any]]: # Return list of dicts for flexibility
         """
         Performs hybrid search (vector + keyword) on g_products, fuses results with RRF,
         and applies sorting based on g_product_best_offers.
         """
-        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}")
+        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}, fields={fields}")
+
+        if fields is None:
+            fields_to_select = PRODUCT_FULL_FIELDS # Default to full fields
+        else:
+            fields_to_select = fields
+
+        # Basic validation for fields (can be more robust)
+        valid_fields = set(PRODUCT_FULL_FIELDS + ["rank"]) # Include rank for search
+        if not all(f in valid_fields for f in fields_to_select):
+            raise ValueError("Invalid field requested for product search.")
+
+        # Construct SELECT clause dynamically
+        select_parts = []
+        for field in fields_to_select:
+            if field == "name":
+                select_parts.append("gp.canonical_name AS name")
+            elif field == "description":
+                select_parts.append("gp.text_for_embedding AS description")
+            elif field == "image_url":
+                select_parts.append("NULL AS image_url") # Placeholder, assuming no direct image_url in g_products
+            elif field == "product_url":
+                select_parts.append("NULL AS product_url") # Placeholder
+            elif field == "unit_of_measure":
+                select_parts.append("gp.base_unit_type AS unit_of_measure")
+            elif field == "quantity_value":
+                select_parts.append("NULL AS quantity_value") # Placeholder
+            elif field == "rank":
+                select_parts.append("ts_rank_cd(to_tsvector('hr', array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank")
+            elif field == "best_unit_price_per_kg":
+                select_parts.append("gpbo.best_unit_price_per_kg")
+            elif field == "best_unit_price_per_l":
+                select_parts.append("gpbo.best_unit_price_per_l")
+            elif field == "best_unit_price_per_piece":
+                select_parts.append("gpbo.best_unit_price_per_piece")
+            else:
+                select_parts.append(f"gp.{field}") # Direct mapping for other fields
+
+        select_clause = ", ".join(select_parts)
 
         where_conditions = []
         params = [query]
         param_counter = 2
+
+        # Initial FTS condition
+        fts_condition = "to_tsvector('hr', array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)"
+        where_conditions.append(fts_condition)
 
         if category:
             where_conditions.append(f"category ILIKE ${param_counter}")
@@ -87,48 +126,29 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             params.append(f"%{brand}%")
             param_counter += 1
 
-        base_product_query = f"""
-            SELECT
-                gp.id,
-                gp.canonical_name AS name,
-                gp.brand,
-                gp.category,
-                gp.text_for_embedding AS description,
-                NULL AS image_url,
-                NULL AS product_url,
-                gp.base_unit_type AS unit_of_measure,
-                NULL AS quantity_value,
-                gp.embedding,
-                gp.keywords,
-                ts_rank_cd(to_tsvector('hr', array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank
-            FROM g_products gp
-            WHERE to_tsvector('hr', array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)
-        """
-        if where_conditions:
-            base_product_query += " AND " + " AND ".join(where_conditions)
+        from_clause = "FROM g_products gp"
+        join_clause = ""
+        
+        # Add join for best offers if sorting by value or selecting best offer fields
+        if sort_by and sort_by.startswith('best_value_') or any(f.startswith('best_unit_price_') for f in fields_to_select):
+            join_clause = "LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id"
 
-        order_by_clause = " ORDER BY rank DESC"
+        order_by_clause = " ORDER BY rank DESC" # Default for relevance
         if sort_by:
             if sort_by == 'best_value_kg':
-                base_product_query += """
-                    LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
-                """
                 order_by_clause = " ORDER BY gpbo.best_unit_price_per_kg ASC NULLS LAST"
             elif sort_by == 'best_value_l':
-                base_product_query += """
-                    LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
-                """
                 order_by_clause = " ORDER BY gpbo.best_unit_price_per_l ASC NULLS LAST"
             elif sort_by == 'best_value_piece':
-                base_product_query += """
-                    LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
-                """
                 order_by_clause = " ORDER BY gpbo.best_unit_price_per_piece ASC NULLS LAST"
             elif sort_by == 'relevance':
                 order_by_clause = " ORDER BY rank DESC"
 
         final_query = f"""
-            {base_product_query}
+            SELECT {select_clause}
+            {from_clause}
+            {join_clause}
+            WHERE {' AND '.join(where_conditions)}
             {order_by_clause}
             LIMIT ${param_counter} OFFSET ${param_counter + 1}
         """
@@ -139,21 +159,21 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             self.debug_print(f"get_g_products_hybrid_search: Params: {params}")
             rows = await conn.fetch(final_query, *params)
             
-            # Manually convert embedding string to list of floats if it's a string
+            # Return as list of dictionaries for flexibility
             results = []
             for row in rows:
                 row_dict = dict(row)
-                if isinstance(row_dict.get("embedding"), str):
+                # Manually convert embedding string to list of floats if it's a string
+                if "embedding" in row_dict and isinstance(row_dict["embedding"], str):
                     try:
-                        # Convert string representation of vector to list of floats
-                        # Example: "[1.0,2.0,3.0]" -> [1.0, 2.0, 3.0]
                         row_dict["embedding"] = json.loads(row_dict["embedding"])
                     except json.JSONDecodeError:
                         self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
-                        row_dict["embedding"] = None # Set to None if decoding fails
-                results.append(ProductSearchItemV2(**row_dict))
+                        row_dict["embedding"] = None
+                results.append(row_dict)
             return results
 
+    @timing_decorator
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]
     ) -> list[dict[str, Any]]:
@@ -186,36 +206,82 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             rows = await conn.fetch(query, product_id, store_ids)
             return [dict(row) for row in rows]
 
-    async def get_g_product_details(self, product_id: int) -> dict[str, Any] | None:
+    @timing_decorator
+    async def get_g_product_details(
+        self,
+        product_id: int,
+        fields: Optional[List[str]] = None # New parameter for selectable fields
+    ) -> dict[str, Any] | None: # Return dict for flexibility
         """
-        Retrieves a single product's details from g_products, potentially joining with g_product_best_offers.
+        Retrieves a single product's details from g_products, potentially joining with g_product_best_offers,
+        with selectable fields.
         """
-        self.debug_print(f"get_g_product_details: product_id={product_id}")
-        async with self._get_conn() as conn:
-            query = """
-                SELECT
-                    gp.id,
-                    gp.canonical_name AS name,
-                    gp.text_for_embedding AS description,
-                    gp.brand,
-                    gp.category,
-                    NULL AS image_url,
-                    NULL AS product_url,
-                    gp.base_unit_type AS unit_of_measure,
-                    NULL AS quantity_value,
-                    gp.embedding,
-                    gp.keywords,
-                    NULL AS keywords_tsv,
-                    gpbo.best_unit_price_per_kg,
-                    gpbo.best_unit_price_per_l,
-                    gpbo.best_unit_price_per_piece
-                FROM g_products gp
-                LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
-                WHERE gp.id = $1
-            """
-            row = await conn.fetchrow(query, product_id)
-            return dict(row) if row else None
+        self.debug_print(f"get_g_product_details: product_id={product_id}, fields={fields}")
 
+        if fields is None:
+            fields_to_select = PRODUCT_FULL_FIELDS # Default to full fields
+        else:
+            fields_to_select = fields
+
+        # Basic validation for fields
+        valid_fields = set(PRODUCT_FULL_FIELDS + ["best_unit_price_per_kg", "best_unit_price_per_l", "best_unit_price_per_piece"])
+        if not all(f in valid_fields for f in fields_to_select):
+            raise ValueError("Invalid field requested for product details.")
+
+        # Construct SELECT clause dynamically
+        select_parts = []
+        for field in fields_to_select:
+            if field == "name":
+                select_parts.append("gp.canonical_name AS name")
+            elif field == "description":
+                select_parts.append("gp.text_for_embedding AS description")
+            elif field == "image_url":
+                select_parts.append("NULL AS image_url") # Placeholder
+            elif field == "product_url":
+                select_parts.append("NULL AS product_url") # Placeholder
+            elif field == "unit_of_measure":
+                select_parts.append("gp.base_unit_type AS unit_of_measure")
+            elif field == "quantity_value":
+                select_parts.append("NULL AS quantity_value") # Placeholder
+            elif field == "best_unit_price_per_kg":
+                select_parts.append("gpbo.best_unit_price_per_kg")
+            elif field == "best_unit_price_per_l":
+                select_parts.append("gpbo.best_unit_price_per_l")
+            elif field == "best_unit_price_per_piece":
+                select_parts.append("gpbo.best_unit_price_per_piece")
+            else:
+                select_parts.append(f"gp.{field}") # Direct mapping for other fields
+
+        select_clause = ", ".join(select_parts)
+
+        join_clause = ""
+        # Add join for best offers if selecting best offer fields
+        if any(f.startswith('best_unit_price_') for f in fields_to_select):
+            join_clause = "LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id"
+
+        query = f"""
+            SELECT {select_clause}
+            FROM g_products gp
+            {join_clause}
+            WHERE gp.id = $1
+        """
+        async with self._get_conn() as conn:
+            self.debug_print(f"get_g_product_details: Final Query: {query}")
+            row = await conn.fetchrow(query, product_id)
+            
+            if row:
+                row_dict = dict(row)
+                # Manually convert embedding string to list of floats if it's a string
+                if "embedding" in row_dict and isinstance(row_dict["embedding"], str):
+                    try:
+                        row_dict["embedding"] = json.loads(row_dict["embedding"])
+                    except json.JSONDecodeError:
+                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
+                        row_dict["embedding"] = None
+                return row_dict
+            return None
+
+    @timing_decorator
     async def get_g_stores_nearby(
         self,
         lat: float,
@@ -254,6 +320,7 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 
+    @timing_decorator
     async def add_many_g_products(self, g_products: List[GProduct]) -> int:
         """
         Adds multiple golden products to the g_products table.
@@ -290,6 +357,7 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             self.debug_print(f"add_many_g_products: Inserted {result} rows.")
             return result
 
+    @timing_decorator
     async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
         """
         Adds multiple golden prices to the g_prices table.
@@ -320,6 +388,7 @@ class GoldenProductRepository(BaseRepository): # Changed inheritance
             self.debug_print(f"add_many_g_prices: Inserted {result} rows.")
             return result
 
+    @timing_decorator
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         """
         Adds multiple golden product best offers to the g_product_best_offers table.

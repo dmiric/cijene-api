@@ -62,11 +62,7 @@ class Settings:
         from service.db.psql_v2 import PostgresDatabaseV2 # Import the v2 database class
 
         if self._db_v2 is None:
-            self._db_v2 = PostgresDatabaseV2(
-                self.db_dsn,
-                min_size=self.db_min_connections,
-                max_size=self.db_max_connections,
-            )
+            self._db_v2 = PostgresDatabaseV2()
         return self._db_v2
 
 

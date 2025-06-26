@@ -1,26 +1,49 @@
+import asyncpg
+import pgvector.asyncpg
 from typing import List, Any, Optional
 from datetime import date # Added date import
 from service.db.models import ProductSearchItemV2
 from .repositories.golden_product_repo import GoldenProductRepository
 from .repositories.chat_repo import ChatRepository # Added ChatRepository import
 from .base import Database
+from service.utils.timing import timing_decorator # Import the decorator
+
+from service.config import settings # Import settings
+from contextlib import asynccontextmanager # Import asynccontextmanager
 
 class PostgresDatabaseV2(Database):
     """
     A Facade for all V2 ('g_') table interactions.
     It composes the GoldenProductRepository to handle all data access.
     """
-    def __init__(self, dsn: str, **kwargs):
-        # This facade now only needs to know about the golden product repo.
-        self.golden_products = GoldenProductRepository(dsn, **kwargs)
-        self.chat_repo = ChatRepository(dsn, **kwargs) # Initialize ChatRepository
+    def __init__(self):
+        self.dsn = settings.db_dsn
+        self.pool = None
+        # Instantiate repositories WITHOUT connection details
+        self.golden_products = GoldenProductRepository()
+        self.chat_repo = ChatRepository() # Initialize ChatRepository
 
     async def connect(self):
-        await self.golden_products.connect()
-        await self.chat_repo.connect() # Connect chat_repo
+        if not self.pool:
+            self.pool = await asyncpg.create_pool(
+                dsn=self.dsn,
+                min_size=5,
+                max_size=20,
+                # This is the critical part for pgvector
+                init=pgvector.asyncpg.register_vector
+            )
+            # Connect all repositories to the SHARED pool
+            await self.golden_products.connect(self.pool)
+            await self.chat_repo.connect(self.pool) # Connect chat_repo
 
-    async def close(self):
-        await self.golden_products.close()
+    async def disconnect(self):
+        if self.pool:
+            await self.pool.close()
+            self.pool = None
+
+    async def close(self) -> None:
+        """Close all database connections."""
+        await self.disconnect()
 
     async def create_tables(self) -> None:
         """
@@ -130,6 +153,7 @@ class PostgresDatabaseV2(Database):
 
     # --- Pass-through V2 methods ---
 
+    @timing_decorator
     async def get_g_products_hybrid_search(
         self,
         query: str,
@@ -141,6 +165,7 @@ class PostgresDatabaseV2(Database):
     ) -> list[ProductSearchItemV2]:
         return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
 
+    @timing_decorator
     async def get_g_stores_nearby(
         self,
         lat: float,
@@ -150,14 +175,17 @@ class PostgresDatabaseV2(Database):
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_stores_nearby(lat, lon, radius_meters, chain_code)
 
+    @timing_decorator
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_product_prices_by_location(product_id, store_ids)
 
+    @timing_decorator
     async def get_g_product_details(self, product_id: int) -> dict[str, Any] | None:
         return await self.golden_products.get_g_product_details(product_id)
 
+    @timing_decorator
     async def save_chat_message(
         self,
         user_id: int,

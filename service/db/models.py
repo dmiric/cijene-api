@@ -51,8 +51,8 @@ class UserLocation:
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
     location_name: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

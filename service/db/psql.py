@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 import sys
 import json
 import pgvector.asyncpg
+from service.utils.timing import timing_decorator # Import the decorator
 
 from .base import Database, BaseRepository # Added BaseRepository
 from .models import (
@@ -64,14 +65,14 @@ class PostgresDatabase(Database):
         self.debug_print = debug_print_db
 
         # Instantiate legacy repos
-        self.products = ProductRepository(dsn, min_size=min_size, max_size=max_size)
-        self.stores = StoreRepository(dsn, min_size=min_size, max_size=max_size)
-        self.users = UserRepository(dsn, min_size=min_size, max_size=max_size)
-        self.chat = ChatRepository(dsn, min_size=min_size, max_size=max_size)
-        self.stats = StatsRepository(dsn, min_size=min_size, max_size=max_size)
+        self.products = ProductRepository()
+        self.stores = StoreRepository()
+        self.users = UserRepository()
+        self.chat = ChatRepository()
+        self.stats = StatsRepository()
 
         # Also instantiate the golden repo for the normalizer's bulk inserts
-        self.golden_products = GoldenProductRepository(dsn, min_size=min_size, max_size=max_size)
+        self.golden_products = GoldenProductRepository()
 
 
     async def connect(self) -> None:
@@ -82,14 +83,13 @@ class PostgresDatabase(Database):
             max_size=self.max_size,
             init=self._init_connection, # Keep init for pgvector registration
         )
-        await self.products.connect() # Connect products repo to initialize its pool
-        self.products.pool = self.pool # Assign the main pool to products repo
-
-        self.stores.pool = self.pool
-        self.users.pool = self.pool
-        self.chat.pool = self.pool
-        self.stats.pool = self.pool
-        self.golden_products.pool = self.pool
+        # Connect all repos and ensure they share the same connection pool
+        await self.products.connect(self.pool)
+        await self.stores.connect(self.pool)
+        await self.users.connect(self.pool)
+        await self.chat.connect(self.pool)
+        await self.stats.connect(self.pool)
+        await self.golden_products.connect(self.pool)
 
     async def _init_connection(self, conn):
         # Register the 'vector' type for asyncpg using pgvector's utility
@@ -128,18 +128,23 @@ class PostgresDatabase(Database):
 
     # --- Implementations of abstract methods from Database (delegating to repositories) ---
 
+    @timing_decorator
     async def add_chain(self, chain: Chain) -> int:
         return await self.products.add_chain(chain)
 
+    @timing_decorator
     async def list_chains(self) -> list[ChainWithId]:
         return await self.products.list_chains()
 
+    @timing_decorator
     async def list_latest_chain_stats(self) -> list[ChainStats]:
         return await self.stats.list_latest_chain_stats()
 
+    @timing_decorator
     async def add_store(self, store: Store) -> int:
         return await self.stores.add_store(store)
 
+    @timing_decorator
     async def update_store(
         self,
         chain_id: int,
@@ -154,9 +159,11 @@ class PostgresDatabase(Database):
     ) -> bool:
         return await self.stores.update_store(chain_id, store_code, address=address, city=city, zipcode=zipcode, lat=lat, lon=lon, phone=phone)
 
+    @timing_decorator
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
         return await self.stores.list_stores(chain_code)
 
+    @timing_decorator
     async def filter_stores(
         self,
         chain_codes: list[str] | None = None,
@@ -168,21 +175,27 @@ class PostgresDatabase(Database):
     ) -> list[StoreWithId]:
         return await self.stores.filter_stores(chain_codes, city, address, lat, lon, d)
 
+    @timing_decorator
     async def get_product_barcodes(self) -> dict[str, int]:
         return await self.products.get_product_barcodes()
 
+    @timing_decorator
     async def get_chain_product_map(self, chain_id: int) -> dict[str, int]:
         return await self.products.get_chain_product_map(chain_id)
 
+    @timing_decorator
     async def add_ean(self, ean: str) -> int:
         return await self.products.add_ean(ean)
 
+    @timing_decorator
     async def get_products_by_ean(self, ean: list[ProductWithId]) -> list[ProductWithId]: # Changed type hint to match models
         return await self.products.get_products_by_ean(ean)
 
+    @timing_decorator
     async def update_product(self, product: Product) -> bool:
         return await self.products.update_product(product)
 
+    @timing_decorator
     async def get_chain_products_for_product(
         self,
         product_ids: list[int],
@@ -190,24 +203,30 @@ class PostgresDatabase(Database):
     ) -> list[ChainProductWithId]:
         return await self.products.get_chain_products_for_product(product_ids, chain_ids)
 
+    @timing_decorator
     async def search_products(self, query: str) -> list[ProductWithId]: # Changed type hint to match models
         return await self.products.search_products(query)
 
+    @timing_decorator
     async def add_many_prices(self, prices: list[Price]) -> int:
         return await self.products.add_many_prices(prices)
 
+    @timing_decorator
     async def add_many_chain_products(
         self,
         chain_products: List[ChainProduct],
     ) -> int:
         return await self.products.add_many_chain_products(chain_products)
 
+    @timing_decorator
     async def compute_chain_prices(self, date: date) -> None:
         return await self.products.compute_chain_prices(date)
 
+    @timing_decorator
     async def compute_chain_stats(self, date: date) -> None:
         return await self.stats.compute_chain_stats(date)
 
+    @timing_decorator
     async def get_product_prices(
         self,
         product_ids: list[int],
@@ -216,6 +235,7 @@ class PostgresDatabase(Database):
     ) -> list[dict[str, Any]]:
         return await self.products.get_product_prices(product_ids, date, store_ids) # Pass store_ids
 
+    @timing_decorator
     async def get_product_store_prices(
         self,
         product_id: int,
@@ -223,19 +243,24 @@ class PostgresDatabase(Database):
     ) -> list[StorePrice]:
         return await self.products.get_product_store_prices(product_id, chain_ids)
 
+    @timing_decorator
     async def get_user_by_api_key(self, api_key: str) -> User | None:
         return await self.users.get_user_by_api_key(api_key)
 
     # --- Pass-through methods for the Normalizer (operating on V2 tables) ---
+    @timing_decorator
     async def add_many_g_products(self, g_products: List[GProduct]) -> int:
         return await self.golden_products.add_many_g_products(g_products)
 
+    @timing_decorator
     async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
         return await self.golden_products.add_many_g_prices(g_prices)
 
+    @timing_decorator
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         return await self.golden_products.add_many_g_product_best_offers(g_offers)
 
+    @timing_decorator
     async def save_chat_message(
         self,
         user_id: int,
@@ -250,6 +275,7 @@ class PostgresDatabase(Database):
             user_id, session_id, message_text, is_user_message, tool_calls, tool_outputs, ai_response
         )
 
+    @timing_decorator
     async def get_stores_within_radius(
         self,
         lat: Decimal,
