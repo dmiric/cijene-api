@@ -18,3 +18,5 @@ tiktoken==0.7.0
 jq==1.6
 pgvector[asyncpg]
 google-generativeai
+openpyxl
+python-dateutil

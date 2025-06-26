@@ -16,6 +16,12 @@ services:
     environment:
       DEBUG: "true" # Enable debug for local development
     command: [ "sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Enable --reload
+    logging:
+      # Add this section
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   crawler:
     extends:

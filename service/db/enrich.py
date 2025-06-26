@@ -8,6 +8,7 @@ from csv import DictReader
 from time import time
 from typing import List, Dict
 from datetime import date, datetime # Import datetime for parsing timestamps
+from dateutil import parser # Add this line
 import json # Import json for parsing variants
 
 from service.config import settings
@@ -271,7 +272,7 @@ async def enrich_users(csv_path: Path) -> None:
                 name=row["name"],
                 api_key=row["api_key"],
                 is_active=row["is_active"].lower() == "true",
-                created_at=datetime.fromisoformat(row["created_at"]),
+                created_at=parser.parse(row["created_at"]),
             )
         )
     
@@ -321,8 +322,8 @@ async def enrich_user_locations(csv_path: Path) -> None:
                 latitude=Decimal(row["latitude"]) if row["latitude"] else None,
                 longitude=Decimal(row["longitude"]) if row["longitude"] else None,
                 location_name=row["location_name"] if row["location_name"] else None,
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
+                created_at=parser.parse(row["created_at"]),
+                updated_at=parser.parse(row["updated_at"]),
             )
         )
     
@@ -380,7 +381,7 @@ async def enrich_search_keywords(csv_path: Path) -> None:
                 id=int(row["id"]),
                 ean=row["ean"],
                 keyword=row["keyword"],
-                created_at=datetime.fromisoformat(row["created_at"]),
+                created_at=parser.parse(row["created_at"]),
             )
         )
     
@@ -434,8 +435,8 @@ async def enrich_g_products(csv_path: Path) -> None:
                 text_for_embedding=row["text_for_embedding"] if row["text_for_embedding"] else None,
                 keywords=keywords,
                 embedding=embedding,
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
+                created_at=parser.parse(row["created_at"]),
+                updated_at=parser.parse(row["updated_at"]),
             )
         )
     
@@ -553,7 +554,7 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
                 best_unit_price_per_l=safe_decimal(row["best_unit_price_per_l"]),
                 best_unit_price_per_piece=safe_decimal(row["best_unit_price_per_piece"]),
                 best_price_store_id=safe_int(row["best_price_store_id"]),
-                best_price_found_at=datetime.fromisoformat(row["best_price_found_at"]) if row["best_price_found_at"] else None,
+                best_price_found_at=parser.parse(row["best_price_found_at"]) if row["best_price_found_at"] else None,
             )
         )
     

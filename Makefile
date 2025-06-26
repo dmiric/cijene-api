@@ -86,15 +86,15 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	$(MAKE) migrate-db
 
 	@echo "Checking for existing crawled data..."
-	@if [ ! -f "./output/2025-06-25.zip" ]; then \
+	@if [ ! -f "./output/$(DATE).zip" ]; then \
 		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
 		$(MAKE) crawl-sample; \
 	else \
-		echo "Existing zip found: ./output/2025-06-25.zip"; \
+		echo "Existing zip found: ./output/$(DATE).zip"; \
 	fi
 
 	@echo "Importing data..."
-	$(MAKE) import-data DATE=2025-06-25
+	$(MAKE) import-data
 
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
@@ -125,9 +125,7 @@ import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/wait_for_db.py && \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type stores ./enrichment/stores.csv
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/wait_for_db.py && \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type products ./enrichment/products.csv
 
 
