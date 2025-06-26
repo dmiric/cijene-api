@@ -9,8 +9,7 @@ USER_LOCATION_FULL_FIELDS = [
 
 # Fields optimized for AI tools (e.g., excluding timestamps if not needed for AI reasoning)
 USER_LOCATION_AI_FIELDS = [
-    "id", "user_id", "address", "city", "zip_code", "country",
-    "latitude", "longitude", "location_name"
+    "address", "city", "country", "latitude", "longitude", "location_name"
 ]
 
 # --- Products (Example) ---
@@ -24,13 +23,13 @@ PRODUCT_FULL_FIELDS = [
 
 # Fields for AI product search results (excluding sensitive/large fields like embedding)
 PRODUCT_AI_SEARCH_FIELDS = [
-    "id", "ean", "canonical_name", "brand", "category",
+    "ean", "canonical_name", "brand", "category",
     "base_unit_type", "variants", "text_for_embedding", "keywords"
 ]
 
 # Fields for AI product details (excluding embedding)
 PRODUCT_AI_DETAILS_FIELDS = [
-    "id", "ean", "canonical_name", "brand", "category", "base_unit_type",
+    "ean", "canonical_name", "brand", "category", "base_unit_type",
     "variants", "text_for_embedding", "keywords"
 ]
 
@@ -41,6 +40,6 @@ STORE_AI_FIELDS = [
 
 # Fields for AI product prices
 PRODUCT_PRICE_AI_FIELDS = [
-    "chain_code", "product_id", "store_id", "store_code", "price_date",
-    "regular_price", "special_price", "unit_price", "best_price_30", "anchor_price"
+    "chain_code", "product_id", "store_id", "price_date", "regular_price", 
+    "special_price", "unit_price", "best_price_30", "anchor_price"
 ]
