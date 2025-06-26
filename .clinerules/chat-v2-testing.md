@@ -2,7 +2,7 @@
 This guideline defines the test suite and strategy for validating the v2 chat endpoints and the AI's capabilities, ensuring proper functionality of hybrid search, sorting, location-based queries, and conversational memory.
 
 ## Testing Strategy
--   **Execution Method:** All tests will be executed using the `make chat` command.
+-   **Execution Method:** All tests will be executed using the `test-scirpts\send-chat.ps1` command.
 -   **Credentials:**
     -   `USER_ID`: Always `1` (for user "dmiric").
     -   `API_KEY`: `ec7cc315-c434-4c1f-aab7-3dba3545d113`.
@@ -70,3 +70,25 @@ This guideline defines the test suite and strategy for validating the v2 chat en
     -   **Initial Question:** "Pronađi mi Ahmad čaj od mente."
     -   **Follow-up Question:** "A koja mu je cijena blizu kuće?"
     -   **Expected:** AI *does not* re-run product search. Uses previous product ID, then `get_user_locations` -> `find_nearby_stores_v2` (for "Kuca") -> `get_product_prices_by_location_v2`.
+
+## How to use `send-chat.ps1`
+
+The `test-scripts/send-chat.ps1` script can be used to send chat messages to the v2 chat endpoint. It clears the `logs/chat-output.log` file before each run and logs the full output of the `httpie` command to this file.
+
+### Basic Usage
+
+You can explicitly provide the `UserId` and `ApiKey` if they differ from the defaults:
+
+```powershell
+.\test-scripts\send-chat.ps1 -Message "Pronađi Tabasco umak" -UserId "1" -ApiKey "ec7cc315-c434-4c1f-aab7-3dba3545d113"
+```
+
+### Continuing a Conversation (using Session ID)
+
+For conversational follow-ups, you can extract the `session_id` from a previous response (found in `logs/chat-output.log` at the end of the `data: {"type": "end", "session_id": "..."}` line) and pass it to the script:
+
+```powershell
+.\test-scripts\send-chat.ps1 -Message "A koja mu je cijena blizu kuće?" -SessionId "your-extracted-session-id"
+```
+
+Remember to replace `"your-extracted-session-id"` with the actual session ID from the log.

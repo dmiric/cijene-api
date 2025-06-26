@@ -50,20 +50,22 @@ help: ## Display this help message
 rebuild: ## Rebuild and restart all Docker containers
 	@echo "Building and restarting Docker containers. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null"
+	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"
 else
 	@mkdir -p logs # Ensure directory exists
+	@> $(DOCKER_BUILD_LOG_FILE) # Empty the log file
 endif
-	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate --no-cache >> $(DOCKER_BUILD_LOG_FILE) 2>&1
 	@echo "Docker containers rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
 rebuild-api: ## Rebuild and restart only the API service
 	@echo "Building and restarting API service. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null"
+	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"
 else
 	@mkdir -p logs # Ensure directory exists
+	@> $(DOCKER_BUILD_LOG_FILE) # Empty the log file
 endif
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
@@ -123,7 +125,9 @@ import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/wait_for_db.py && \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/wait_for_db.py && \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type products ./enrichment/products.csv
 
 

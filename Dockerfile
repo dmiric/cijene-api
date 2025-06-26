@@ -1,8 +1,9 @@
 # Use a slim Python image as the base
-FROM python:3.11-slim-buster
+FROM python:3.10-slim-buster
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies in a single, efficient step
+# This prevents issues with stale package lists from Docker's cache
+RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
