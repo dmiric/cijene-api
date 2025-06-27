@@ -1,0 +1,13 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "Cijene DB",
+            "Group": "Docker",
+            "Port": 5432,
+            "Username": "dmiric",
+            "Host": "db",
+            "MaintenanceDB": "pricemice",
+            "PasswordExecCommand": "echo 'password'"
+        }
+    }
+}

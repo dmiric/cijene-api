@@ -153,7 +153,6 @@ class PostgresDatabaseV2(Database):
 
     # --- Pass-through V2 methods ---
 
-    @timing_decorator
     async def get_g_products_hybrid_search(
         self,
         query: str,
@@ -162,9 +161,8 @@ class PostgresDatabaseV2(Database):
         sort_by: Optional[str] = None,
         category: Optional[str] = None,
         brand: Optional[str] = None,
-        fields: Optional[List[str]] = None, # Add fields parameter
-    ) -> list[ProductSearchItemV2]:
-        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand, fields) # Pass fields
+    ) -> list[dict[str, Any]]: # Changed return type to dict[str, Any] for consistency
+        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
 
     @timing_decorator
     async def get_g_stores_nearby(

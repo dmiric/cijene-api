@@ -77,40 +77,48 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	else \
 		bash ./scripts/rebuild.sh --exclude="$(EXCLUDE_VOLUMES)"; \
 	fi
+	
 
 dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
-	@echo "Starting development fresh start..."
+	
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
 
-	@echo "Applying database migrations..."
-	$(MAKE) migrate-db
+#	@echo "Applying database migrations..."
+#	$(MAKE) migrate-db
 
-	@echo "Checking for existing crawled data..."
-	@if [ ! -f "./output/$(DATE).zip" ]; then \
-		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-		$(MAKE) crawl-sample; \
-	else \
-		echo "Existing zip found: ./output/$(DATE).zip"; \
-	fi
+#	@echo "Checking for existing crawled data..."
+#	@if [ ! -f "./output/$(DATE).zip" ]; then \
+#		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+#		$(MAKE) crawl-sample; \
+#	else \
+#		echo "Existing zip found: ./output/$(DATE).zip"; \
+#	fi
+#
+#	@echo "Importing data..."
+#	$(MAKE) import-data
+#
+#	@echo "Enriching data..."
+#	$(MAKE) enrich-data
+#
+#	@echo "Geocoding stores..."
+#	$(MAKE) geocode-stores
+#
+#	@echo "Enriching users, user locations, and search keywords from backups..."
+#	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
+#	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+#	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
+#	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
+#	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
+#
+#	@echo "Development fresh start completed."
 
-	@echo "Importing data..."
-	$(MAKE) import-data
-
-	@echo "Enriching data..."
-	$(MAKE) enrich-data
-
-	@echo "Geocoding stores..."
-	$(MAKE) geocode-stores
-
-	@echo "Enriching users, user locations, and search keywords from backups..."
-	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
-	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
-	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
-	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
-
-	@echo "Development fresh start completed."
-
+docker-prune: ## Stop all containers and perform a deep clean of the Docker system.
+	@echo "Stopping all running project containers..."
+	docker compose down
+	@echo "Pruning Docker system. This will remove all stopped containers, all unused networks, all dangling images, and all unused build cache."
+	@echo "You will be asked for confirmation."
+	docker system prune -a --volumes
+	@echo "Docker system prune complete."
 
 ## Crawler Commands
 crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output to logs/crawler_console.log

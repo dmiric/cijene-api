@@ -13,7 +13,7 @@ param(
     [string]$ApiKey = "ec7cc315-c434-4c1f-aab7-3dba3545d113"
 )
 
-$LogFilePath = ".\logs\chat-output.log"
+$LogFilePath = ".\logs\test-output.log"
 $BASE_URL = "http://localhost:8000/v2/chat"
 
 Write-Host "--- Sending Chat Message ---"

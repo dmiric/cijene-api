@@ -34,8 +34,19 @@ services:
     extends:
       service: pgadmin
       file: docker-compose.yml
+    environment:
+      # --- ADD THESE TWO LINES ---
+      # This disables the "Set Master Password" prompt on first launch.
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      # This disables the user login screen entirely.
+      PGADMIN_CONFIG_AUTHENTICATION_SOURCES: "[]"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
       - "5050:80" # Expose PGAdmin port for local access
+    volumes:
+      - ./pgadmin/servers_dev.json:/pgadmin4/servers.json
+      - ./pgadmin/pgpass:/pgadmin4/pgpass
+    # This command is still essential to fix the pgpass file permissions.
 
 volumes:
   crawler_data: {}

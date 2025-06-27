@@ -62,6 +62,31 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
         f"VAŽNO: ID trenutnog korisnika je {user_id}. Uvijek koristi ovaj ID kada pozivaš alate koji zahtijevaju user_id."
     )
 
+    # Dynamically add user locations and nearby stores to system instructions
+    user_locations = await db.users.get_user_locations_by_user_id(user_id) # Corrected to db.users
+    if user_locations:
+        location_info_str = "Spremljene lokacije korisnika:\n"
+        for loc in user_locations:
+            location_info_str += f"- Naziv: {loc.get('location_name', 'N/A')}, Adresa: {loc.get('address', 'N/A')}, Grad: {loc.get('city', 'N/A')}, Lat: {loc.get('latitude', 'N/A')}, Lon: {loc.get('longitude', 'N/A')}\n"
+            
+            if loc.get('latitude') is not None and loc.get('longitude') is not None:
+                nearby_stores = await db.stores.get_stores_within_radius(
+                    lat=float(loc['latitude']), # Access directly as float conversion is needed
+                    lon=float(loc['longitude']), # Access directly as float conversion is needed
+                    radius_meters=1500 # As requested by the user
+                )
+                if nearby_stores:
+                    location_info_str += "  Obližnje trgovine (unutar 1500m):\n"
+                    for store in nearby_stores:
+                        location_info_str += f"  - {store.get('chain_code', 'N/A')} ({store.get('address', 'N/A')}, {store.get('city', 'N/A')})\n"
+                else:
+                    location_info_str += "  Nema obližnjih trgovina za ovu lokaciju.\n"
+            else:
+                location_info_str += "  Nedostaju koordinate za ovu lokaciju, pa nije moguće pronaći obližnje trgovine.\n"
+        system_instructions.append(location_info_str)
+    else:
+        system_instructions.append("Korisnik nema spremljenih lokacija.")
+
     # Define system message (for debugging/logging, not directly used by AI models)
     system_message_content = "\n".join(system_instructions)
 

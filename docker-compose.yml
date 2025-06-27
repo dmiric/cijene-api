@@ -67,6 +67,7 @@ services:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json
       - db_backups:/var/lib/pgadmin/backups
+      - ./pgadmin/preferences.json:/pgadmin4/preferences.json
 
   backup:
     image: postgis/postgis:16-3.4

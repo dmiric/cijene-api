@@ -10,10 +10,11 @@ from service.db.field_configs import (
     PRODUCT_AI_SEARCH_FIELDS, # Import AI fields for product search
     PRODUCT_AI_DETAILS_FIELDS, # Import AI fields for product details
     STORE_AI_FIELDS, # Import AI fields for stores
-    PRODUCT_PRICE_AI_FIELDS # Import AI fields for product prices
+    PRODUCT_PRICE_AI_FIELDS, # Import AI fields for product prices
+    PRODUCT_DB_SEARCH_FIELDS # Import DB search fields
 )
 
-from .ai_helpers import pydantic_to_dict # A new helper file
+from .ai_helpers import pydantic_to_dict, filter_product_fields # A new helper file
 
 db_v2 = settings.get_db_v2()
 db = settings.get_db() # Still needed for get_user_locations_tool
@@ -22,7 +23,6 @@ def debug_print(*args, **kwargs):
     print("[DEBUG AI_TOOLS]", *args, file=sys.stderr, **kwargs)
 
 # --- Tool Functions ---
-@timing_decorator
 async def search_products_tool_v2(
     q: str,
     limit: int = 20,
@@ -53,18 +53,20 @@ async def search_products_tool_v2(
             sort_by=sort_by,
             category=category,
             brand=brand,
-            fields=PRODUCT_AI_SEARCH_FIELDS # Pass AI-specific fields
         )
 
         if not products:
             return {"products": []}
+
+        # Filter products to include only AI-relevant fields
+        filtered_products = filter_product_fields(products, PRODUCT_AI_SEARCH_FIELDS)
 
         # Step 2: If store_ids are provided, filter products by their availability in those stores
         if store_ids:
             parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
             filtered_products_with_prices = []
             
-            for product_dict in products: # products are now dicts
+            for product_dict in filtered_products: # Use filtered_products here
                 product_id = product_dict.get("id")
                 if product_id is None:
                     continue
@@ -74,19 +76,18 @@ async def search_products_tool_v2(
                     product_ids=[product_id],
                     date=date.today(), # Use today's date for price lookup
                     store_ids=parsed_store_ids,
-                    fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields for prices
+                    fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields
                 )
+                debug_print(f"Type of prices_in_stores: {type(prices_in_stores)}")
                 
                 if prices_in_stores:
                     product_dict["prices_in_stores"] = prices_in_stores
                     filtered_products_with_prices.append(product_dict)
             
-            # No need to pop embedding here, as it's already excluded by PRODUCT_AI_SEARCH_FIELDS
             return pydantic_to_dict({"products": filtered_products_with_prices})
         
-        # If no store_ids, return products from hybrid search directly
-        # No need to pop embedding here, as it's already excluded by PRODUCT_AI_SEARCH_FIELDS
-        return pydantic_to_dict({"products": products})
+        # If no store_ids, return filtered products directly
+        return pydantic_to_dict({"products": filtered_products})
 
     except Exception as e:
         debug_print(f"Error in search_products_tool_v2: {e}")
@@ -127,11 +128,12 @@ async def get_product_details_tool_v2(product_id: int):
     try:
         details = await db_v2.get_g_product_details(
             product_id,
-            fields=PRODUCT_AI_DETAILS_FIELDS # Pass AI-specific fields
         )
         if details:
-            # No need to pop embedding here, as it's already excluded by PRODUCT_AI_DETAILS_FIELDS
-            return pydantic_to_dict(details)
+            # Filter details to include only AI-relevant fields
+            # Note: filter_product_fields expects a list, so wrap details in a list
+            filtered_details = filter_product_fields([details], PRODUCT_AI_DETAILS_FIELDS)
+            return pydantic_to_dict(filtered_details[0]) if filtered_details else {"message": f"Product with ID {product_id} not found."}
         else:
             return {"message": f"Product with ID {product_id} not found."}
     except Exception as e:

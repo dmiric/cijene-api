@@ -420,7 +420,15 @@ async def enrich_g_products(csv_path: Path) -> None:
     g_products_to_add = []
     for row in data:
         # Handle optional fields and type conversions
-        variants = json.loads(row["variants"]) if row["variants"] else None
+        variants = None
+        if row["variants"]:
+            try:
+                variants = json.loads(row["variants"])
+            except json.JSONDecodeError as e:
+                logger.error(f"JSONDecodeError for EAN {row['ean']} variants: '{row['variants']}' - {e}")
+                # Optionally, you can skip this row or set a default value for variants
+                variants = [] # Set to empty list or None if parsing fails
+
         keywords = [k.strip() for k in row["keywords"].strip('{}').split(',') if k.strip()] if row["keywords"] else None
         embedding = [float(e) for e in row["embedding"].strip('[]').split(',') if e.strip()] if row["embedding"] else None
 

@@ -12,7 +12,7 @@ from service.db.models import (
     GProduct, GProductWithId, GPrice, GStore, GStoreWithId, GProductBestOffer,
     GProductBestOfferWithId, ProductSearchItemV2,
 )
-from service.db.field_configs import PRODUCT_FULL_FIELDS, PRODUCT_AI_SEARCH_FIELDS, PRODUCT_AI_DETAILS_FIELDS
+from service.db.field_configs import PRODUCT_FULL_FIELDS, PRODUCT_AI_SEARCH_FIELDS, PRODUCT_AI_DETAILS_FIELDS, PRODUCT_DB_SEARCH_FIELDS
 
 class GoldenProductRepository(BaseRepository):
     """
@@ -54,7 +54,6 @@ class GoldenProductRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
     async def get_g_products_hybrid_search(
         self,
         query: str,
@@ -63,56 +62,32 @@ class GoldenProductRepository(BaseRepository):
         sort_by: Optional[str] = None,
         category: Optional[str] = None,
         brand: Optional[str] = None,
-        fields: Optional[List[str]] = None # New parameter for selectable fields
     ) -> list[dict[str, Any]]: # Return list of dicts for flexibility
         """
         Performs hybrid search (vector + keyword) on g_products, fuses results with RRF,
         and applies sorting based on g_product_best_offers.
         """
-        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}, fields={fields}")
+        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}")
 
-        if fields is None:
-            fields_to_select = PRODUCT_AI_SEARCH_FIELDS # Default to AI search fields
-        else:
-            fields_to_select = fields
+        fields_to_select = list(PRODUCT_DB_SEARCH_FIELDS) # Start with all DB search fields
 
         # Ensure 'rank' is selected if sorting by relevance (default or explicit)
         if (sort_by is None or sort_by == 'relevance') and 'rank' not in fields_to_select:
             fields_to_select.append('rank')
 
         # Basic validation for fields (can be more robust)
-        # Valid fields are actual columns from g_products plus 'rank'
-        valid_fields = set([
-            "id", "ean", "canonical_name", "brand", "category",
-            "base_unit_type", "variants", "text_for_embedding", "keywords",
-            "embedding", "created_at", "updated_at", "rank"
-        ])
+        # Valid fields are actual columns from g_products plus 'rank' and best offer fields
+        valid_fields = set(PRODUCT_DB_SEARCH_FIELDS + ["embedding"]) # Add embedding as it's a DB field
         if not all(f in valid_fields for f in fields_to_select):
             raise ValueError("Invalid field requested for product search.")
 
         # Construct SELECT clause dynamically
         select_parts = []
         for field in fields_to_select:
-            if field == "name":
-                select_parts.append("gp.canonical_name AS name")
-            elif field == "description":
-                select_parts.append("gp.text_for_embedding AS description")
-            elif field == "image_url":
-                select_parts.append("NULL AS image_url") # Placeholder, assuming no direct image_url in g_products
-            elif field == "product_url":
-                select_parts.append("NULL AS product_url") # Placeholder
-            elif field == "unit_of_measure":
-                select_parts.append("gp.base_unit_type AS unit_of_measure")
-            elif field == "quantity_value":
-                select_parts.append("NULL AS quantity_value") # Placeholder
-            elif field == "rank":
+            if field == "rank":
                 select_parts.append("ts_rank_cd(to_tsvector('hr', array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank")
-            elif field == "best_unit_price_per_kg":
-                select_parts.append("gpbo.best_unit_price_per_kg")
-            elif field == "best_unit_price_per_l":
-                select_parts.append("gpbo.best_unit_price_per_l")
-            elif field == "best_unit_price_per_piece":
-                select_parts.append("gpbo.best_unit_price_per_piece")
+            elif field.startswith("best_unit_price_"):
+                select_parts.append(f"gpbo.{field}")
             else:
                 select_parts.append(f"gp.{field}") # Direct mapping for other fields
 
@@ -164,9 +139,10 @@ class GoldenProductRepository(BaseRepository):
         params.extend([limit, offset])
 
         async with self._get_conn() as conn:
-            self.debug_print(f"get_g_products_hybrid_search: Final Query: {final_query}")
-            self.debug_print(f"get_g_products_hybrid_search: Params: {params}")
+            self.debug_print(f"get_g_products_hybrid_search: Executing Query: {final_query}")
+            self.debug_print(f"get_g_products_hybrid_search: With Params: {params}")
             rows = await conn.fetch(final_query, *params)
+            self.debug_print(f"get_g_products_hybrid_search: Rows fetched: {len(rows)}") # Add this line to confirm rows are fetched
             
             # Return as list of dictionaries for flexibility
             results = []
@@ -219,18 +195,14 @@ class GoldenProductRepository(BaseRepository):
     async def get_g_product_details(
         self,
         product_id: int,
-        fields: Optional[List[str]] = None # New parameter for selectable fields
     ) -> dict[str, Any] | None: # Return dict for flexibility
         """
         Retrieves a single product's details from g_products, potentially joining with g_product_best_offers,
         with selectable fields.
         """
-        self.debug_print(f"get_g_product_details: product_id={product_id}, fields={fields}")
+        self.debug_print(f"get_g_product_details: product_id={product_id}")
 
-        if fields is None:
-            fields_to_select = PRODUCT_FULL_FIELDS # Default to full fields
-        else:
-            fields_to_select = fields
+        fields_to_select = list(PRODUCT_FULL_FIELDS) # Default to full fields
 
         # Basic validation for fields
         valid_fields = set(PRODUCT_FULL_FIELDS + ["best_unit_price_per_kg", "best_unit_price_per_l", "best_unit_price_per_piece"])
@@ -252,12 +224,8 @@ class GoldenProductRepository(BaseRepository):
                 select_parts.append("gp.base_unit_type AS unit_of_measure")
             elif field == "quantity_value":
                 select_parts.append("NULL AS quantity_value") # Placeholder
-            elif field == "best_unit_price_per_kg":
-                select_parts.append("gpbo.best_unit_price_per_kg")
-            elif field == "best_unit_price_per_l":
-                select_parts.append("gpbo.best_unit_price_per_l")
-            elif field == "best_unit_price_per_piece":
-                select_parts.append("gpbo.best_unit_price_per_piece")
+            elif field.startswith("best_unit_price_"):
+                select_parts.append(f"gpbo.{field}")
             else:
                 select_parts.append(f"gp.{field}") # Direct mapping for other fields
 
