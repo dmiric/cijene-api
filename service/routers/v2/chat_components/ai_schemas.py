@@ -22,8 +22,41 @@ class ChatMessageResponse(BaseModel):
     tool_calls: Optional[dict] = None
     tool_outputs: Optional[dict] = None
 
+class ToolCall(BaseModel):
+    name: str = Field(..., description="The name of the tool to call.")
+    arguments: dict = Field(..., description="The arguments to pass to the tool.")
+
+class MultiSearchTool(BaseModel):
+    queries: list[ToolCall] = Field(..., description="A list of tool calls to execute.")
+
 # --- AI Tool Schemas ---
 gemini_tools = [
+    {
+        "function_declarations": [
+            {
+                "name": "multi_search_tool",
+                "description": "Omogućuje izvršavanje više upita za pretraživanje proizvoda odjednom i vraćanje svih rezultata. Koristite ovo kada korisnik traži više vrsta informacija o proizvodima koje se mogu dohvatiti različitim upitima (npr. najjeftinije po pakiranju i najjeftinije po komadu).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "queries": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string", "description": "Naziv alata za pozivanje (npr. 'search_products_v2', 'get_product_prices_by_location_v2')."},
+                                    "arguments": {"type": "object", "description": "Argumenti za prosljeđivanje alatu. Moraju odgovarati shemi argumenata ciljanog alata."},
+                                },
+                                "required": ["name", "arguments"],
+                            },
+                            "description": "Popis poziva alata za izvršavanje. Svaki poziv alata mora imati 'name' i 'arguments'.",
+                        }
+                    },
+                    "required": ["queries"],
+                },
+            }
+        ]
+    },
     {
         "function_declarations": [
             {
@@ -111,6 +144,31 @@ gemini_tools = [
 ]
 
 openai_tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "multi_search_tool",
+            "description": "Omogućuje izvršavanje više upita za pretraživanje proizvoda odjednom i vraćanje svih rezultata. Koristite ovo kada korisnik traži više vrsta informacija o proizvodima koje se mogu dohvatiti različitim upitima (npr. najjeftinije po pakiranju i najjeftinije po komadu).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Naziv alata za pozivanje (npr. 'search_products_v2', 'get_product_prices_by_location_v2')."},
+                                "arguments": {"type": "object", "description": "Argumenti za prosljeđivanje alatu. Moraju odgovarati shemi argumenata ciljanog alata."},
+                            },
+                            "required": ["name", "arguments"],
+                        },
+                        "description": "Popis poziva alata za izvršavanje. Svaki poziv alata mora imati 'name' i 'arguments'.",
+                    }
+                },
+                "required": ["queries"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {

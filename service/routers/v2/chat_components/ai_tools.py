@@ -1,9 +1,9 @@
 from service.config import settings
 import sys
-import json
 from typing import Optional, List, Any
 from decimal import Decimal
 from datetime import date
+import asyncio # Import asyncio for concurrent execution
 from service.utils.timing import timing_decorator # Import the decorator
 from service.db.field_configs import (
     USER_LOCATION_AI_FIELDS, # Import AI fields for user locations
@@ -68,20 +68,46 @@ async def search_products_tool_v2(
             
             for product_dict in filtered_products: # Use filtered_products here
                 product_id = product_dict.get("id")
-                if product_id is None:
+                base_unit_type = product_dict.get("base_unit_type") # Get base_unit_type
+                if product_id is None or base_unit_type is None:
                     continue
 
-                # Fetch prices for this product in the specified stores
-                prices_in_stores = await db.get_product_prices(
-                    product_ids=[product_id],
-                    date=date.today(), # Use today's date for price lookup
+                # Fetch prices for this product in the specified stores from g_prices
+                prices_in_stores_raw = await db_v2.get_g_product_prices_by_location(
+                    product_id=product_id,
                     store_ids=parsed_store_ids,
-                    fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields
                 )
-                debug_print(f"Type of prices_in_stores: {type(prices_in_stores)}")
+                debug_print(f"Raw prices from g_prices: {prices_in_stores_raw}")
+
+                prices_in_stores_formatted = []
+                for price_entry in prices_in_stores_raw:
+                    # Determine the correct unit_price based on base_unit_type
+                    unit_price_value = None
+                    if base_unit_type == 'WEIGHT':
+                        unit_price_value = price_entry.get('price_per_kg')
+                    elif base_unit_type == 'VOLUME':
+                        unit_price_value = price_entry.get('price_per_l')
+                    elif base_unit_type == 'COUNT':
+                        unit_price_value = price_entry.get('price_per_piece')
+                    
+                    prices_in_stores_formatted.append({
+                        "chain_code": price_entry.get("chain_code"),
+                        "product_id": price_entry.get("product_id"),
+                        "store_id": price_entry.get("store_id"),
+                        "store_name": price_entry.get("store_code"), # Use store_code as store_name
+                        "store_address": price_entry.get("store_address"),
+                        "store_city": price_entry.get("store_city"),
+                        "price_date": price_entry.get("price_date").isoformat() if price_entry.get("price_date") else None,
+                        "regular_price": price_entry.get("regular_price"),
+                        "special_price": price_entry.get("special_price"),
+                        "unit_price": unit_price_value,
+                        "best_price_30": None, # Not available in g_prices directly
+                        "anchor_price": None, # Not available in g_prices directly
+                        "is_on_special_offer": price_entry.get("is_on_special_offer")
+                    })
                 
-                if prices_in_stores:
-                    product_dict["prices_in_stores"] = prices_in_stores
+                if prices_in_stores_formatted:
+                    product_dict["prices_in_stores"] = prices_in_stores_formatted
                     filtered_products_with_prices.append(product_dict)
             
             return pydantic_to_dict({"products": filtered_products_with_prices})
@@ -105,15 +131,49 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
     try:
         parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
         
-        # Use db.get_product_prices (from psql.py)
-        prices_data = await db.get_product_prices(
-            product_ids=[product_id],
-            date=date.today(), # Use today's date for price lookup
+        # Fetch g_product's base_unit_type to determine which unit price to return
+        # This requires fetching product details first
+        product_details = await db_v2.get_g_product_details(product_id)
+        if not product_details:
+            return {"prices": []} # Product not found
+
+        base_unit_type = product_details.get("base_unit_type")
+        if base_unit_type is None:
+            return {"prices": []} # Cannot determine unit type
+
+        # Use db_v2.get_g_product_prices_by_location (from psql_v2.py)
+        prices_in_stores_raw = await db_v2.get_g_product_prices_by_location(
+            product_id=product_id,
             store_ids=parsed_store_ids,
-            fields=PRODUCT_PRICE_AI_FIELDS # Pass AI-specific fields
         )
-        return pydantic_to_dict({"prices": prices_data})
+        debug_print(f"Raw prices from g_prices for get_product_prices_by_location_tool_v2: {prices_in_stores_raw}")
+
+        prices_in_stores_formatted = []
+        for price_entry in prices_in_stores_raw:
+            unit_price_value = None
+            if base_unit_type == 'WEIGHT':
+                unit_price_value = price_entry.get('price_per_kg')
+            elif base_unit_type == 'VOLUME':
+                unit_price_value = price_entry.get('price_per_l')
+            elif base_unit_type == 'COUNT':
+                unit_price_value = price_entry.get('price_per_piece')
+            
+            prices_in_stores_formatted.append({
+                "chain_code": price_entry.get("chain_code"),
+                "product_id": price_entry.get("product_id"),
+                "store_id": price_entry.get("store_id"),
+                "price_date": price_entry.get("price_date").isoformat() if price_entry.get("price_date") else None,
+                "regular_price": price_entry.get("regular_price"),
+                "special_price": price_entry.get("special_price"),
+                "unit_price": unit_price_value,
+                "best_price_30": None, # Not available in g_prices directly
+                "anchor_price": None, # Not available in g_prices directly
+                "is_on_special_offer": price_entry.get("is_on_special_offer")
+            })
+        
+        return pydantic_to_dict({"prices": prices_in_stores_formatted})
     except Exception as e:
+        debug_print(f"Error in get_product_prices_by_location_tool_v2: {e}")
         return {"error": str(e)}
 
 
@@ -191,6 +251,45 @@ async def get_user_locations_tool(user_id: int):
         return {"error": str(e)}
 
 
+@timing_decorator
+async def multi_search_tool(queries: List[dict]):
+    """
+    Executes multiple product search queries concurrently and returns all results.
+    Args:
+        queries (List[dict]): A list of tool calls to execute. Each item should be a dictionary
+                              with 'name' (the tool function name) and 'arguments' (a dictionary
+                              of arguments for that tool).
+    """
+    debug_print(f"Tool Call: multi_search_tool(queries={queries})")
+    results = []
+    tasks = []
+
+    for i, query_data in enumerate(queries):
+        tool_name = query_data.get("name")
+        tool_args = query_data.get("arguments", {})
+
+        if tool_name not in available_tools:
+            results.append({f"query_{i}_error": f"Tool '{tool_name}' not found."})
+            continue
+
+        tool_func = available_tools[tool_name]
+        tasks.append(tool_func(**tool_args))
+
+    if not tasks:
+        return {"results": []}
+
+    # Execute all tasks concurrently
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for i, res in enumerate(raw_results):
+        if isinstance(res, Exception):
+            results.append({f"query_{i}_error": str(res)})
+        else:
+            results.append({f"query_{i}_result": res})
+    
+    return {"results": results}
+
+
 # Map tool names to their Python functions
 available_tools = {
     "search_products_v2": search_products_tool_v2,
@@ -198,4 +297,5 @@ available_tools = {
     "get_product_details_v2": get_product_details_tool_v2,
     "find_nearby_stores_v2": find_nearby_stores_tool_v2,
     "get_user_locations": get_user_locations_tool,
+    "multi_search_tool": multi_search_tool, # Add the new multi-search tool
 }

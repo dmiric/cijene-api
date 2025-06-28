@@ -412,7 +412,7 @@ def process_unprocessed_data() -> None:
                             price_per_kg,
                             price_per_l,
                             price_per_piece,
-                            price_entry['special_price'] is not None and price_entry['special_price'] < price_entry['regular_price']
+                            price_entry['special_price'] is not None # Simplified logic
                         ))
                         g_price_id = product_cur.fetchone()['id']
 

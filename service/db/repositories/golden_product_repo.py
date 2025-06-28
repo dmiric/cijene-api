@@ -173,18 +173,19 @@ class GoldenProductRepository(BaseRepository):
                     gp.canonical_name AS product_name,
                     gp.brand AS product_brand,
                     gs.id AS store_id,
-                    gs.name AS store_name,
+                    gs.code AS store_code, -- Changed from gs.name to gs.code
                     gs.address AS store_address,
                     gs.city AS store_city,
                     gpr.price_date,
                     gpr.regular_price,
                     gpr.special_price,
-                    NULL AS unit_price, -- Not directly available in g_prices
-                    NULL AS best_price_30, -- Not directly available in g_prices
-                    NULL AS anchor_price -- Not directly available in g_prices
+                    gpr.price_per_kg,
+                    gpr.price_per_l,
+                    gpr.price_per_piece,
+                    gpr.is_on_special_offer
                 FROM g_prices gpr
                 JOIN g_products gp ON gpr.product_id = gp.id
-                JOIN g_stores gs ON gpr.store_id = gs.id
+                JOIN stores gs ON gpr.store_id = gs.id
                 WHERE gpr.product_id = $1 AND gpr.store_id = ANY($2)
                 ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC
             """

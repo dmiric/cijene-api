@@ -37,4 +37,8 @@ $logContent = Get-Content -Path $LogFilePath -Raw
 Write-Host "Output from log file:"
 Write-Host $logContent
 
+# Run make logs-api to display API logs
+Write-Host "--- API Logs ---"
+Invoke-Expression "make logs-api"
+
 Write-Host "Chat message sent and output logged."
