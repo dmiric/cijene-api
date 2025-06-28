@@ -136,6 +136,54 @@ def get_embedding(text: str) -> Optional[List[float]]:
             print(f"Embedding API error response text: {e.response.text}")
         return None
 
+def calculate_unit_prices(
+    price: Decimal,
+    base_unit_type: str,
+    variants: List[Dict[str, Any]]
+) -> Dict[str, Optional[Decimal]]:
+    """
+    Calculates price_per_kg, price_per_l, and price_per_piece based on the product's
+    base unit type and variants.
+    """
+    price_per_kg = None
+    price_per_l = None
+    price_per_piece = None
+
+    if not variants:
+        return {
+            "price_per_kg": price_per_kg,
+            "price_per_l": price_per_l,
+            "price_per_piece": price_per_piece,
+        }
+
+    # Assuming a single variant for simplicity in initial implementation
+    # For assortments, more complex logic would be needed to pick a representative variant
+    main_variant = variants[0]
+    unit = main_variant.get("unit")
+    value = main_variant.get("value")
+    piece_count = main_variant.get("piece_count")
+
+    if unit and value and price is not None:
+        if base_unit_type == 'WEIGHT' and unit.lower() == 'g':
+            # Convert price per gram to price per kg
+            price_per_kg = (price / Decimal(str(value))) * Decimal('1000')
+        elif base_unit_type == 'VOLUME' and unit.lower() == 'ml':
+            # Convert price per ml to price per liter
+            price_per_l = (price / Decimal(str(value))) * Decimal('1000')
+        elif base_unit_type == 'VOLUME' and unit.lower() == 'l':
+            price_per_l = price / Decimal(str(value))
+        elif base_unit_type == 'COUNT' and piece_count is not None:
+            price_per_piece = price / Decimal(str(piece_count))
+        elif base_unit_type == 'COUNT' and unit.lower() == 'kom':
+            price_per_piece = price / Decimal(str(value)) # Assuming 'value' is piece count for 'kom'
+
+    return {
+        "price_per_kg": price_per_kg,
+        "price_per_l": price_per_l,
+        "price_per_piece": price_per_piece,
+    }
+
+
 def create_golden_record(
     cur: PgCursor,
     ean: str,
@@ -293,6 +341,12 @@ def process_unprocessed_data() -> None:
                         g_product_id = g_product_id['id']
                         print(f"Golden record already exists for EAN {ean} with ID {g_product_id}. Skipping normalization.")
 
+                    # Fetch g_product's base_unit_type and variants
+                    product_cur.execute("SELECT base_unit_type, variants FROM g_products WHERE id = %s", (g_product_id,))
+                    g_product_info = product_cur.fetchone()
+                    base_unit_type = g_product_info['base_unit_type']
+                    variants = g_product_info['variants'] if g_product_info['variants'] else []
+
                     # Load (Prices & Best Offers)
                     # Fetch all raw price data for the EAN from legacy tables
                     product_cur.execute("""
@@ -300,8 +354,7 @@ def process_unprocessed_data() -> None:
                             p.store_id,
                             p.price_date,
                             p.regular_price,
-                            p.special_price,
-                            p.unit_price
+                            p.special_price
                         FROM
                             prices p
                         WHERE
@@ -309,20 +362,45 @@ def process_unprocessed_data() -> None:
                     """, (chain_product_ids,))
                     raw_prices = product_cur.fetchall()
 
-                    # --- NEW LOGIC: FIND THE BEST OFFER IN PYTHON FIRST ---
+                    # --- NEW LOGIC: FIND THE BEST OFFER AND CALCULATE UNIT PRICES ---
                     best_offer_entry = None
-                    best_unit_price = None
+                    best_unit_price_overall = None # This will be the single best unit price for best_offer
 
                     for price_entry in raw_prices:
-                        # We still need to process and insert every price into g_prices
+                        current_price = price_entry['special_price'] if price_entry['special_price'] is not None else price_entry['regular_price']
+                        
+                        # Calculate unit prices for the current price entry
+                        calculated_unit_prices = calculate_unit_prices(
+                            price=current_price,
+                            base_unit_type=base_unit_type,
+                            variants=variants
+                        )
+                        price_per_kg = calculated_unit_prices['price_per_kg']
+                        price_per_l = calculated_unit_prices['price_per_l']
+                        price_per_piece = calculated_unit_prices['price_per_piece']
+
+                        # Determine the relevant unit price for this product based on its base_unit_type
+                        current_unit_price_for_best_offer = None
+                        if base_unit_type == 'WEIGHT':
+                            current_unit_price_for_best_offer = price_per_kg
+                        elif base_unit_type == 'VOLUME':
+                            current_unit_price_for_best_offer = price_per_l
+                        elif base_unit_type == 'COUNT':
+                            current_unit_price_for_best_offer = price_per_piece
+
+                        # Insert into g_prices with new unit price fields
                         product_cur.execute("""
                             INSERT INTO g_prices (
                                 product_id, store_id, price_date, regular_price,
-                                special_price, is_on_special_offer
-                            ) VALUES (%s, %s, %s, %s, %s, %s)
+                                special_price, price_per_kg, price_per_l, price_per_piece,
+                                is_on_special_offer
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
                                 regular_price = EXCLUDED.regular_price,
                                 special_price = EXCLUDED.special_price,
+                                price_per_kg = EXCLUDED.price_per_kg,
+                                price_per_l = EXCLUDED.price_per_l,
+                                price_per_piece = EXCLUDED.price_per_piece,
                                 is_on_special_offer = EXCLUDED.is_on_special_offer
                             RETURNING id
                         """, (
@@ -331,27 +409,25 @@ def process_unprocessed_data() -> None:
                             price_entry['price_date'],
                             price_entry['regular_price'],
                             price_entry['special_price'],
+                            price_per_kg,
+                            price_per_l,
+                            price_per_piece,
                             price_entry['special_price'] is not None and price_entry['special_price'] < price_entry['regular_price']
                         ))
                         g_price_id = product_cur.fetchone()['id']
 
-                        # Now, check if this price is the best one we've seen so far in this batch
-                        current_unit_price = price_entry.get('unit_price')
-                        if current_unit_price is not None:
-                            if best_unit_price is None or current_unit_price < best_unit_price:
-                                best_unit_price = current_unit_price
-                                best_offer_entry = price_entry
+                        # Update best_offer_entry if this is a better overall unit price
+                        if current_unit_price_for_best_offer is not None:
+                            if best_offer_entry is None or current_unit_price_for_best_offer < best_unit_price_overall:
+                                best_unit_price_overall = current_unit_price_for_best_offer
+                                best_offer_entry = price_entry # Keep the original price_entry for store_id
 
                     # --- END OF NEW LOGIC ---
 
                     # After the loop, if we found a best offer, update the database ONCE.
-                    if best_offer_entry and best_unit_price is not None:
-                        # Fetch g_product's base_unit_type to update the correct best offer column
-                        product_cur.execute("SELECT base_unit_type FROM g_products WHERE id = %s", (g_product_id,))
-                        base_unit_type = product_cur.fetchone()['base_unit_type']
-
+                    if best_offer_entry and best_unit_price_overall is not None:
                         # Call the update function just one time with the best price found
-                        update_best_offer(product_cur, g_product_id, base_unit_type, best_offer_entry, best_unit_price)
+                        update_best_offer(product_cur, g_product_id, base_unit_type, best_offer_entry, best_unit_price_overall)
 
                     # Mark as Processed
                     mark_chain_products_as_processed(product_cur, chain_product_ids)

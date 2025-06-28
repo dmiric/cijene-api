@@ -90,6 +90,9 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Importing data..."
 	$(MAKE) import-data
 
+#	@echo "Normalizing data..."
+#	$(MAKE) normalize-data
+
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
 
@@ -99,9 +102,9 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Enriching users, user locations, and search keywords from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
 	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
-	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
-	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
+#	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
+#	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
+#	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
 
 	@echo "Development fresh start completed."
 
@@ -124,6 +127,9 @@ crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
+
+normalize-data: ## Run the AI normalizer to process raw product data into golden records
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/normalizer.py
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type stores ./enrichment/stores.csv

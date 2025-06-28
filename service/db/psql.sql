@@ -177,6 +177,9 @@ CREATE TABLE IF NOT EXISTS g_prices (
     price_date DATE NOT NULL,
     regular_price DECIMAL(10, 2),
     special_price DECIMAL(10, 2),
+    price_per_kg DECIMAL(10, 4),
+    price_per_l DECIMAL(10, 4),
+    price_per_piece DECIMAL(10, 4),
     is_on_special_offer BOOLEAN DEFAULT FALSE,
     UNIQUE(product_id, store_id, price_date)
 );

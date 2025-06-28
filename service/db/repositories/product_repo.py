@@ -119,7 +119,6 @@ class ProductRepository(BaseRepository):
             rows = await conn.fetch("SELECT id, code FROM chains")
             return [ChainWithId(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
     async def add_ean(self, ean: str) -> int:
         """
         Add an empty product with only EAN barcode info.
@@ -215,7 +214,6 @@ class ProductRepository(BaseRepository):
                 for row in rows
             ]
 
-    @timing_decorator
     async def update_product(self, product: Product) -> bool:
         """
         Update product information by EAN code.

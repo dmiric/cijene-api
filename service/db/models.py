@@ -180,6 +180,9 @@ class GPrice:
     price_date: date
     regular_price: Optional[Decimal] = None
     special_price: Optional[Decimal] = None
+    price_per_kg: Optional[Decimal] = None
+    price_per_l: Optional[Decimal] = None
+    price_per_piece: Optional[Decimal] = None
     is_on_special_offer: bool = False
 
 @dataclass(frozen=True, slots=True, kw_only=True)

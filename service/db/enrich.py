@@ -439,6 +439,9 @@ async def enrich_prices(csv_path: Path) -> None:
                     if row["special_price"] and row["special_price"].lower() != "null"
                     else None
                 ),
+                price_per_kg=None, # Will be calculated by normalizer
+                price_per_l=None,  # Will be calculated by normalizer
+                price_per_piece=None, # Will be calculated by normalizer
                 is_on_special_offer=row["is_on_special_offer"].lower() == "true",
             )
         )

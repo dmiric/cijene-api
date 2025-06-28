@@ -351,6 +351,9 @@ class GoldenProductRepository(BaseRepository):
                 p.price_date,
                 p.regular_price,
                 p.special_price,
+                p.price_per_kg,
+                p.price_per_l,
+                p.price_per_piece,
             )
             for p in g_prices
         ]
@@ -360,7 +363,7 @@ class GoldenProductRepository(BaseRepository):
                 records=records,
                 columns=[
                     'product_id', 'store_id', 'price_date', 'regular_price',
-                    'special_price'
+                    'special_price', 'price_per_kg', 'price_per_l', 'price_per_piece'
                 ]
             )
             self.debug_print(f"add_many_g_prices: Inserted {result} rows.")
