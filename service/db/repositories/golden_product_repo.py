@@ -314,6 +314,7 @@ class GoldenProductRepository(BaseRepository):
                 p.category,
                 p.text_for_embedding,
                 p.base_unit_type,
+                json.dumps(p.variants) if p.variants is not None else None, # Convert to JSON string
                 p.embedding,
                 p.keywords,
             )
@@ -326,9 +327,9 @@ class GoldenProductRepository(BaseRepository):
                 'g_products',
                 records=records,
                 columns=[
-                    'ean', # Added ean
+                    'ean',
                     'canonical_name', 'brand', 'category', 'text_for_embedding',
-                    'base_unit_type', 'embedding', 'keywords'
+                    'base_unit_type', 'variants', 'embedding', 'keywords'
                 ]
             )
             self.debug_print(f"add_many_g_products: Inserted {result} rows.")

@@ -246,3 +246,9 @@ upload-database-dump: ## Upload the latest full database dump to the remote serv
 	@echo "Uploading $(LATEST_DUMP_FILE) to $(SSH_USER)@$(SSH_IP):/home/$(SSH_USER)/pricemice/backups/"
 	ssh-add ~/.ssh/github_actions_deploy_key; scp "$(LATEST_DUMP_FILE)" "$(SSH_USER)"@"$(SSH_IP)":/home/"$(SSH_USER)"/pricemice/backups/
 	@echo "Database dump uploaded successfully."
+
+gpush: ## Add all changes, commit with a message, and push to the remote repository. Usage: make gpush M="Your commit message"
+	@if [ -z "$(M)" ]; then echo "Error: M is required. Usage: make gpush M=\"Your commit message\""; exit 1; fi
+	git add .
+	git commit -m "$(M)"
+	git push
