@@ -14,19 +14,13 @@ endif
 
 DATE ?= $(shell date +%Y-%m-%d)
 # Define default excluded volumes for rebuild-everything
-EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data #,cijene-api-clone_pgadmin_data
+EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data,cijene-api-clone_pgadmin_data
 #Near by
 LAT ?= 45.29278835973543
 LON ?= 18.791376990006086
 RADIUS ?= 1500
 # Search products
-STORE_IDS ?= 107,616
-QUERY ?= kokos
 API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
-SEARCH_DATE ?=
-# Search keywords
-LIMIT ?= 100
-PRODUCT_NAME_FILTER ?= kokos
 
 .PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
 
@@ -80,37 +74,36 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	
 
 dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
-	
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
 
-#	@echo "Applying database migrations..."
-#	$(MAKE) migrate-db
+	@echo "Applying database migrations..."
+	$(MAKE) migrate-db
 
-#	@echo "Checking for existing crawled data..."
-#	@if [ ! -f "./output/$(DATE).zip" ]; then \
-#		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-#		$(MAKE) crawl-sample; \
-#	else \
-#		echo "Existing zip found: ./output/$(DATE).zip"; \
-#	fi
-#
-#	@echo "Importing data..."
-#	$(MAKE) import-data
-#
-#	@echo "Enriching data..."
-#	$(MAKE) enrich-data
-#
-#	@echo "Geocoding stores..."
-#	$(MAKE) geocode-stores
-#
-#	@echo "Enriching users, user locations, and search keywords from backups..."
-#	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
-#	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-#	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
-#	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
-#	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
-#
-#	@echo "Development fresh start completed."
+	@echo "Checking for existing crawled data..."
+	@if [ ! -f "./output/$(DATE).zip" ]; then \
+		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+		$(MAKE) crawl-sample; \
+	else \
+		echo "Existing zip found: ./output/$(DATE).zip"; \
+	fi
+
+	@echo "Importing data..."
+	$(MAKE) import-data
+
+	@echo "Enriching data..."
+	$(MAKE) enrich-data
+
+	@echo "Geocoding stores..."
+	$(MAKE) geocode-stores
+
+	@echo "Enriching users, user locations, and search keywords from backups..."
+	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
+	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
+	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
+	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
+
+	@echo "Development fresh start completed."
 
 docker-prune: ## Stop all containers and perform a deep clean of the Docker system.
 	@echo "Stopping all running project containers..."
@@ -213,11 +206,6 @@ search-products: ## Search for products by name. Usage: make search-products QUE
 	$(eval ENCODED_QUERY=$(shell echo "$(QUERY)" | sed 's/ /+/g'))
 	$(eval DATE_PARAM=$(if $(SEARCH_DATE),&date=$(SEARCH_DATE),))
 	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)$(DATE_PARAM)" | jq . > prod.json
-
-search-keywords: ## Get products to send to AI for keywording. Usage: make search-keywords API_KEY=your_api_key [LIMIT=val] [PRODUCT_NAME_FILTER=val]
-	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-keywords API_KEY=your_api_key"; exit 1; fi
-	$(eval FILTER_PARAM=$(if $(PRODUCT_NAME_FILTER),&product_name_filter=$(PRODUCT_NAME_FILTER),))
-	true > prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/search-keywords/?limit=$(LIMIT)$(FILTER_PARAM)" | jq . > prod.json
 
 test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITUDE=val] [LONGITUDE=val] [RADIUS=val] API_KEY=your_api_key
 	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi

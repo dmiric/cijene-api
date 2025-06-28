@@ -14,5 +14,4 @@ When `make rebuild-everything` is suggested or executed, always remind the user 
 - `make geocode-stores`
 - `make enrich CSV_FILE=./backups/users.csv TYPE=users`
 - `make enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations`
-- `make enrich CSV_FILE=./backups/search_keywords.csv TYPE=search-keywords`
 - `make migrate-db`

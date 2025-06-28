@@ -32,7 +32,6 @@ from service.db.models import (
     UserLocation,
     ChatMessage,
     UserPreference,
-    SearchKeyword,
     GProduct,
     GPrice,
     GProductBestOffer,
@@ -43,7 +42,7 @@ from service.db.field_configs import PRODUCT_PRICE_AI_FIELDS # Import AI fields 
 class ProductRepository(BaseRepository):
     """
     Contains all logic for interacting with the 'legacy' product-related tables
-    (products, chain_products, prices, chain_prices, search_keywords).
+    (products, chain_products, prices, chain_prices).
     """
 
     def __init__(self):
@@ -286,42 +285,22 @@ class ProductRepository(BaseRepository):
         if not words:
             return []
 
-        where_conditions = []
-        params = []
-        SIMILARITY_THRESHOLD = 0.3
+        # Construct ILIKE conditions for each word
+        ilike_conditions = [f"p.name ILIKE '%{word}%'" for word in words]
+        where_clause = " OR ".join(ilike_conditions)
 
-        for idx, word in enumerate(words, start=1):
-            word = word.lower().replace("%", "")
-            unaccented_word_param = f"${idx}"
-            unaccented_word_ilike_param = f"${idx + len(words)}"
-
-            fuzzy_condition = f"similarity(sk.keyword, {unaccented_word_param}) > {SIMILARITY_THRESHOLD}"
-            params.append(word)
-
-            ilike_condition = f"sk.keyword ILIKE '%' || {unaccented_word_ilike_param} || '%'"
-            params.append(word)
-
-            where_conditions.append(f"({fuzzy_condition} OR {ilike_condition})")
-
-        where_clause = " OR ".join(where_conditions)
         query_sql = f"""
             SELECT
-                p.ean,
-                COUNT(sk) AS keyword_count
-            FROM search_keywords sk
-            JOIN products p ON sk.ean = p.ean
+                id, ean, brand, name, quantity, unit
+            FROM products p
             WHERE {where_clause}
-            GROUP BY p.ean
-            ORDER BY keyword_count DESC
+            ORDER BY name
         """
 
         async with self._get_conn() as conn:
             self.debug_print(f"search_products: Query: {query_sql}")
-            self.debug_print(f"search_products: Params: {params}")
-            rows = await conn.fetch(query_sql, *params)
-            eans = [row["ean"] for row in rows]
-
-        return await self.get_products_by_ean(eans)
+            rows = await conn.fetch(query_sql)
+            return [ProductWithId(**row) for row in rows]
 
     @timing_decorator
     async def get_product_prices(
@@ -564,7 +543,6 @@ class ProductRepository(BaseRepository):
                     COALESCE(cp.brand, p.brand) AS brand_name
                 FROM products p
                 LEFT JOIN chain_products cp ON p.id = cp.product_id
-                WHERE p.ean NOT IN (SELECT ean FROM search_keywords)
             """
             params = []
             param_index = 1
@@ -584,44 +562,3 @@ class ProductRepository(BaseRepository):
                 {"ean": row["ean"], "product_name": row["product_name"], "brand_name": row["brand_name"]}
                 for row in rows
             ]
-
-    @timing_decorator
-    async def add_many_search_keywords(self, keywords: List[SearchKeyword]) -> int:
-        """
-        Bulk insert search keywords into the database.
-        On conflict (ean, keyword), do nothing.
-        """
-        async with self._atomic() as conn:
-            await conn.execute(
-                """
-                CREATE TEMP TABLE temp_search_keywords (
-                    id INTEGER,
-                    ean VARCHAR(255),
-                    keyword TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE
-                )
-                """
-            )
-            await conn.copy_records_to_table(
-                "temp_search_keywords",
-                records=(
-                    (
-                        sk.id,
-                        sk.ean,
-                        sk.keyword,
-                        sk.created_at,
-                    )
-                    for sk in keywords
-                ),
-            )
-            result = await conn.execute(
-                """
-                INSERT INTO search_keywords(id, ean, keyword, created_at)
-                SELECT * from temp_search_keywords
-                ON CONFLICT (id) DO NOTHING
-                """
-            )
-            await conn.execute("DROP TABLE temp_search_keywords")
-            _, _, rowcount = result.split(" ")
-            rowcount = int(rowcount)
-            return rowcount

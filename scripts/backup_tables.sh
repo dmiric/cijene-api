@@ -13,7 +13,7 @@ DB_PORT="5432"
 export PGPASSWORD="${POSTGRES_PASSWORD}"
 
 # Tables to backup
-TABLES=("stores" "search_keywords" "user_locations" "users")
+TABLES=("stores" "user_locations" "users")
 
 # Backup directory inside the container (mounted from db_backups volume)
 BACKUP_DIR="/backups"

@@ -154,13 +154,6 @@ class StorePrice:
     store: Store
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SearchKeyword:
-    id: int
-    ean: str
-    keyword: str
-    created_at: datetime
-
 # New G_ models for v2
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProduct:

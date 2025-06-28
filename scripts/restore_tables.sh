@@ -13,7 +13,7 @@ DB_PORT="5432"
 export PGPASSWORD="${POSTGRES_PASSWORD}"
 
 # Tables to restore (ordered by dependency: users first, then dependents)
-TABLES=("users" "user_locations" "chat_messages" "user_preferences" "search_keywords")
+TABLES=("users" "user_locations" "chat_messages" "user_preferences")
 
 # Drop dependent tables first to avoid foreign key conflicts when restoring 'users'
 echo "Dropping dependent tables to avoid foreign key conflicts..."

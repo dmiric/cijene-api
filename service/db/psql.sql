@@ -12,7 +12,6 @@
 -- DROP TABLE IF EXISTS user_locations CASCADE;
 -- DROP TABLE IF EXISTS chat_messages CASCADE;
 -- DROP TABLE IF EXISTS user_preferences CASCADE;
--- DROP TABLE IF EXISTS search_keywords CASCADE;
 -- DROP TABLE IF EXISTS schema_migrations CASCADE;
 
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -102,18 +101,6 @@ CREATE TABLE IF NOT EXISTS chain_stats (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (chain_id, price_date)
 );
-
--- Search Keywords table to store EAN and keyword combinations
-CREATE TABLE IF NOT EXISTS search_keywords (
-    id SERIAL PRIMARY KEY,
-    ean VARCHAR(50) NOT NULL REFERENCES products (ean),
-    keyword VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (ean, keyword)
-);
-
-CREATE INDEX IF NOT EXISTS idx_search_keywords_ean ON search_keywords (ean);
-CREATE INDEX IF NOT EXISTS trgm_idx_search_keywords_keyword ON search_keywords USING GIN (keyword gin_trgm_ops);
 
 ALTER TABLE stores
 ADD COLUMN IF NOT EXISTS location GEOMETRY(Point, 4326) GENERATED ALWAYS AS (ST_SetSRID(ST_Point(lon, lat), 4326)) STORED;

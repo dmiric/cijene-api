@@ -12,7 +12,7 @@ from dateutil import parser
 import json
 
 from service.config import settings
-from service.db.models import Product, User, UserLocation, SearchKeyword, GProduct, GPrice, GProductBestOffer
+from service.db.models import Product, User, UserLocation, GProduct, GPrice, GProductBestOffer
 
 logger = logging.getLogger("enricher")
 
@@ -334,64 +334,6 @@ async def enrich_user_locations(csv_path: Path) -> None:
     logger.info(f"Enriched {added_count} user locations from {csv_path.name} in {dt} seconds")
 
 
-async def enrich_search_keywords(csv_path: Path) -> None:
-    """
-    Enrich search keyword information from CSV file.
-
-    Args:
-        csv_path: Path to the CSV file containing search keyword data.
-    """
-    if not csv_path.exists():
-        raise ValueError(f"CSV file does not exist: {csv_path}")
-
-    data = await read_csv(csv_path)
-    if not data:
-        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
-
-    csv_columns = set(data[0].keys())
-    expected_columns = {"id", "ean", "keyword", "created_at"}
-    if csv_columns != expected_columns:
-        raise ValueError("CSV file headers do not match expected columns for search keywords")
-
-    logger.info(f"Starting search keyword enrichment from {csv_path} with {len(data)} keywords")
-    t0 = time()
-
-    # Collect all unique EANs from the CSV
-    all_eans_in_csv = list(set(row["ean"] for row in data))
-
-    # Get existing products by EAN
-    existing_products_by_ean = {
-        product.ean: product
-        for product in await db.products.get_products_by_ean(all_eans_in_csv) # Changed db.get_products_by_ean
-    }
-
-    # Identify and add missing EANs to the products table
-    missing_eans = [ean for ean in all_eans_in_csv if ean not in existing_products_by_ean]
-    if missing_eans:
-        logger.info(f"Found {len(missing_eans)} missing EANs in products table. Adding them...")
-        for ean in missing_eans:
-            await db.products.add_ean(ean) # Changed db.add_ean
-        # Re-fetch or update existing_products_by_ean if necessary, or assume add_ean makes them available
-        # For simplicity, assuming add_ean makes them immediately available for FK check.
-
-    keywords_to_add = []
-    for row in data:
-        keywords_to_add.append(
-            SearchKeyword(
-                id=int(row["id"]),
-                ean=row["ean"],
-                keyword=row["keyword"],
-                created_at=parser.parse(row["created_at"]),
-            )
-        )
-    
-    added_count = await db.products.add_many_search_keywords(keywords_to_add) # Changed db.add_many_search_keywords
-
-    t1 = time()
-    dt = int(t1 - t0)
-    logger.info(f"Enriched {added_count} search keywords from {csv_path.name} in {dt} seconds")
-
-
 async def enrich_g_products(csv_path: Path) -> None:
     """
     Enrich g_products table from CSV file.
@@ -592,9 +534,9 @@ async def main():
     parser.add_argument(
         "--type",
         type=str,
-        choices=["products", "stores", "users", "user-locations", "search-keywords", "g_products", "g_prices", "g_product-best-offers"],
+        choices=["products", "stores", "users", "user-locations", "g_products", "g_prices", "g_product-best-offers"],
         required=True,
-        help="Type of data to enrich (products, stores, users, user-locations, search-keywords, g_products, g_prices, g_product-best-offers)",
+        help="Type of data to enrich (products, stores, users, user-locations, g_products, g_prices, g_product-best-offers)",
     )
 
     parser.add_argument(
@@ -620,8 +562,6 @@ async def main():
             await enrich_users(args.csv_file)
         elif args.type == "user-locations":
             await enrich_user_locations(args.csv_file)
-        elif args.type == "search-keywords":
-            await enrich_search_keywords(args.csv_file)
         elif args.type == "g_products":
             await enrich_g_products(args.csv_file)
         elif args.type == "g_prices":
