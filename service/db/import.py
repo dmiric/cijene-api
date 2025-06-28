@@ -12,7 +12,7 @@ from time import time
 from typing import Any, Dict, List
 
 from service.config import settings
-from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, SearchKeyword # Added User, UserLocation, SearchKeyword
+from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation # Added User, UserLocation, SearchKeyword
 
 logger = logging.getLogger("importer")
 

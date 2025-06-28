@@ -33,7 +33,6 @@ from .models import (
     UserLocation,
     ChatMessage,
     UserPreference,
-    SearchKeyword,
     GProduct,
     GPrice,
     GProductBestOffer,
