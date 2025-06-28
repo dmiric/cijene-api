@@ -381,6 +381,8 @@ class GoldenProductRepository(BaseRepository):
                 o.best_unit_price_per_kg,
                 o.best_unit_price_per_l,
                 o.best_unit_price_per_piece,
+                o.best_price_store_id,
+                o.best_price_found_at,
             )
             for o in g_offers
         ]
@@ -390,7 +392,7 @@ class GoldenProductRepository(BaseRepository):
                 records=records,
                 columns=[
                     'product_id', 'best_unit_price_per_kg', 'best_unit_price_per_l',
-                    'best_unit_price_per_piece'
+                    'best_unit_price_per_piece', 'best_price_store_id', 'best_price_found_at'
                 ]
             )
             self.debug_print(f"add_many_g_product_best_offers: Inserted {result} rows.")
