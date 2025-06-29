@@ -12,15 +12,16 @@ async def main():
         description="Add a new user and generate an API key."
     )
     parser.add_argument("username", type=str, help="The username for the new user.")
+    parser.add_argument("email", type=str, help="The email for the new user.") # Added email argument
     args = parser.parse_args()
 
     db: PostgresDatabase = settings.get_db()
 
     try:
         await db.connect()
-        user = await db.add_user(args.username)
-        print(f"User '{user.name}' added successfully.")
-        print(f"API Key: {user.api_key}")
+        user, user_personal_data = await db.users.add_user(args.username, args.email) # Updated call and return type
+        print(f"User '{user_personal_data.name}' (ID: {user.id}) added successfully.") # Access name from user_personal_data
+        print(f"API Key: {user_personal_data.api_key}") # Access API key from user_personal_data
     except Exception as e:
         logger.error(f"Error adding user: {e}")
         print(f"Error: {e}")

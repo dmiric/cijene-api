@@ -8,11 +8,19 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    api_key VARCHAR(255) UNIQUE NOT NULL,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_personal_data (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    api_key VARCHAR(255) UNIQUE NOT NULL,
+    last_login TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -91,9 +99,11 @@ ADD COLUMN IF NOT EXISTS location GEOMETRY(Point, 4326) GENERATED ALWAYS AS (ST_
 
 CREATE INDEX IF NOT EXISTS idx_stores_location ON stores USING GIST (location);
 
+CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users (deleted_at);
+
 CREATE TABLE IF NOT EXISTS user_locations (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     address VARCHAR(255),
     city VARCHAR(100),
     state VARCHAR(100),
@@ -102,38 +112,36 @@ CREATE TABLE IF NOT EXISTS user_locations (
     latitude NUMERIC,
     longitude NUMERIC,
     location GEOMETRY(Point, 4326),
+    location_name VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_locations_user_id ON user_locations (user_id);
 CREATE INDEX IF NOT EXISTS idx_user_locations_location ON user_locations USING GIST (location);
-
-ALTER TABLE user_locations
-ADD COLUMN IF NOT EXISTS location_name VARCHAR(255);
+CREATE INDEX IF NOT EXISTS idx_user_locations_deleted_at ON user_locations (deleted_at);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id INTEGER NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     session_id UUID NOT NULL,
     sender TEXT NOT NULL,
     message_text TEXT NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     tool_calls JSONB NULL,
-    tool_outputs JSONB NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    tool_outputs JSONB NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages (user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages (session_id);
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id INTEGER NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     preference_key TEXT NOT NULL,
     preference_value TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE (user_id, preference_key)
 );
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences (user_id);

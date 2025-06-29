@@ -14,6 +14,8 @@ from service.routers.v1 import router as v1_router
 from service.routers.v2.products import router as v2_products_router
 from service.routers.v2.stores import router as v2_stores_router
 from service.routers.v2.chat import router as v2_chat_router
+from service.routers.v2.users import router as v2_users_router # New import
+from service.routers.v2.user_locations import router as v2_user_locations_router # New import
 from service.config import settings
 
 db = settings.get_db()
@@ -65,6 +67,8 @@ app.include_router(v1_router, prefix="/v1")
 app.include_router(v2_products_router, prefix="/v2")
 app.include_router(v2_stores_router, prefix="/v2")
 app.include_router(v2_chat_router, prefix="/v2")
+app.include_router(v2_users_router, prefix="/v2") # New router
+app.include_router(v2_user_locations_router, prefix="/v2") # New router
 
 
 @app.exception_handler(404)

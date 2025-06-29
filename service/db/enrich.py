@@ -2,7 +2,7 @@
 import argparse
 import asyncio
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation # Import InvalidOperation
 from pathlib import Path
 from csv import DictReader
 from time import time
@@ -12,7 +12,8 @@ from dateutil import parser
 import json
 
 from service.config import settings
-from service.db.models import Product, User, UserLocation, GProduct, GPrice, GProductBestOffer
+from service.db.models import Product, User, UserPersonalData, UserLocation, GProduct, GPrice, GProductBestOffer, Store, Chain
+from uuid import UUID, uuid4
 
 logger = logging.getLogger("enricher")
 
@@ -100,7 +101,7 @@ async def enrich_products(csv_path: Path) -> None:
     # Get existing products by EAN
     existing_products = {
         product.ean: product
-        for product in await db.products.get_products_by_ean( # Changed db.get_products_by_ean
+        for product in await db.products.get_products_by_ean(
             list(set(row["barcode"] for row in data))
         )
     }
@@ -111,7 +112,7 @@ async def enrich_products(csv_path: Path) -> None:
 
         if not product:
             # This shouldn't happen but we can gracefully handle it
-            await db.products.add_ean(row["barcode"]) # Changed db.add_ean
+            await db.products.add_ean(row["barcode"])
             product = Product(
                 ean=row["barcode"],
                 brand="",
@@ -132,7 +133,7 @@ async def enrich_products(csv_path: Path) -> None:
             unit=unit,
         )
 
-        was_updated = await db.products.update_product(updated_product) # Changed db.update_product
+        was_updated = await db.products.update_product(updated_product)
         if was_updated:
             updated_count += 1
 
@@ -175,27 +176,29 @@ async def enrich_stores(csv_path: Path) -> None:
     logger.info(f"Starting store enrichment from {csv_path} with {len(data)} stores")
     t0 = time()
 
-    chain_code_to_id = {}
-    if is_chain_code_format:
-        # Fetch all chains and build a code -> id map if chain_code format is used
-        chains = await db.products.list_chains()
-        chain_code_to_id = {chain.code: chain.id for chain in chains}
-
     updated_count = 0
     for row in data:
         store_code = row["code"]
         chain_id = None
+        chain_code = None
 
-        if "chain_id" in row and row["chain_id"].strip():
-            chain_id = int(row["chain_id"])
-        elif "chain_code" in row and row["chain_code"].strip():
-            chain_code = row["chain_code"]
-            chain_id = chain_code_to_id.get(chain_code)
+        if "chain_code" in row and row["chain_code"].strip():
+            chain_code = row["chain_code"].strip()
+            # Ensure chain exists or create it
+            chain_id = await db.products.add_chain(Chain(code=chain_code))
             if chain_id is None:
-                logger.warning(
-                    f"Chain code not found for store: chain_code={chain_code}, code={store_code}. Skipping."
-                )
+                logger.error(f"Failed to get or create chain for code: {chain_code}. Skipping store {store_code}.")
                 continue
+        elif "chain_id" in row and row["chain_id"].strip():
+            # If only chain_id is provided, we assume the chain already exists.
+            # In a robust system, you might fetch the chain by ID to verify.
+            # For now, we'll proceed assuming it's valid.
+            chain_id = int(row["chain_id"])
+            # Optional: Verify chain exists if strict validation is needed
+            # existing_chain = await db.products.get_chain_by_id(chain_id) # Requires new method in product_repo
+            # if not existing_chain:
+            #     logger.warning(f"Chain ID {chain_id} not found for store {store_code}. Skipping.")
+            #     continue
         else:
             logger.warning(f"Neither chain_id nor chain_code found for store: code={store_code}. Skipping.")
             continue
@@ -228,13 +231,11 @@ async def enrich_stores(csv_path: Path) -> None:
                     f"Invalid lon value for store {store_code} in chain {chain_id}: '{lon_str}'. Setting to None."
                 )
 
-        # Only update if at least one field is non-empty (excluding id, code, type, chain_id/code)
-        if not any([address, city, zipcode, lat, lon, phone]):
-            continue
-
-        was_updated = await db.stores.update_store(
+        # Create a Store object to pass to add_store (which handles upsert)
+        store_obj = Store(
             chain_id=chain_id,
-            store_code=store_code,
+            code=store_code,
+            type=row.get("type", "").strip() or None,
             address=address,
             city=city,
             zipcode=zipcode,
@@ -242,11 +243,14 @@ async def enrich_stores(csv_path: Path) -> None:
             lon=lon,
             phone=phone,
         )
-        if was_updated:
+        
+        # Use add_store which handles both insert and update (upsert)
+        store_id = await db.stores.add_store(store_obj)
+        if store_id:
             updated_count += 1
         else:
             logger.warning(
-                f"Store not found for update: chain_id={chain_id}, code={store_code}"
+                f"Failed to add or update store: chain_id={chain_id}, code={store_code}"
             )
 
     t1 = time()
@@ -254,9 +258,10 @@ async def enrich_stores(csv_path: Path) -> None:
     logger.info(f"Enriched {updated_count} stores from {csv_path.name} in {dt} seconds")
 
 
-async def enrich_users(csv_path: Path) -> None:
+async def enrich_users(csv_path: Path) -> Dict[int, UUID]:
     """
-    Enrich user information from CSV file.
+    Enrich user information from CSV file, creating core user records and personal data records.
+    Returns a mapping of old integer user IDs to new UUID user IDs.
 
     Args:
         csv_path: Path to the CSV file containing user data.
@@ -269,38 +274,47 @@ async def enrich_users(csv_path: Path) -> None:
         raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
 
     csv_columns = set(data[0].keys())
-    expected_columns = {"id", "name", "api_key", "is_active", "created_at"}
-    if csv_columns != expected_columns:
-        raise ValueError("CSV file headers do not match expected columns for users")
+    expected_columns = {"id", "name", "email", "api_key", "is_active", "created_at"}
+    if not expected_columns.issubset(csv_columns):
+        raise ValueError(f"CSV file headers do not match expected columns for users. Expected: {expected_columns}, Got: {csv_columns}")
 
     logger.info(f"Starting user enrichment from {csv_path} with {len(data)} users")
     t0 = time()
 
-    users_to_add = []
+    users_data_for_bulk_insert = []
+    user_id_map = {} # old_int_id -> new_uuid
+
     for row in data:
-        users_to_add.append(
-            User(
-                id=int(row["id"]),
-                name=row["name"],
-                api_key=row["api_key"],
-                is_active=row["is_active"].lower() == "true",
-                created_at=parser.parse(row["created_at"]),
+        old_user_id = int(row["id"])
+        new_user_uuid = uuid4()
+        user_id_map[old_user_id] = new_user_uuid
+
+        users_data_for_bulk_insert.append(
+            (
+                new_user_uuid,
+                row["is_active"].lower() == "true",
+                parser.parse(row["created_at"]),
+                row["name"],
+                row["email"],
+                row["api_key"],
             )
         )
     
-    added_count = await db.users.add_many_users(users_to_add) # Changed db.add_many_users
+    added_count = await db.users.add_many_users(users_data_for_bulk_insert)
 
     t1 = time()
     dt = int(t1 - t0)
     logger.info(f"Enriched {added_count} users from {csv_path.name} in {dt} seconds")
+    return user_id_map
 
 
-async def enrich_user_locations(csv_path: Path) -> None:
+async def enrich_user_locations(csv_path: Path, user_id_map: Dict[int, UUID]) -> None:
     """
     Enrich user location information from CSV file.
 
     Args:
         csv_path: Path to the CSV file containing user location data.
+        user_id_map: A dictionary mapping old integer user IDs to new UUID user IDs.
     """
     if not csv_path.exists():
         raise ValueError(f"CSV file does not exist: {csv_path}")
@@ -314,18 +328,25 @@ async def enrich_user_locations(csv_path: Path) -> None:
         "id", "user_id", "address", "city", "state", "zip_code", "country",
         "latitude", "longitude", "location", "location_name", "created_at", "updated_at"
     }
-    if csv_columns != expected_columns:
-        raise ValueError("CSV file headers do not match expected columns for user locations")
+    if not expected_columns.issubset(csv_columns):
+        raise ValueError(f"CSV file headers do not match expected columns for user locations. Expected: {expected_columns}, Got: {csv_columns}")
 
     logger.info(f"Starting user location enrichment from {csv_path} with {len(data)} locations")
     t0 = time()
 
     locations_to_add = []
     for row in data:
+        old_user_id = int(row["user_id"])
+        new_user_uuid = user_id_map.get(old_user_id)
+
+        if not new_user_uuid:
+            logger.warning(f"User ID {old_user_id} not found in map. Skipping location {row.get('id')}.")
+            continue
+
         locations_to_add.append(
             UserLocation(
                 id=int(row["id"]),
-                user_id=int(row["user_id"]),
+                user_id=new_user_uuid,
                 address=row["address"] if row["address"] else None,
                 city=row["city"] if row["city"] else None,
                 state=row["state"] if row["state"] else None,
@@ -336,10 +357,11 @@ async def enrich_user_locations(csv_path: Path) -> None:
                 location_name=row["location_name"] if row["location_name"] else None,
                 created_at=parser.parse(row["created_at"]),
                 updated_at=parser.parse(row["updated_at"]),
+                deleted_at=None,
             )
         )
     
-    added_count = await db.users.add_many_user_locations(locations_to_add) # Changed db.add_many_user_locations
+    added_count = await db.users.add_many_user_locations(locations_to_add)
 
     t1 = time()
     dt = int(t1 - t0)
@@ -380,8 +402,7 @@ async def enrich_g_products(csv_path: Path) -> None:
                 variants = json.loads(row["variants"])
             except json.JSONDecodeError as e:
                 logger.error(f"JSONDecodeError for EAN {row['ean']} variants: '{row['variants']}' - {e}")
-                # Optionally, you can skip this row or set a default value for variants
-                variants = [] # Set to empty list or None if parsing fails
+                variants = []
 
         keywords = [k.strip() for k in row["keywords"].strip('{}').split(',') if k.strip()] if row["keywords"] else None
         embedding = [float(e) for e in row["embedding"].strip('[]').split(',') if e.strip()] if row["embedding"] else None
@@ -402,7 +423,7 @@ async def enrich_g_products(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.golden_products.add_many_g_products(g_products_to_add) # Changed db.add_many_g_products
+    added_count = await db.golden_products.add_many_g_products(g_products_to_add)
 
     t1 = time()
     dt = int(t1 - t0)
@@ -451,14 +472,14 @@ async def enrich_prices(csv_path: Path) -> None:
                     if row["special_price"] and row["special_price"].lower() != "null"
                     else None
                 ),
-                price_per_kg=None, # Will be calculated by normalizer
-                price_per_l=None,  # Will be calculated by normalizer
-                price_per_piece=None, # Will be calculated by normalizer
+                price_per_kg=None,
+                price_per_l=None,
+                price_per_piece=None,
                 is_on_special_offer=row["is_on_special_offer"].lower() == "true",
             )
         )
     
-    added_count = await db.golden_products.add_many_g_prices(prices_to_add) # Changed db.add_many_g_prices
+    added_count = await db.golden_products.add_many_g_prices(prices_to_add)
 
     t1 = time()
     dt = int(t1 - t0)
@@ -492,17 +513,15 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
 
     offers_to_add = []
     for row in data:
-        # Helper to safely convert to Decimal, handling empty strings and "NULL"
         def safe_decimal(value_str):
             if value_str and value_str.lower() != "null":
                 try:
                     return Decimal(value_str)
-                except decimal.InvalidOperation:
+                except InvalidOperation: # Use InvalidOperation
                     logger.warning(f"Invalid Decimal value: '{value_str}'. Setting to None.")
                     return None
             return None
 
-        # Helper to safely convert to int, handling empty strings and "NULL"
         def safe_int(value_str):
             if value_str and value_str.lower() != "null":
                 try:
@@ -523,11 +542,63 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
             )
         )
     
-    added_count = await db.golden_products.add_many_g_product_best_offers(offers_to_add) # Changed db.add_many_g_product_best_offers
+    added_count = await db.golden_products.add_many_g_product_best_offers(offers_to_add)
 
     t1 = time()
     dt = int(t1 - t0)
     logger.info(f"Enriched {added_count} g_product_best_offers from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_chains(csv_path: Path) -> None:
+    """
+    Enrich chains information from CSV file.
+
+    Args:
+        csv_path: Path to the CSV file containing chain data.
+    """
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+
+    data = await read_csv(csv_path)
+    if not data:
+        raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
+
+    csv_columns = set(data[0].keys())
+    expected_columns = {"id", "code"}
+    if csv_columns != expected_columns:
+        raise ValueError(f"CSV file headers do not match expected columns for chains. Expected: {expected_columns}, Got: {csv_columns}")
+
+    logger.info(f"Starting chain enrichment from {csv_path} with {len(data)} chains")
+    t0 = time()
+
+    added_count = 0
+    for row in data:
+        chain_code = row["code"].strip()
+        chain_obj = Chain(code=chain_code)
+        chain_id = await db.products.add_chain(chain_obj)
+        if chain_id:
+            added_count += 1
+        else:
+            logger.warning(f"Failed to add or update chain: {chain_code}")
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Enriched {added_count} chains from {csv_path.name} in {dt} seconds")
+
+
+async def enrich_all_user_data(users_csv_path: Path, user_locations_csv_path: Path) -> None:
+    """
+    Orchestrates the enrichment of user and user location data.
+    """
+    logger.info(f"Starting combined user and user location enrichment.")
+    t0 = time()
+
+    user_id_map = await enrich_users(users_csv_path)
+    await enrich_user_locations(user_locations_csv_path, user_id_map)
+
+    t1 = time()
+    dt = int(t1 - t0)
+    logger.info(f"Finished combined user and user location enrichment in {dt} seconds.")
 
 
 async def main():
@@ -543,15 +614,18 @@ async def main():
     )
 
     parser.add_argument(
-        "csv_file", type=Path, help="Path to the CSV file containing enrichment data"
+        "csv_file", type=Path, nargs='?', help="Path to the primary CSV file (e.g., for products, stores, users, chains)"
+    )
+    parser.add_argument(
+        "--user-locations-csv-file", type=Path, help="Path to the user locations CSV file (used with --type all-user-data)"
     )
 
     parser.add_argument(
         "--type",
         type=str,
-        choices=["products", "stores", "users", "user-locations", "g_products", "g_prices", "g_product-best-offers"],
+        choices=["products", "stores", "users", "user-locations", "g_products", "g_prices", "g_product-best-offers", "all-user-data", "chains"],
         required=True,
-        help="Type of data to enrich (products, stores, users, user-locations, g_products, g_prices, g_product-best-offers)",
+        help="Type of data to enrich (products, stores, users, user-locations, g_products, g_prices, g_product-best-offers, all-user-data, chains)",
     )
 
     parser.add_argument(
@@ -566,23 +640,36 @@ async def main():
     )
 
     await db.connect()
-    # await db.create_tables() # Removed this line
 
     try:
         if args.type == "products":
+            if not args.csv_file: raise ValueError("csv_file is required for products type.")
             await enrich_products(args.csv_file)
         elif args.type == "stores":
+            if not args.csv_file: raise ValueError("csv_file is required for stores type.")
             await enrich_stores(args.csv_file)
         elif args.type == "users":
+            if not args.csv_file: raise ValueError("csv_file is required for users type.")
             await enrich_users(args.csv_file)
         elif args.type == "user-locations":
-            await enrich_user_locations(args.csv_file)
+            logger.error("enrich_user_locations cannot be run standalone. Use --type all-user-data instead.")
+            raise RuntimeError("User ID map not available for user locations enrichment when run standalone.")
+        elif args.type == "all-user-data":
+            if not args.csv_file: raise ValueError("csv_file (for users) is required for all-user-data type.")
+            if not args.user_locations_csv_file: raise ValueError("--user-locations-csv-file is required for all-user-data type.")
+            await enrich_all_user_data(args.csv_file, args.user_locations_csv_file)
         elif args.type == "g_products":
+            if not args.csv_file: raise ValueError("csv_file is required for g_products type.")
             await enrich_g_products(args.csv_file)
         elif args.type == "g_prices":
+            if not args.csv_file: raise ValueError("csv_file is required for g_prices type.")
             await enrich_prices(args.csv_file)
         elif args.type == "g_product-best-offers":
+            if not args.csv_file: raise ValueError("csv_file is required for g_product-best-offers type.")
             await enrich_product_best_offers(args.csv_file)
+        elif args.type == "chains":
+            if not args.csv_file: raise ValueError("csv_file is required for chains type.")
+            await enrich_chains(args.csv_file)
     finally:
         await db.close()
 

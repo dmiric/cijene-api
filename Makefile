@@ -99,9 +99,11 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 #	@echo "Geocoding stores..."
 #	$(MAKE) geocode-stores
 
-	@echo "Enriching users, user locations, and search keywords from backups..."
-	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
-	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
+	@echo "Enriching chains from backups..."
+	$(MAKE) enrich CSV_FILE=./backups/chains.csv TYPE=chains
+
+	@echo "Enriching users and user locations from backups..."
+	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=all-user-data USER_LOCATIONS_CSV_FILE=./backups/user_locations.csv
 	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
 	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
 	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
@@ -194,10 +196,11 @@ unzip-crawler-output: ## Unzips the latest crawled data on the host. Usage: make
 		pwsh -Command "Expand-Archive -Path '$(CURDIR)/output/$(DATE).zip' -DestinationPath '$(CURDIR)/output/$(DATE)_unzipped' -Force"; \
 	fi
 
-enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=products|stores|users|user-locations|search-keywords
+enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=products|stores|users|user-locations|search-keywords [USER_LOCATIONS_CSV_FILE=./path/to/user_locations.csv]
 	@if [ -z "$(CSV_FILE)" ]; then echo "Error: CSV_FILE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
 	@if [ -z "$(TYPE)" ]; then echo "Error: TYPE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type $(TYPE) $(CSV_FILE)
+	$(eval USER_LOCATIONS_ARG=$(if $(USER_LOCATIONS_CSV_FILE),--user-locations-csv-file $(USER_LOCATIONS_CSV_FILE),))
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type $(TYPE) $(CSV_FILE) $(USER_LOCATIONS_ARG)
 
 
 ## API & User Commands

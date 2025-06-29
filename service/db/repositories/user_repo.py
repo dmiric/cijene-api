@@ -19,6 +19,7 @@ from service.utils.timing import timing_decorator # Import the decorator
 from service.db.base import BaseRepository
 from service.db.models import (
     User,
+    UserPersonalData, # New import
     UserLocation,
     UserPreference,
 )
@@ -66,81 +67,108 @@ class UserRepository(BaseRepository):
             return await conn.fetchval(query, *args)
 
     
-    async def get_user_by_api_key(self, api_key: str) -> User | None:
+    async def get_user_by_api_key(self, api_key: str) -> UserPersonalData | None: # Return UserPersonalData
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id, name, api_key, is_active, created_at
-                FROM users
+                SELECT
+                    upd.user_id, upd.name, upd.email, upd.api_key, upd.last_login, upd.updated_at
+                FROM user_personal_data upd
+                JOIN users u ON upd.user_id = u.id
                 WHERE
-                    api_key = $1 AND
-                    is_active = TRUE
+                    upd.api_key = $1 AND
+                    u.is_active = TRUE AND
+                    u.deleted_at IS NULL
                 """,
                 api_key,
             )
 
             if row:
-                return User(**row)  # type: ignore
+                return UserPersonalData(**row) # type: ignore
             return None
 
     
-    async def get_user_by_id(self, user_id: int) -> User | None:
+    async def get_user_by_id(self, user_id: UUID) -> tuple[User | None, UserPersonalData | None]: # Return both User and UserPersonalData
         """
-        Retrieve a user by their ID.
+        Retrieve a user by their ID, including personal data.
         """
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id, name, api_key, is_active, created_at
-                FROM users
-                WHERE id = $1
+                SELECT
+                    u.id, u.is_active, u.created_at, u.deleted_at,
+                    upd.name, upd.email, upd.api_key, upd.last_login, upd.updated_at AS personal_updated_at
+                FROM users u
+                LEFT JOIN user_personal_data upd ON u.id = upd.user_id
+                WHERE u.id = $1 AND u.deleted_at IS NULL
                 """,
                 user_id,
             )
             if row:
-                return User(**row)  # type: ignore
-            return None
+                user_data = {k: v for k, v in row.items() if k in User.__annotations__}
+                personal_data = {
+                    "user_id": row["id"],
+                    "name": row["name"],
+                    "email": row["email"],
+                    "api_key": row["api_key"],
+                    "last_login": row["last_login"],
+                    "updated_at": row["personal_updated_at"]
+                }
+                return User(**user_data), UserPersonalData(**personal_data) # type: ignore
+            return None, None
 
     
-    async def add_user(self, name: str) -> User:
+    async def add_user(self, name: str, email: str) -> tuple[User, UserPersonalData]: # Return both User and UserPersonalData
         """
-        Add a new user with a randomly generated API key.
+        Add a new user with a randomly generated API key and personal data.
 
         Args:
             name: The name of the user.
+            email: The email of the user.
 
         Returns:
-            The created User object.
+            A tuple containing the created User and UserPersonalData objects.
         """
+        new_user_uuid = uuid4()
         api_key = str(uuid4())
         created_at = datetime.now()
         is_active = True
 
         async with self._atomic() as conn:
-            user_id = await conn.fetchval(
+            # Insert into users table
+            user_record = await conn.fetchrow(
                 """
-                INSERT INTO users (name, api_key, is_active, created_at)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id
+                INSERT INTO users (id, is_active, created_at)
+                VALUES ($1, $2, $3)
+                RETURNING id, is_active, created_at, deleted_at
                 """,
-                name,
-                api_key,
+                new_user_uuid,
                 is_active,
                 created_at,
             )
-            if user_id is None:
+            if user_record is None:
                 raise RuntimeError(f"Failed to insert user {name}")
 
-            return User(
-                id=user_id,
-                name=name,
-                api_key=api_key,
-                is_active=is_active,
-                created_at=created_at,
+            # Insert into user_personal_data table
+            personal_data_record = await conn.fetchrow(
+                """
+                INSERT INTO user_personal_data (user_id, name, email, api_key, updated_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING user_id, name, email, api_key, last_login, updated_at
+                """,
+                new_user_uuid,
+                name,
+                email,
+                api_key,
+                datetime.now(),
             )
+            if personal_data_record is None:
+                raise RuntimeError(f"Failed to insert personal data for user {name}")
+
+            return User(**user_record), UserPersonalData(**personal_data_record) # type: ignore
 
     
-    async def add_user_location(self, user_id: int, location_data: dict) -> UserLocation:
+    async def add_user_location(self, user_id: UUID, location_data: dict) -> UserLocation:
         """
         Add a new location for a user.
         """
@@ -155,10 +183,10 @@ class UserRepository(BaseRepository):
                 f"""
                 INSERT INTO user_locations (
                     user_id, address, city, state, zip_code, country,
-                    lat, lon, location_name, location, created_at, updated_at
+                    latitude, longitude, location_name, location, created_at, updated_at, deleted_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, {location_geom if location_geom else 'NULL'}, NOW(), NOW())
-                RETURNING id, user_id, address, city, state, zip_code, country, lat, lon, location_name, created_at, updated_at
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, {location_geom if location_geom else 'NULL'}, NOW(), NOW(), NULL)
+                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at, deleted_at
                 """,
                 user_id,
                 location_data.get("address"),
@@ -178,11 +206,11 @@ class UserRepository(BaseRepository):
     
     async def get_user_locations_by_user_id(
         self,
-        user_id: int,
+        user_id: UUID,
         fields: Optional[List[str]] = None
     ) -> list[UserLocation]:
         """
-        Get all locations for a specific user, with selectable fields.
+        Get all active locations for a specific user, with selectable fields.
         """
         if fields is None:
             fields_to_select = USER_LOCATION_FULL_FIELDS
@@ -190,7 +218,7 @@ class UserRepository(BaseRepository):
             fields_to_select = fields
 
         # Basic validation to prevent SQL injection and ensure fields exist
-        valid_fields = set(USER_LOCATION_FULL_FIELDS)
+        valid_fields = set(USER_LOCATION_FULL_FIELDS + ['deleted_at']) # Include deleted_at for validation
         if not all(f in valid_fields for f in fields_to_select):
             raise ValueError("Invalid field requested for user locations.")
 
@@ -201,7 +229,7 @@ class UserRepository(BaseRepository):
                 f"""
                 SELECT {fields_str}
                 FROM user_locations
-                WHERE user_id = $1
+                WHERE user_id = $1 AND deleted_at IS NULL
                 ORDER BY created_at
                 """,
                 user_id,
@@ -224,18 +252,18 @@ class UserRepository(BaseRepository):
             return converted_rows
 
     
-    async def get_user_location_by_id(self, user_id: int, location_id: int) -> UserLocation | None:
+    async def get_user_location_by_id(self, user_id: UUID, location_id: int) -> UserLocation | None:
         """
-        Get a specific user location by its ID and user ID.
+        Get a specific active user location by its ID and user ID.
         """
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT
                     id, user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, created_at, updated_at
+                    latitude, longitude, location_name, created_at, updated_at, deleted_at
                 FROM user_locations
-                WHERE id = $1 AND user_id = $2
+                WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
                 """,
                 location_id,
                 user_id,
@@ -248,7 +276,7 @@ class UserRepository(BaseRepository):
     async def update_user_location(
         self,
         location_id: int,
-        user_id: int,
+        user_id: UUID,
         address: Optional[str] = None,
         city: Optional[str] = None,
         state: Optional[str] = None,
@@ -259,8 +287,14 @@ class UserRepository(BaseRepository):
         location_name: Optional[str] = None,
     ) -> bool:
         async with self._atomic() as conn:
-            result = await conn.execute(
-                """
+            # Update location geometry if lat/lon are provided
+            location_geom_update = ""
+            params_offset = 0
+            if latitude is not None and longitude is not None:
+                location_geom_update = ", location = ST_SetSRID(ST_Point($11, $12), 4326)::geometry"
+                params_offset = 2
+
+            query = f"""
                 UPDATE user_locations
                 SET
                     address = COALESCE($3, address),
@@ -272,9 +306,12 @@ class UserRepository(BaseRepository):
                     longitude = COALESCE($9, longitude),
                     location_name = COALESCE($10, location_name),
                     updated_at = NOW()
-                WHERE id = $1 AND user_id = $2
-                RETURNING id, user_id, address, city, state, zip_code, country, latitude, longitude, location_name, created_at, updated_at
-                """,
+                    {location_geom_update}
+                WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+                """
+            
+            # Prepare arguments dynamically based on whether location_geom_update is used
+            args = [
                 location_id,
                 user_id,
                 address,
@@ -285,20 +322,25 @@ class UserRepository(BaseRepository):
                 latitude,
                 longitude,
                 location_name,
-            )
+            ]
+            if params_offset > 0:
+                args.extend([longitude, latitude]) # Order for ST_Point is (lon, lat)
+
+            result = await conn.execute(query, *args)
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
     
-    async def delete_user_location(self, user_id: int, location_id: int) -> bool:
+    async def delete_user_location(self, user_id: UUID, location_id: int) -> bool:
         """
-        Delete a user location.
+        Soft-delete a user location by setting deleted_at timestamp.
         """
         async with self._atomic() as conn:
             result = await conn.execute(
                 """
-                DELETE FROM user_locations
-                WHERE id = $1 AND user_id = $2
+                UPDATE user_locations
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
                 """,
                 location_id,
                 user_id,
@@ -307,37 +349,40 @@ class UserRepository(BaseRepository):
             return int(rowcount) == 1
 
     
-    async def add_many_users(self, users: List[User]) -> int:
+    async def add_many_users(self, users_data: List[tuple]) -> int:
         """
-        Bulk insert users into the database.
-        On conflict (id), do nothing.
+        Bulk insert users and their personal data into the database.
+        users_data is expected to be a list of tuples:
+        (user_uuid, is_active, created_at, name, email, api_key)
         """
-        self.debug_print(f"add_many_users: Adding {len(users)} users.")
-        if not users:
+        self.debug_print(f"add_many_users: Adding {len(users_data)} users.")
+        if not users_data:
             return 0
 
-        records = [
-            (
-                u.id,
-                u.name,
-                u.api_key,
-                u.is_active,
-                u.created_at,
-            )
-            for u in users
-        ]
-        async with self._get_conn() as conn:
-            # Use copy_records_to_table for efficient bulk insert
-            # Ensure the order of columns matches the order in records
-            result = await conn.copy_records_to_table(
+        users_records = []
+        personal_data_records = []
+
+        for user_uuid, is_active, created_at, name, email, api_key in users_data:
+            users_records.append((user_uuid, is_active, created_at, None)) # deleted_at defaults to NULL
+            personal_data_records.append((user_uuid, name, email, api_key, None, datetime.now())) # last_login, updated_at
+
+        async with self._atomic() as conn:
+            # Insert into 'users' table
+            users_inserted = await conn.copy_records_to_table(
                 'users',
-                records=records,
-                columns=[
-                    'id', 'name', 'api_key', 'is_active', 'created_at'
-                ]
+                records=users_records,
+                columns=['id', 'is_active', 'created_at', 'deleted_at']
             )
-            self.debug_print(f"add_many_users: Inserted {result} rows.")
-            return result
+            self.debug_print(f"add_many_users: Inserted {users_inserted} user core records.")
+
+            # Insert into 'user_personal_data' table
+            personal_data_inserted = await conn.copy_records_to_table(
+                'user_personal_data',
+                records=personal_data_records,
+                columns=['user_id', 'name', 'email', 'api_key', 'last_login', 'updated_at']
+            )
+            self.debug_print(f"add_many_users: Inserted {personal_data_inserted} user personal data records.")
+            return users_inserted # Return count of core user records inserted
 
     
     async def add_many_user_locations(self, locations: List[UserLocation]) -> int:
@@ -350,7 +395,7 @@ class UserRepository(BaseRepository):
                 """
                 CREATE TEMP TABLE temp_user_locations (
                     id INTEGER,
-                    user_id INTEGER,
+                    user_id UUID,
                     address TEXT,
                     city TEXT,
                     state TEXT,
@@ -360,7 +405,8 @@ class UserRepository(BaseRepository):
                     longitude DECIMAL(10, 7),
                     location_name TEXT,
                     created_at TIMESTAMP WITH TIME ZONE,
-                    updated_at TIMESTAMP WITH TIME ZONE
+                    updated_at TIMESTAMP WITH TIME ZONE,
+                    deleted_at TIMESTAMP WITH TIME ZONE
                 )
                 """
             )
@@ -380,6 +426,7 @@ class UserRepository(BaseRepository):
                         loc.location_name,
                         loc.created_at,
                         loc.updated_at,
+                        loc.deleted_at,
                     )
                     for loc in locations
                 ),
@@ -388,7 +435,7 @@ class UserRepository(BaseRepository):
                 """
                 INSERT INTO user_locations(
                     id, user_id, address, city, state, zip_code, country,
-                    latitude, longitude, location_name, created_at, updated_at
+                    latitude, longitude, location_name, created_at, updated_at, deleted_at
                 )
                 SELECT * from temp_user_locations
                 ON CONFLICT (id) DO NOTHING
@@ -400,7 +447,7 @@ class UserRepository(BaseRepository):
             return rowcount
 
     
-    async def save_user_preference(self, user_id: int, preference_key: str, preference_value: str) -> UserPreference:
+    async def save_user_preference(self, user_id: UUID, preference_key: str, preference_value: str) -> UserPreference:
         """
         Saves or updates a user's shopping preference.
         """
@@ -423,7 +470,7 @@ class UserRepository(BaseRepository):
             return UserPreference(**row)
 
     
-    async def get_user_preference(self, user_id: int, preference_key: str) -> UserPreference | None:
+    async def get_user_preference(self, user_id: UUID, preference_key: str) -> UserPreference | None:
         """
         Retrieves a specific user preference.
         """

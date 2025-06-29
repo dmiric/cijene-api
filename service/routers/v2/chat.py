@@ -9,7 +9,7 @@ from service.utils.timing import timing_decorator # Import the decorator
 
 from service.config import settings
 from service.routers.v2.chat_components.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
-from service.db.models import ChatMessage, UserLocation
+from service.db.models import ChatMessage, UserLocation # UserLocation's user_id is now UUID
 from service.routers.auth import verify_authentication
 from fastapi.responses import StreamingResponse
 from fastapi import Depends
@@ -34,16 +34,16 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     """
     Handles incoming chat messages, orchestrates AI interactions, and streams responses using v2 tools.
     """
-    user_id = chat_request.user_id
+    user_id: UUID = chat_request.user_id # user_id is now UUID
     session_id = chat_request.session_id if chat_request.session_id else uuid4()
     user_message_text = chat_request.message_text
 
     debug_print(f"Chat V2 request received: user_id={user_id}, session_id={session_id}, message='{user_message_text}'")
 
     # Save user message to DB
-    await db.save_chat_message(
+    await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
         user_id=user_id,
-        session_id=str(session_id),
+        session_id=session_id, # Pass UUID directly
         message_text=user_message_text,
         is_user_message=True,
         tool_calls=None,
@@ -64,22 +64,22 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     )
 
     # Dynamically add user locations and nearby stores to system instructions
-    user_locations = await db.users.get_user_locations_by_user_id(user_id) # Corrected to db.users
+    user_locations = await db.users.get_user_locations_by_user_id(user_id)
     if user_locations:
         location_info_str = "Spremljene lokacije korisnika:\n"
         for loc in user_locations:
-            location_info_str += f"- Naziv: {loc.get('location_name', 'N/A')}, Adresa: {loc.get('address', 'N/A')}, Grad: {loc.get('city', 'N/A')}, Lat: {loc.get('latitude', 'N/A')}, Lon: {loc.get('longitude', 'N/A')}\n"
+            location_info_str += f"- Naziv: {loc.location_name if loc.location_name else 'N/A'}, Adresa: {loc.address if loc.address else 'N/A'}, Grad: {loc.city if loc.city else 'N/A'}, Lat: {loc.latitude if loc.latitude else 'N/A'}, Lon: {loc.longitude if loc.longitude else 'N/A'}\n"
             
-            if loc.get('latitude') is not None and loc.get('longitude') is not None:
+            if loc.latitude is not None and loc.longitude is not None:
                 nearby_stores = await db.stores.get_stores_within_radius(
-                    lat=float(loc['latitude']), # Access directly as float conversion is needed
-                    lon=float(loc['longitude']), # Access directly as float conversion is needed
+                    lat=float(loc.latitude),
+                    lon=float(loc.longitude),
                     radius_meters=1500 # As requested by the user
                 )
                 if nearby_stores:
                     location_info_str += "  Obližnje trgovine (unutar 1500m):\n"
                     for store in nearby_stores:
-                        location_info_str += f"  - {store.get('chain_code', 'N/A')} ({store.get('address', 'N/A')}, {store.get('city', 'N/A')})\n"
+                        location_info_str += f"  - {store.code if store.code else 'N/A'} ({store.address if store.address else 'N/A'}, {store.city if store.city else 'N/A'})\n"
                 else:
                     location_info_str += "  Nema obližnjih trgovina za ovu lokaciju.\n"
             else:
@@ -250,9 +250,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     debug_print(f"Overriding user_id for get_user_locations from {tool_args.get('user_id')} to {user_id}")
                     tool_args["user_id"] = user_id
                 
-                await db.save_chat_message(
+                await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
                     user_id=user_id,
-                    session_id=str(session_id),
+                    session_id=session_id, # Pass UUID directly
                     message_text=f"Tool call: {tool_name}({tool_args})",
                     is_user_message=False, # Tool calls are not user messages
                     tool_calls={"name": tool_name, "args": tool_args},
@@ -273,9 +273,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     debug_print(f"Tool output: {tool_output}")
                     
                     # Save this first tool's output to the database and yield to the client
-                    await db.save_chat_message(
+                    await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
                         user_id=user_id,
-                        session_id=str(session_id),
+                        session_id=session_id, # Pass UUID directly
                         message_text=f"Tool output for {tool_name}: {tool_output}",
                         is_user_message=False,
                         tool_calls=None,
@@ -301,9 +301,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                 debug_print(f"Nearby stores output: {nearby_stores_output}")
                                 
                                 # Save the second tool's output message to the DB
-                                await db.save_chat_message(
+                                await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
                                     user_id=user_id,
-                                    session_id=str(session_id),
+                                    session_id=session_id, # Pass UUID directly
                                     message_text=f"Tool output for find_nearby_stores_v2: {nearby_stores_output}",
                                     is_user_message=False,
                                     tool_calls=None,
@@ -317,7 +317,7 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                 debug_print("User location found but missing lat/lon. Informing user.")
                                 full_ai_response_text = "Pronašao/pronašla sam vašu spremljenu lokaciju, ali nedostaju zemljopisna širina i dužina. Ažurirajte detalje lokacije kako biste omogućili pretraživanje temeljeno na lokaciji."
                         else:
-                            debug_print("No user locations found. Informing user.")
+                            debug_print("Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji.")
                             full_ai_response_text = "Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji."
                 
                     # Append all collected tool outputs to the history for the next AI turn
@@ -349,9 +349,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
 
         # Save AI's final text response to DB (after loop breaks)
         if full_ai_response_text:
-            await db.save_chat_message(
+            await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
                 user_id=user_id,
-                session_id=str(session_id),
+                session_id=session_id, # Pass UUID directly
                 message_text=full_ai_response_text,
                 is_user_message=False,
                 tool_calls=None,

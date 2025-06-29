@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
-import uuid
+from uuid import UUID # Import UUID type
 
 from dataclasses import dataclass, fields
 from pydantic import BaseModel, Field # Added for ProductSearchItemV2
@@ -9,18 +9,27 @@ from pydantic import BaseModel, Field # Added for ProductSearchItemV2
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class User:
-    id: int
-    name: str
-    api_key: str
+    id: UUID # Changed to UUID
     is_active: bool
     created_at: datetime
+    deleted_at: Optional[datetime] = None # Added for soft delete
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UserPersonalData: # New dataclass for personal data
+    user_id: UUID # References User.id
+    name: str
+    email: str
+    api_key: str
+    last_login: Optional[datetime] = None
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ChatMessage:
-    id: str # UUID
-    user_id: int
-    session_id: str # UUID
+    id: UUID # Changed to UUID
+    user_id: UUID # Changed to UUID
+    session_id: UUID # Changed to UUID
     sender: str
     message_text: str
     timestamp: datetime
@@ -31,8 +40,8 @@ class ChatMessage:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserPreference:
-    id: str # UUID
-    user_id: int
+    id: UUID # Changed to UUID
+    user_id: UUID # Changed to UUID
     preference_key: str
     preference_value: str
     created_at: datetime
@@ -42,7 +51,7 @@ class UserPreference:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserLocation:
     id: int
-    user_id: int
+    user_id: UUID # Changed to UUID
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -53,6 +62,7 @@ class UserLocation:
     location_name: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None # Added for soft delete
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
