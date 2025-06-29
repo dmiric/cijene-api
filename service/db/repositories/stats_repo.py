@@ -61,7 +61,7 @@ class StatsRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
+    
     async def list_latest_chain_stats(self) -> list[ChainStats]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("""
@@ -82,7 +82,7 @@ class StatsRepository(BaseRepository):
             """)
             return [ChainStats(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
+    
     async def compute_chain_stats(self, date: date) -> None:
         async with self._atomic() as conn:
             stats = await conn.fetch(

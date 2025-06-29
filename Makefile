@@ -79,32 +79,33 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db
 
-	@echo "Checking for existing crawled data..."
-	@if [ ! -f "./output/$(DATE).zip" ]; then \
-		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-		$(MAKE) crawl-sample; \
-	else \
-		echo "Existing zip found: ./output/$(DATE).zip"; \
-	fi
+#	@echo "Checking for existing crawled data..."
+#	@if [ ! -f "./output/$(DATE).zip" ]; then \
+#		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+#		$(MAKE) crawl-sample; \
+#	else \
+#		echo "Existing zip found: ./output/$(DATE).zip"; \
+#	fi
 
-	@echo "Importing data..."
-	$(MAKE) import-data
+#	@echo "Importing data..."
+#	$(MAKE) import-data
 
 #	@echo "Normalizing data..."
 #	$(MAKE) normalize-data
 
-	@echo "Enriching data..."
-	$(MAKE) enrich-data
+#	@echo "Enriching data..."
+#	$(MAKE) enrich-data
 
-	@echo "Geocoding stores..."
-	$(MAKE) geocode-stores
+#	@echo "Geocoding stores..."
+#	$(MAKE) geocode-stores
 
 	@echo "Enriching users, user locations, and search keywords from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=users
 	$(MAKE) enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-#	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
-#	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
-#	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
+	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
+	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
+	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
+	$(MAKE) enrich CSV_FILE=./backups/stores.csv TYPE=stores
 
 	@echo "Development fresh start completed."
 

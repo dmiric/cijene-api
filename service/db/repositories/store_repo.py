@@ -63,7 +63,6 @@ class StoreRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
     async def add_store(self, store: Store) -> int:
         return await self._fetchval(
             f"""
@@ -90,7 +89,6 @@ class StoreRepository(BaseRepository):
             store.phone or None,
         )
 
-    @timing_decorator
     async def update_store(
         self,
         chain_id: int,
@@ -132,7 +130,7 @@ class StoreRepository(BaseRepository):
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
-    @timing_decorator
+    
     async def list_stores(self, chain_code: str) -> list[StoreWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -149,7 +147,7 @@ class StoreRepository(BaseRepository):
 
             return [StoreWithId(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
+    
     async def filter_stores(
         self,
         chain_codes: list[str] | None = None,
@@ -216,7 +214,7 @@ class StoreRepository(BaseRepository):
             rows = await conn.fetch(query, *params)
             return [StoreWithId(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
+    
     async def get_ungeocoded_stores(self) -> list[StoreWithId]:
         """
         Fetches stores that have address information but are missing
@@ -235,7 +233,7 @@ class StoreRepository(BaseRepository):
             )
             return [StoreWithId(**row) for row in rows] # type: ignore
 
-    @timing_decorator
+    
     async def get_stores_within_radius(
         self,
         lat: Decimal,
@@ -294,4 +292,17 @@ class StoreRepository(BaseRepository):
             self.debug_print(f"get_stores_within_radius: Final Query: {query}")
             self.debug_print(f"get_stores_within_radius: Params: {params}")
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+            
+            # Convert rows to dictionaries, ensuring all values are JSON-serializable.
+            converted_rows = []
+            for row in rows:
+                converted_row = {}
+                for key, value in row.items():
+                    if isinstance(value, Decimal):
+                        converted_row[key] = float(value)
+                    elif isinstance(value, (datetime, date)):
+                        converted_row[key] = value.isoformat()
+                    else:
+                        converted_row[key] = value
+                converted_rows.append(converted_row)
+            return converted_rows

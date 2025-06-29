@@ -24,7 +24,7 @@ PRODUCT_FULL_FIELDS = [
     "id", "name", "description", "brand", "category", "image_url",
     "regular_price", "special_price", "best_unit_price_per_kg",
     "best_unit_price_per_l", "best_unit_price_per_piece",
-    "base_unit_type", "base_unit_value", "created_at", "updated_at"
+    "base_unit_type", "created_at", "updated_at"
 ]
 
 # Fields for AI product search results (excluding sensitive/large fields like embedding)

@@ -177,7 +177,7 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
         return {"error": str(e)}
 
 
-@timing_decorator
+
 async def get_product_details_tool_v2(product_id: int):
     """
     Retrieves the full details for a single product.
@@ -200,7 +200,7 @@ async def get_product_details_tool_v2(product_id: int):
         return {"error": str(e)}
 
 
-@timing_decorator
+
 async def find_nearby_stores_tool_v2(
     lat: float,
     lon: float,
@@ -232,7 +232,7 @@ async def find_nearby_stores_tool_v2(
         return {"error": error_message}
 
 
-@timing_decorator
+
 async def get_user_locations_tool(user_id: int):
     """
     Retrieves a user's saved locations.
@@ -251,7 +251,7 @@ async def get_user_locations_tool(user_id: int):
         return {"error": str(e)}
 
 
-@timing_decorator
+
 async def multi_search_tool(queries: List[dict]):
     """
     Executes multiple product search queries concurrently and returns all results.

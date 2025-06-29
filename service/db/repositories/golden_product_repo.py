@@ -142,7 +142,7 @@ class GoldenProductRepository(BaseRepository):
             self.debug_print(f"get_g_products_hybrid_search: Executing Query: {final_query}")
             self.debug_print(f"get_g_products_hybrid_search: With Params: {params}")
             rows = await conn.fetch(final_query, *params)
-            self.debug_print(f"get_g_products_hybrid_search: Rows fetched: {len(rows)}") # Add this line to confirm rows are fetched
+            self.debug_print(f"get_g_products_hybrid_search: Rows fetched: {len(rows)}")
             
             # Return as list of dictionaries for flexibility
             results = []
@@ -158,7 +158,7 @@ class GoldenProductRepository(BaseRepository):
                 results.append(row_dict)
             return results
 
-    @timing_decorator
+    
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]
     ) -> list[dict[str, Any]]:
@@ -189,10 +189,12 @@ class GoldenProductRepository(BaseRepository):
                 WHERE gpr.product_id = $1 AND gpr.store_id = ANY($2)
                 ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC
             """
+            self.debug_print(f"get_g_product_prices_by_location: Executing Query: {query}")
+            self.debug_print(f"get_g_product_prices_by_location: With Params: {[product_id, store_ids]}")
             rows = await conn.fetch(query, product_id, store_ids)
             return [dict(row) for row in rows]
 
-    @timing_decorator
+    
     async def get_g_product_details(
         self,
         product_id: int,
@@ -227,6 +229,9 @@ class GoldenProductRepository(BaseRepository):
                 select_parts.append("NULL AS quantity_value") # Placeholder
             elif field.startswith("best_unit_price_"):
                 select_parts.append(f"gpbo.{field}")
+            # Remove regular_price and special_price from here, as they belong to g_prices
+            elif field in ["regular_price", "special_price"]:
+                continue # Skip these fields
             else:
                 select_parts.append(f"gp.{field}") # Direct mapping for other fields
 
@@ -259,7 +264,7 @@ class GoldenProductRepository(BaseRepository):
                 return row_dict
             return None
 
-    @timing_decorator
+    
     async def get_g_stores_nearby(
         self,
         lat: float,
@@ -298,7 +303,7 @@ class GoldenProductRepository(BaseRepository):
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 
-    @timing_decorator
+    
     async def add_many_g_products(self, g_products: List[GProduct]) -> int:
         """
         Adds multiple golden products to the g_products table.
@@ -336,7 +341,7 @@ class GoldenProductRepository(BaseRepository):
             self.debug_print(f"add_many_g_products: Inserted {result} rows.")
             return result
 
-    @timing_decorator
+    
     async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
         """
         Adds multiple golden prices to the g_prices table.
@@ -370,7 +375,7 @@ class GoldenProductRepository(BaseRepository):
             self.debug_print(f"add_many_g_prices: Inserted {result} rows.")
             return result
 
-    @timing_decorator
+    
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         """
         Adds multiple golden product best offers to the g_product_best_offers table.

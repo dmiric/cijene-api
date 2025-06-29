@@ -157,70 +157,82 @@ async def enrich_stores(csv_path: Path) -> None:
     if not data:
         raise ValueError(f"CSV file is empty or could not be read: {csv_path}")
 
-    csv_columns = set(data[0].keys())
-    expected_columns = {
-        "id",
-        "chain_code",
-        "code",
-        "type",
-        "address",
-        "city",
-        "zipcode",
-        "lat",
-        "lon",
-        "phone",
-    }
-    if csv_columns != expected_columns:
-        raise ValueError("CSV file headers do not match expected columns for stores")
+    csv_columns_set = set(data[0].keys())
+    
+    # Define expected columns for both formats
+    expected_columns_chain_id = {"id", "chain_id", "code", "type", "address", "city", "zipcode", "lat", "lon", "phone"}
+    expected_columns_chain_code = {"id", "chain_code", "code", "type", "address", "city", "zipcode", "lat", "lon", "phone"}
+
+    # Check if headers match either format, allowing 'location' as an extra column
+    is_chain_id_format = expected_columns_chain_id.issubset(csv_columns_set) and \
+                         all(col in expected_columns_chain_id or col == "location" for col in csv_columns_set)
+    is_chain_code_format = expected_columns_chain_code.issubset(csv_columns_set) and \
+                           all(col in expected_columns_chain_code or col == "location" for col in csv_columns_set)
+
+    if not is_chain_id_format and not is_chain_code_format:
+        raise ValueError("CSV file headers do not match expected columns for stores (neither chain_id nor chain_code format)")
 
     logger.info(f"Starting store enrichment from {csv_path} with {len(data)} stores")
     t0 = time()
 
-    # Fetch all chains and build a code -> id map
-    chains = await db.products.list_chains() # Changed db.list_chains
-    chain_code_to_id = {chain.code: chain.id for chain in chains}
+    chain_code_to_id = {}
+    if is_chain_code_format:
+        # Fetch all chains and build a code -> id map if chain_code format is used
+        chains = await db.products.list_chains()
+        chain_code_to_id = {chain.code: chain.id for chain in chains}
 
     updated_count = 0
     for row in data:
-        chain_code = row["chain_code"]
         store_code = row["code"]
+        chain_id = None
 
-        chain_id = chain_code_to_id.get(chain_code)
-        if chain_id is None:
-            logger.warning(
-                f"Chain code not found for store: chain_code={chain_code}, code={store_code}"
-            )
+        if "chain_id" in row and row["chain_id"].strip():
+            chain_id = int(row["chain_id"])
+        elif "chain_code" in row and row["chain_code"].strip():
+            chain_code = row["chain_code"]
+            chain_id = chain_code_to_id.get(chain_code)
+            if chain_id is None:
+                logger.warning(
+                    f"Chain code not found for store: chain_code={chain_code}, code={store_code}. Skipping."
+                )
+                continue
+        else:
+            logger.warning(f"Neither chain_id nor chain_code found for store: code={store_code}. Skipping.")
             continue
 
-        # Convert empty strings to None for nullable fields
+        # Convert empty strings or "NULL" to None for nullable fields
         address = row["address"].strip() or None
         city = row["city"].strip() or None
         zipcode = row["zipcode"].strip() or None
         phone = row["phone"].strip() or None
 
-        # lat/lon: convert to float if present and not empty, else None
+        # lat/lon: convert to Decimal if present and not empty/NULL, else None
         lat = None
         lon = None
-        if row["lat"].strip():
+        
+        lat_str = row["lat"].strip()
+        if lat_str and lat_str.lower() != "null":
             try:
-                lat = Decimal(row["lat"])
+                lat = Decimal(lat_str)
             except Exception:
                 logger.warning(
-                    f"Invalid lat value for store {store_code} in chain {chain_code}: {row['lat']}"
+                    f"Invalid lat value for store {store_code} in chain {chain_id}: '{lat_str}'. Setting to None."
                 )
-        if row["lon"].strip():
+        
+        lon_str = row["lon"].strip()
+        if lon_str and lon_str.lower() != "null":
             try:
-                lon = Decimal(row["lon"])
+                lon = Decimal(lon_str)
             except Exception:
                 logger.warning(
-                    f"Invalid lon value for store {store_code} in chain {chain_code}: {row['lon']}"
+                    f"Invalid lon value for store {store_code} in chain {chain_id}: '{lon_str}'. Setting to None."
                 )
 
-        # Only update if at least one field is non-empty
+        # Only update if at least one field is non-empty (excluding id, code, type, chain_id/code)
         if not any([address, city, zipcode, lat, lon, phone]):
             continue
 
-        was_updated = await db.stores.update_store( # Changed db.update_store
+        was_updated = await db.stores.update_store(
             chain_id=chain_id,
             store_code=store_code,
             address=address,
@@ -416,7 +428,7 @@ async def enrich_prices(csv_path: Path) -> None:
         "id", "product_id", "store_id", "price_date", "regular_price",
         "special_price", "is_on_special_offer"
     }
-    if csv_columns != expected_columns:
+    if not expected_columns.issubset(csv_columns):
         raise ValueError("CSV file headers do not match expected columns for g_prices")
 
     logger.info(f"Starting g_prices enrichment from {csv_path} with {len(data)} entries")

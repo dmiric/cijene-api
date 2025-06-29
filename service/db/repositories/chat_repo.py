@@ -62,7 +62,7 @@ class ChatRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
+    
     async def save_chat_message(
         self,
         user_id: int,
@@ -115,7 +115,7 @@ class ChatRepository(BaseRepository):
         self.debug_print(f"Saved chat message: {message.id}")
         return 1 # Return a dummy ID for now, as the method signature expects int
 
-    @timing_decorator
+    
     async def get_chat_messages(self, user_id: int, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
         """
         Retrieves chat messages for a given user and session, ordered by timestamp.

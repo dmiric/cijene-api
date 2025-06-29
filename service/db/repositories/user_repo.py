@@ -65,7 +65,7 @@ class UserRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
+    
     async def get_user_by_api_key(self, api_key: str) -> User | None:
         async with self._get_conn() as conn:
             row = await conn.fetchrow(
@@ -83,7 +83,7 @@ class UserRepository(BaseRepository):
                 return User(**row)  # type: ignore
             return None
 
-    @timing_decorator
+    
     async def get_user_by_id(self, user_id: int) -> User | None:
         """
         Retrieve a user by their ID.
@@ -101,7 +101,7 @@ class UserRepository(BaseRepository):
                 return User(**row)  # type: ignore
             return None
 
-    @timing_decorator
+    
     async def add_user(self, name: str) -> User:
         """
         Add a new user with a randomly generated API key.
@@ -139,7 +139,7 @@ class UserRepository(BaseRepository):
                 created_at=created_at,
             )
 
-    @timing_decorator
+    
     async def add_user_location(self, user_id: int, location_data: dict) -> UserLocation:
         """
         Add a new location for a user.
@@ -175,7 +175,7 @@ class UserRepository(BaseRepository):
 
             return UserLocation(**row)
 
-    @timing_decorator
+    
     async def get_user_locations_by_user_id(
         self,
         user_id: int,
@@ -207,11 +207,23 @@ class UserRepository(BaseRepository):
                 user_id,
             )
             # Convert rows to dictionaries, as UserLocation(**row) might fail with partial data
-            # if the model expects all fields to be present.
-            # The AI tools will then convert these dictionaries to their desired format.
-            return [dict(row) for row in rows] # type: ignore
+            # Convert rows to dictionaries, ensuring all values are JSON-serializable.
+            # This handles potential complex types returned by asyncpg (e.g., geometry objects).
+            converted_rows = []
+            for row in rows:
+                converted_row = {}
+                for key, value in row.items():
+                    if isinstance(value, Decimal):
+                        converted_row[key] = float(value)
+                    elif isinstance(value, (datetime, date)):
+                        converted_row[key] = value.isoformat()
+                    # Add more type conversions here if other non-serializable types appear
+                    else:
+                        converted_row[key] = value
+                converted_rows.append(converted_row)
+            return converted_rows
 
-    @timing_decorator
+    
     async def get_user_location_by_id(self, user_id: int, location_id: int) -> UserLocation | None:
         """
         Get a specific user location by its ID and user ID.
@@ -232,7 +244,7 @@ class UserRepository(BaseRepository):
                 return UserLocation(**row) # type: ignore
             return None
 
-    @timing_decorator
+    
     async def update_user_location(
         self,
         location_id: int,
@@ -277,7 +289,7 @@ class UserRepository(BaseRepository):
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
-    @timing_decorator
+    
     async def delete_user_location(self, user_id: int, location_id: int) -> bool:
         """
         Delete a user location.
@@ -294,7 +306,7 @@ class UserRepository(BaseRepository):
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
-    @timing_decorator
+    
     async def add_many_users(self, users: List[User]) -> int:
         """
         Bulk insert users into the database.
@@ -327,7 +339,7 @@ class UserRepository(BaseRepository):
             self.debug_print(f"add_many_users: Inserted {result} rows.")
             return result
 
-    @timing_decorator
+    
     async def add_many_user_locations(self, locations: List[UserLocation]) -> int:
         """
         Bulk insert user locations into the database.
@@ -387,7 +399,7 @@ class UserRepository(BaseRepository):
             rowcount = int(rowcount)
             return rowcount
 
-    @timing_decorator
+    
     async def save_user_preference(self, user_id: int, preference_key: str, preference_value: str) -> UserPreference:
         """
         Saves or updates a user's shopping preference.
@@ -410,7 +422,7 @@ class UserRepository(BaseRepository):
                 raise RuntimeError(f"Failed to save user preference for user {user_id}, key {preference_key}")
             return UserPreference(**row)
 
-    @timing_decorator
+    
     async def get_user_preference(self, user_id: int, preference_key: str) -> UserPreference | None:
         """
         Retrieves a specific user preference.

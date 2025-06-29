@@ -18,6 +18,7 @@ from fastapi import Depends
 from .chat_components.ai_models import gemini_client, openai_client
 from .chat_components.ai_schemas import ChatRequest, ChatMessageResponse, gemini_tools, openai_tools
 from .chat_components.ai_tools import available_tools, find_nearby_stores_tool_v2 # find_nearby_stores_tool_v2 is needed for orchestration
+from .chat_components.ai_helpers import convert_protobuf_to_dict # Import the new helper
 
 router = APIRouter(tags=["AI Chat V2"], dependencies=[Depends(verify_authentication)])
 db = settings.get_db()
@@ -148,7 +149,7 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     
     ai_history.append({"role": "user", "parts": [user_message_text]})
 
-    @timing_decorator
+    
     async def event_stream():
         full_ai_response_text = ""
         
@@ -203,10 +204,14 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                             for part in chunk.candidates[0].content.parts:
                                 if part.function_call:
                                     tool_call_occurred_in_turn = True
+                                    # Convert Protobuf args to standard Python dict
+                                    converted_args = convert_protobuf_to_dict(part.function_call.args)
                                     current_tool_call_info = {
                                         "name": part.function_call.name,
-                                        "args": {k: v for k, v in part.function_call.args.items()}
+                                        "args": converted_args
                                     }
+                                    # Ensure the entire tool_call_info is JSON-serializable
+                                    current_tool_call_info = convert_protobuf_to_dict(current_tool_call_info)
                                     debug_print(f"AI requested tool call: {current_tool_call_info}")
                                     yield f"data: {json.dumps({'type': 'tool_call', 'content': current_tool_call_info})}\n\n"
                                 elif part.text:
@@ -337,6 +342,10 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                 debug_print(f"Error in event_stream: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
                 break # Break loop on exception
+
+        # Log the full AI response text for debugging
+        if full_ai_response_text:
+            debug_print(f"Full AI response text:\n{full_ai_response_text}")
 
         # Save AI's final text response to DB (after loop breaks)
         if full_ai_response_text:

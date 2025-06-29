@@ -164,7 +164,7 @@ class PostgresDatabaseV2(Database):
     ) -> list[dict[str, Any]]: # Changed return type to dict[str, Any] for consistency
         return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
 
-    @timing_decorator
+    
     async def get_g_stores_nearby(
         self,
         lat: float,
@@ -174,17 +174,17 @@ class PostgresDatabaseV2(Database):
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_stores_nearby(lat, lon, radius_meters, chain_code)
 
-    @timing_decorator
+    
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_product_prices_by_location(product_id, store_ids)
 
-    @timing_decorator
+    
     async def get_g_product_details(self, product_id: int) -> dict[str, Any] | None:
         return await self.golden_products.get_g_product_details(product_id)
 
-    @timing_decorator
+    
     async def save_chat_message(
         self,
         user_id: int,

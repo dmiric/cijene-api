@@ -79,13 +79,11 @@ class ProductRepository(BaseRepository):
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
 
-    @timing_decorator
     async def get_product_barcodes(self) -> dict[str, int]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("SELECT id, ean FROM products")
             return {row["ean"]: row["id"] for row in rows}
 
-    @timing_decorator
     async def get_chain_product_map(self, chain_id: int) -> dict[str, int]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -96,7 +94,7 @@ class ProductRepository(BaseRepository):
             )
             return {row["code"]: row["id"] for row in rows}
 
-    @timing_decorator
+
     async def add_chain(self, chain: Chain) -> int:
         async with self._atomic() as conn:
             chain_id = await conn.fetchval(
@@ -113,7 +111,6 @@ class ProductRepository(BaseRepository):
                 raise RuntimeError(f"Failed to insert chain {chain.code}")
             return chain_id
 
-    @timing_decorator
     async def list_chains(self) -> list[ChainWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch("SELECT id, code FROM chains")
@@ -134,7 +131,6 @@ class ProductRepository(BaseRepository):
             ean,
         )
 
-    @timing_decorator
     async def get_products_by_ean(self, ean: list[str]) -> list[ProductWithId]:
         async with self._get_conn() as conn:
             rows = await conn.fetch(
@@ -146,7 +142,6 @@ class ProductRepository(BaseRepository):
             )
             return [ProductWithId(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
     async def get_product_store_prices(
         self, product_id: int, chain_ids: list[int] | None
     ) -> list[StorePrice]:
@@ -245,7 +240,6 @@ class ProductRepository(BaseRepository):
             _, rowcount = result.split(" ")
             return int(rowcount) == 1
 
-    @timing_decorator
     async def get_chain_products_for_product(
         self,
         product_ids: list[int],
@@ -274,7 +268,6 @@ class ProductRepository(BaseRepository):
                 rows = await conn.fetch(query, product_ids)
             return [ChainProductWithId(**row) for row in rows]  # type: ignore
 
-    @timing_decorator
     async def search_products(self, query: str) -> list[ProductWithId]:
         if not query.strip():
             return []
@@ -300,7 +293,6 @@ class ProductRepository(BaseRepository):
             rows = await conn.fetch(query_sql)
             return [ProductWithId(**row) for row in rows]
 
-    @timing_decorator
     async def get_product_prices(
         self,
         product_ids: list[int],
@@ -367,7 +359,6 @@ class ProductRepository(BaseRepository):
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 
-    @timing_decorator
     async def add_many_prices(self, prices: list[Price]) -> int:
         async with self._atomic() as conn:
             await conn.execute(
@@ -421,7 +412,6 @@ class ProductRepository(BaseRepository):
             rowcount = int(rowcount)
             return rowcount
 
-    @timing_decorator
     async def add_many_chain_products(
         self,
         chain_products: List[ChainProduct],
@@ -480,7 +470,6 @@ class ProductRepository(BaseRepository):
             rowcount = int(rowcount)
             return rowcount
 
-    @timing_decorator
     async def compute_chain_prices(self, date: date) -> None:
         async with self._get_conn() as conn:
             await conn.execute(
@@ -528,35 +517,3 @@ class ProductRepository(BaseRepository):
                 """,
                 date,
             )
-
-    @timing_decorator
-    async def get_products_for_keyword_generation(
-        self, limit: int = 100, product_name_filter: str | None = None
-    ) -> list[dict[str, Any]]:
-        async with self._get_conn() as conn:
-            query = """
-                SELECT
-                    p.ean,
-                    COALESCE(cp.name, p.name) AS product_name,
-                    COALESCE(cp.brand, p.brand) AS brand_name
-                FROM products p
-                LEFT JOIN chain_products cp ON p.id = cp.product_id
-            """
-            params = []
-            param_index = 1
-
-            if product_name_filter:
-                query += f" AND COALESCE(cp.name, p.name) ILIKE '%' || ${param_index} || '%'"
-                params.append(product_name_filter)
-                param_index += 1
-
-            query += f"""
-                ORDER BY LENGTH(COALESCE(cp.name, p.name)) DESC, p.ean
-                LIMIT ${param_index}
-            """
-            params.append(limit)
-            rows = await conn.fetch(query, *params)
-            return [
-                {"ean": row["ean"], "product_name": row["product_name"], "brand_name": row["brand_name"]}
-                for row in rows
-            ]

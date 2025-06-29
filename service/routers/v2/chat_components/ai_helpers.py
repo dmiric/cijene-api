@@ -4,8 +4,8 @@ import datetime
 from datetime import date
 from dataclasses import asdict, fields, is_dataclass
 from typing import List, Dict, Any
-
-from service.utils.timing import timing_decorator
+import google.protobuf.struct_pb2
+from proto.marshal.collections import maps, repeated
 
 def pydantic_to_dict(obj):
     if isinstance(obj, BaseModel):
@@ -22,6 +22,64 @@ def pydantic_to_dict(obj):
         return obj.isoformat()
     elif is_dataclass(obj):
         return pydantic_to_dict(asdict(obj))
+    return obj
+
+def convert_protobuf_to_dict(obj: Any) -> Any:
+    """
+    Recursively converts Protobuf objects (including nested Struct, ListValue, Value)
+    and other special types to a JSON-serializable dictionary.
+    """
+    # Handle google.protobuf.struct_pb2.Struct (for tool arguments)
+    if isinstance(obj, google.protobuf.struct_pb2.Struct):
+        return {k: convert_protobuf_to_dict(v) for k, v in obj.fields.items()}
+    # Handle google.protobuf.struct_pb2.ListValue (for lists within tool arguments)
+    elif isinstance(obj, google.protobuf.struct_pb2.ListValue):
+        return [convert_protobuf_to_dict(v) for v in obj.values]
+    # Handle google.protobuf.struct_pb2.Value (wraps primitives, structs, lists)
+    elif hasattr(obj, 'kind') and obj.kind in obj.WhichOneof('kind'):
+        kind = obj.WhichOneof('kind')
+        if kind == 'string_value':
+            # Check if the string value is actually a JSON string that needs parsing
+            s_val = obj.string_value
+            try:
+                parsed_json = json.loads(s_val)
+                # If it's a valid JSON, recursively convert it
+                return convert_protobuf_to_dict(parsed_json)
+            except (json.JSONDecodeError, TypeError):
+                # Not a JSON string, return as is
+                return s_val
+        elif kind == 'number_value':
+            return obj.number_value
+        elif kind == 'bool_value':
+            return obj.bool_value
+        elif kind == 'struct_value':
+            return convert_protobuf_to_dict(obj.struct_value)
+        elif kind == 'list_value':
+            return convert_protobuf_to_dict(obj.list_value)
+        elif kind == 'null_value':
+            return None
+        else:
+            # Fallback for any unhandled kind
+            return str(obj)
+
+    # Handle proto.marshal.collections types (often wraps the above)
+    elif isinstance(obj, maps.MapComposite):
+        return {k: convert_protobuf_to_dict(v) for k, v in obj.items()}
+
+    elif isinstance(obj, repeated.RepeatedComposite):
+        return [convert_protobuf_to_dict(item) for item in obj]
+
+    # Handle other Python types that need conversion for JSON
+    elif isinstance(obj, dict):
+        return {k: convert_protobuf_to_dict(v) for k, v in obj.items()}
+    
+    elif isinstance(obj, list):
+        return [convert_protobuf_to_dict(v) for v in obj]
+
+    elif isinstance(obj, (Decimal, datetime.datetime, datetime.date)):
+        return str(obj) # Convert to string for JSON compatibility
+
+    # If it's none of the above, return the object as is (e.g., str, int, float, bool, None)
     return obj
 
 def filter_product_fields(products: List[Dict[str, Any]], desired_fields: List[str]) -> List[Dict[str, Any]]:
