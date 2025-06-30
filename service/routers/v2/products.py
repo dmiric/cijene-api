@@ -10,10 +10,7 @@ from service.routers.auth import RequireAuth
 from fastapi import Depends
 
 router = APIRouter(tags=["Products V2"], dependencies=[RequireAuth])
-db_v2 = settings.get_db_v2() # Assuming this will be added to settings.py
-
-def debug_print(*args, **kwargs):
-    print("[DEBUG products_v2]", *args, file=sys.stderr, **kwargs)
+db = settings.get_db()
 
 # Pydantic Models for Responses
 
@@ -104,9 +101,7 @@ async def search_products_v2(
     The main entry point for finding products using hybrid search (vector + keyword)
     and supporting advanced sorting.
     """
-    debug_print(f"search_products_v2: q={q}, limit={limit}, offset={offset}, sort_by={sort_by}, category={category}, brand={brand}")
-    
-    products_data = await db_v2.get_g_products_hybrid_search(
+    products_data = await db.get_g_products_hybrid_search(
         query=q,
         limit=limit,
         offset=offset,
@@ -127,8 +122,6 @@ async def get_product_prices_by_location_v2(
     This is the core endpoint for answering the "best price near me" question.
     It finds the prices for a single product at a list of specific stores.
     """
-    debug_print(f"get_product_prices_by_location_v2: product_id={product_id}, store_ids={store_ids}")
-    
     try:
         parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
     except ValueError:
@@ -137,7 +130,7 @@ async def get_product_prices_by_location_v2(
             detail="Invalid store_ids format. Must be a comma-separated list of integers."
         )
     
-    prices_data = await db_v2.get_g_product_prices_by_location(
+    prices_data = await db.get_g_product_prices_by_location(
         product_id=product_id,
         store_ids=parsed_store_ids,
     )
@@ -153,9 +146,7 @@ async def get_product_details_v2(
     A simple endpoint to retrieve the full "golden record" for a single product.
     It can also be expanded to join and include the absolute best offer from g_product_best_offers.
     """
-    debug_print(f"get_product_details_v2: product_id={product_id}")
-    
-    product_data = await db_v2.get_g_product_details(product_id=product_id)
+    product_data = await db.get_g_product_details(product_id=product_id)
     
     if not product_data:
         raise HTTPException(

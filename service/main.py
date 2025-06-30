@@ -16,10 +16,12 @@ from service.routers.v2.stores import router as v2_stores_router
 from service.routers.v2.chat import router as v2_chat_router
 from service.routers.v2.users import router as v2_users_router # New import
 from service.routers.v2.user_locations import router as v2_user_locations_router # New import
+from service.routers.v2.ai_tools import router as v2_ai_tools_router # New import
+from service.routers.v2.shopping_lists import router as v2_shopping_lists_router # New import
+from service.routers.v2.shopping_list_items import router as v2_shopping_list_items_router # New import
 from service.config import settings
 
 db = settings.get_db()
-db_v2 = settings.get_db_v2() # Get the v2 database instance
 
 
 @asynccontextmanager
@@ -27,11 +29,8 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager to handle startup and shutdown events."""
     await db.connect()
     await db.create_tables()
-    await db_v2.connect() # Connect to the v2 database
-    # await db_v2.create_tables() # v2 tables are assumed to exist, no need to create them here
     yield
     await db.close()
-    await db_v2.close() # Close the v2 database connection
 
 
 app = FastAPI(
@@ -69,6 +68,9 @@ app.include_router(v2_stores_router, prefix="/v2")
 app.include_router(v2_chat_router, prefix="/v2")
 app.include_router(v2_users_router, prefix="/v2") # New router
 app.include_router(v2_user_locations_router, prefix="/v2") # New router
+app.include_router(v2_ai_tools_router, prefix="/v2") # New router
+app.include_router(v2_shopping_lists_router, prefix="/v2")
+app.include_router(v2_shopping_list_items_router, prefix="/v2")
 
 
 @app.exception_handler(404)

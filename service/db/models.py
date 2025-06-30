@@ -2,6 +2,7 @@ from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID # Import UUID type
+from enum import Enum # Import Enum
 
 from dataclasses import dataclass, fields
 from pydantic import BaseModel, Field # Added for ProductSearchItemV2
@@ -228,6 +229,43 @@ class GStore:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GStoreWithId(GStore):
     id: int
+
+# Define Enums for statuses
+class ShoppingListStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+class ShoppingListItemStatus(str, Enum):
+    NEW = "new"
+    BOUGHT = "bought"
+    UNAVAILABLE = "unavailable"
+    DELETED = "deleted"
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShoppingList:
+    id: int
+    user_id: UUID
+    name: str
+    status: ShoppingListStatus
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShoppingListItem:
+    id: int
+    shopping_list_id: int
+    g_product_id: int
+    quantity: Decimal
+    base_unit_type: str # Corresponds to unit_type_enum in DB, can be mapped to Python Enum if needed
+    price_at_addition: Optional[Decimal] = None
+    store_id_at_addition: Optional[int] = None
+    status: ShoppingListItemStatus
+    notes: Optional[str] = None
+    added_at: datetime
+    bought_at: Optional[datetime] = None
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
 
 class ProductSearchItemV2(BaseModel):
     id: int

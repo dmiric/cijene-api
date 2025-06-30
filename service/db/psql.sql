@@ -157,6 +157,43 @@ BEGIN
     END IF;
 END$$;
 
+-- Phase 1: Database Schema Modifications
+CREATE TYPE shopping_list_status_enum AS ENUM ('open', 'closed');
+CREATE TYPE shopping_list_item_status_enum AS ENUM ('new', 'bought', 'unavailable', 'deleted');
+
+CREATE TABLE IF NOT EXISTS shopping_lists (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    status shopping_list_status_enum NOT NULL DEFAULT 'open',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shopping_lists_user_id ON shopping_lists (user_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_lists_deleted_at ON shopping_lists (deleted_at);
+
+CREATE TABLE IF NOT EXISTS shopping_list_items (
+    id SERIAL PRIMARY KEY,
+    shopping_list_id INTEGER NOT NULL REFERENCES shopping_lists(id) ON DELETE CASCADE,
+    g_product_id INTEGER NOT NULL REFERENCES g_products(id) ON DELETE CASCADE,
+    quantity DECIMAL(10, 4) NOT NULL,
+    base_unit_type unit_type_enum NOT NULL,
+    price_at_addition DECIMAL(10, 2),
+    store_id_at_addition INTEGER REFERENCES stores(id),
+    status shopping_list_item_status_enum NOT NULL DEFAULT 'new',
+    notes TEXT,
+    added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    bought_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_list_id ON shopping_list_items (shopping_list_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_product_id ON shopping_list_items (g_product_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_deleted_at ON shopping_list_items (deleted_at);
+
 -- Step 2: Create the new tables with the 'g_' prefix.
 
 -- Table 2.1: g_products (The Canonical Product Record)

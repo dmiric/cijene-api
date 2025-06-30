@@ -16,11 +16,7 @@ from service.db.field_configs import (
 
 from .ai_helpers import pydantic_to_dict, filter_product_fields # A new helper file
 
-db_v2 = settings.get_db_v2()
-db = settings.get_db() # Still needed for get_user_locations_tool
-
-def debug_print(*args, **kwargs):
-    print("[DEBUG AI_TOOLS]", *args, file=sys.stderr, **kwargs)
+db = settings.get_db()
 
 # --- Tool Functions ---
 async def search_products_tool_v2(
@@ -43,10 +39,9 @@ async def search_products_tool_v2(
         brand (Optional[str]): Filter by product brand.
         store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
     """
-    debug_print(f"Tool Call: search_products_tool_v2(q={q}, limit={limit}, offset={offset}, sort_by={sort_by}, category={category}, brand={brand}, store_ids={store_ids})")
     try:
-        # Step 1: Perform hybrid search using db_v2.get_g_products_hybrid_search
-        products = await db_v2.get_g_products_hybrid_search(
+        # Step 1: Perform hybrid search using db.get_g_products_hybrid_search
+        products = await db.get_g_products_hybrid_search(
             query=q,
             limit=limit,
             offset=offset,
@@ -73,11 +68,10 @@ async def search_products_tool_v2(
                     continue
 
                 # Fetch prices for this product in the specified stores from g_prices
-                prices_in_stores_raw = await db_v2.get_g_product_prices_by_location(
+                prices_in_stores_raw = await db.get_g_product_prices_by_location(
                     product_id=product_id,
                     store_ids=parsed_store_ids,
                 )
-                debug_print(f"Raw prices from g_prices: {prices_in_stores_raw}")
 
                 prices_in_stores_formatted = []
                 for price_entry in prices_in_stores_raw:
@@ -133,7 +127,7 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
         
         # Fetch g_product's base_unit_type to determine which unit price to return
         # This requires fetching product details first
-        product_details = await db_v2.get_g_product_details(product_id)
+        product_details = await db.get_g_product_details(product_id)
         if not product_details:
             return {"prices": []} # Product not found
 
@@ -141,12 +135,11 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
         if base_unit_type is None:
             return {"prices": []} # Cannot determine unit type
 
-        # Use db_v2.get_g_product_prices_by_location (from psql_v2.py)
-        prices_in_stores_raw = await db_v2.get_g_product_prices_by_location(
+        # Use db.get_g_product_prices_by_location
+        prices_in_stores_raw = await db.get_g_product_prices_by_location(
             product_id=product_id,
             store_ids=parsed_store_ids,
         )
-        debug_print(f"Raw prices from g_prices for get_product_prices_by_location_tool_v2: {prices_in_stores_raw}")
 
         prices_in_stores_formatted = []
         for price_entry in prices_in_stores_raw:
@@ -184,9 +177,8 @@ async def get_product_details_tool_v2(product_id: int):
     Args:
         product_id (int): The ID of the product.
     """
-    debug_print(f"Tool Call: get_product_details_tool_v2(product_id={product_id})")
     try:
-        details = await db_v2.get_g_product_details(
+        details = await db.get_g_product_details(
             product_id,
         )
         if details:
@@ -215,7 +207,6 @@ async def find_nearby_stores_tool_v2(
         radius_meters (int): Radius in meters to search within.
         chain_code (Optional[str]): Optional: Filter by a specific chain.
     """
-    debug_print(f"Tool Call: find_nearby_stores_tool_v2(lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code})")
     try:
         # Use db (psql.py) and get_stores_within_radius for 'stores' table
         response = await db.get_stores_within_radius(
@@ -228,7 +219,6 @@ async def find_nearby_stores_tool_v2(
         return pydantic_to_dict({"stores": response})
     except Exception as e:
         error_message = f"Database error in find_nearby_stores_tool_v2: {e}"
-        debug_print(error_message)
         return {"error": error_message}
 
 
@@ -239,7 +229,6 @@ async def get_user_locations_tool(user_id: int):
     Args:
         user_id (int): The ID of the user.
     """
-    debug_print(f"Tool Call: get_user_locations_tool(user_id={user_id})")
     try:
         # This still uses the original db as user locations are not g_tables
         locations = await db.users.get_user_locations_by_user_id(
@@ -260,7 +249,6 @@ async def multi_search_tool(queries: List[dict]):
                               with 'name' (the tool function name) and 'arguments' (a dictionary
                               of arguments for that tool).
     """
-    debug_print(f"Tool Call: multi_search_tool(queries={queries})")
     results = []
     tasks = []
 

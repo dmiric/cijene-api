@@ -22,11 +22,6 @@ from .chat_components.ai_helpers import convert_protobuf_to_dict # Import the ne
 
 router = APIRouter(tags=["AI Chat V2"], dependencies=[Depends(verify_authentication)])
 db = settings.get_db()
-db_v2 = settings.get_db_v2()
-
-# Using print for debugging as logging is not appearing reliably
-def debug_print(*args, **kwargs):
-    print("[DEBUG chat_v2]", *args, file=sys.stderr, **kwargs)
 
 
 @router.post("/chat", summary="Handle AI chat interactions with streaming responses (v2)")
@@ -38,10 +33,8 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
     session_id = chat_request.session_id if chat_request.session_id else uuid4()
     user_message_text = chat_request.message_text
 
-    debug_print(f"Chat V2 request received: user_id={user_id}, session_id={session_id}, message='{user_message_text}'")
-
     # Save user message to DB
-    await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
+    await db.chat.save_chat_message(
         user_id=user_id,
         session_id=session_id, # Pass UUID directly
         message_text=user_message_text,
@@ -162,14 +155,12 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
             try:
                 # Make AI call
                 if gemini_client:
-                    debug_print("Calling Gemini API (v2)...")
                     response_stream = gemini_client.generate_content(
                         ai_history,
                         tools=gemini_tools,
                         stream=True
                     )
                 elif openai_client:
-                    debug_print("Calling OpenAI API (v2)...")
                     openai_messages = []
                     for msg in ai_history:
                         if msg["role"] == "user":
@@ -212,7 +203,6 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                     }
                                     # Ensure the entire tool_call_info is JSON-serializable
                                     current_tool_call_info = convert_protobuf_to_dict(current_tool_call_info)
-                                    debug_print(f"AI requested tool call: {current_tool_call_info}")
                                     yield f"data: {json.dumps({'type': 'tool_call', 'content': current_tool_call_info})}\n\n"
                                 elif part.text:
                                     full_ai_response_text += part.text
@@ -231,7 +221,6 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                             "name": tc.function.name,
                                             "args": json.loads(tc.function.arguments) if tc.function.arguments else {}
                                         }
-                                        debug_print(f"AI requested tool call: {current_tool_call_info}")
                                         yield f"data: {json.dumps({'type': 'tool_call', 'content': current_tool_call_info})}\n\n"
                 
                 # Check if AI requested a tool call in this turn
@@ -247,10 +236,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
 
                 # Override user_id for get_user_locations tool with the actual user_id from the request
                 if tool_name == "get_user_locations":
-                    debug_print(f"Overriding user_id for get_user_locations from {tool_args.get('user_id')} to {user_id}")
                     tool_args["user_id"] = user_id
                 
-                await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
+                await db.chat.save_chat_message(
                     user_id=user_id,
                     session_id=session_id, # Pass UUID directly
                     message_text=f"Tool call: {tool_name}({tool_args})",
@@ -262,7 +250,6 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
 
                 if tool_name not in available_tools:
                     error_message = f"Alat '{tool_name}' nije pronađen."
-                    debug_print(error_message)
                     yield f"data: {json.dumps({'type': 'error', 'content': error_message})}\n\n"
                     full_ai_response_text = error_message # Set error to break loop
                     break
@@ -270,10 +257,9 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     # Execute the primary tool
                     tool_output = await available_tools[tool_name](**tool_args)
                     tool_output_info = {"name": tool_name, "content": tool_output}
-                    debug_print(f"Tool output: {tool_output}")
                     
                     # Save this first tool's output to the database and yield to the client
-                    await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
+                    await db.chat.save_chat_message(
                         user_id=user_id,
                         session_id=session_id, # Pass UUID directly
                         message_text=f"Tool output for {tool_name}: {tool_output}",
@@ -295,13 +281,11 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                             lon = first_location.get("longitude")
 
                             if lat is not None and lon is not None:
-                                debug_print(f"Found user location: lat={lat}, lon={lon}. Programmatically calling find_nearby_stores_tool_v2...")
                                 nearby_stores_output = await find_nearby_stores_tool_v2(lat=float(lat), lon=float(lon), radius_meters=1500)
                                 nearby_stores_info = {"name": "find_nearby_stores_v2", "content": nearby_stores_output}
-                                debug_print(f"Nearby stores output: {nearby_stores_output}")
                                 
                                 # Save the second tool's output message to the DB
-                                await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
+                                await db.chat.save_chat_message(
                                     user_id=user_id,
                                     session_id=session_id, # Pass UUID directly
                                     message_text=f"Tool output for find_nearby_stores_v2: {nearby_stores_output}",
@@ -314,10 +298,8 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                                 
                                 tool_outputs_for_history.append(nearby_stores_info)
                             else:
-                                debug_print("User location found but missing lat/lon. Informing user.")
                                 full_ai_response_text = "Pronašao/pronašla sam vašu spremljenu lokaciju, ali nedostaju zemljopisna širina i dužina. Ažurirajte detalje lokacije kako biste omogućili pretraživanje temeljeno na lokaciji."
                         else:
-                            debug_print("Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji.")
                             full_ai_response_text = "Nisam pronašao/pronašla spremljene lokacije za vas. Dodajte lokaciju kako biste omogućili pretraživanje temeljeno na lokaciji."
                 
                     # Append all collected tool outputs to the history for the next AI turn
@@ -339,17 +321,12 @@ async def chat_endpoint_v2(chat_request: ChatRequest) -> StreamingResponse:
                     # No explicit 'continue' needed here as it's the end of the 'if' block.
 
             except Exception as e:
-                debug_print(f"Error in event_stream: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
                 break # Break loop on exception
 
-        # Log the full AI response text for debugging
-        if full_ai_response_text:
-            debug_print(f"Full AI response text:\n{full_ai_response_text}")
-
         # Save AI's final text response to DB (after loop breaks)
         if full_ai_response_text:
-            await db.chat.save_chat_message( # Changed to db.chat.save_chat_message
+            await db.chat.save_chat_message(
                 user_id=user_id,
                 session_id=session_id, # Pass UUID directly
                 message_text=full_ai_response_text,

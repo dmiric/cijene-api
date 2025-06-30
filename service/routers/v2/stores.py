@@ -9,10 +9,7 @@ from service.routers.auth import RequireAuth
 from fastapi import Depends
 
 router = APIRouter(tags=["Stores V2"], dependencies=[RequireAuth])
-db_v2 = settings.get_db_v2() # Assuming this will be added to settings.py
-
-def debug_print(*args, **kwargs):
-    print("[DEBUG stores_v2]", *args, file=sys.stderr, **kwargs)
+db = settings.get_db()
 
 # Pydantic Models for Responses
 
@@ -50,9 +47,7 @@ async def find_nearby_stores_v2(
     Finds stores within a specified radius of a geographic point.
     Returns a list of store objects, ordered by distance from the user.
     """
-    debug_print(f"find_nearby_stores_v2: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}")
-    
-    stores_data = await db_v2.get_g_stores_nearby(
+    stores_data = await db.get_g_stores_nearby(
         lat=lat,
         lon=lon,
         radius_meters=radius_meters,

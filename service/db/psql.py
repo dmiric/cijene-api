@@ -44,6 +44,8 @@ from .repositories.user_repo import UserRepository
 from .repositories.chat_repo import ChatRepository
 from .repositories.stats_repo import StatsRepository
 from .repositories.golden_product_repo import GoldenProductRepository
+from service.db.repositories.shopping_list_repo import ShoppingListRepository # New import
+from service.db.repositories.shopping_list_item_repo import ShoppingListItemRepository # New import
 
 
 class PostgresDatabase(Database):
@@ -58,11 +60,6 @@ class PostgresDatabase(Database):
         self.max_size = max_size
         self.pool = None
 
-        # Using print for debugging as logging is not appearing reliably
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG psql_v1]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
-
         # Instantiate legacy repos
         self.products = ProductRepository()
         self.stores = StoreRepository()
@@ -72,15 +69,17 @@ class PostgresDatabase(Database):
 
         # Also instantiate the golden repo for the normalizer's bulk inserts
         self.golden_products = GoldenProductRepository()
+        self.shopping_lists = ShoppingListRepository() # New instance
+        self.shopping_list_items = ShoppingListItemRepository() # New instance
 
 
     async def connect(self) -> None:
-        # Connect all repos and ensure they share the same connection pool
-        self.pool = await asyncpg.create_pool( # Create the main pool here
+        # Create the main pool here
+        self.pool = await asyncpg.create_pool(
             dsn=self.dsn,
             min_size=self.min_size,
             max_size=self.max_size,
-            init=self._init_connection, # Keep init for pgvector registration
+            init=self._init_connection,  # Keep init for pgvector registration
         )
         # Connect all repos and ensure they share the same connection pool
         await self.products.connect(self.pool)
@@ -89,26 +88,12 @@ class PostgresDatabase(Database):
         await self.chat.connect(self.pool)
         await self.stats.connect(self.pool)
         await self.golden_products.connect(self.pool)
+        await self.shopping_lists.connect(self.pool)  # Connect new repos
+        await self.shopping_list_items.connect(self.pool)  # Connect new repos
 
     async def _init_connection(self, conn):
         # Register the 'vector' type for asyncpg using pgvector's utility
         await pgvector.asyncpg.register_vector(conn)
-
-
-    @asynccontextmanager
-    async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
-        """Context manager to acquire a connection from the pool."""
-        if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
-        async with self.pool.acquire() as conn:
-            yield conn
-
-    @asynccontextmanager
-    async def _atomic(self) -> AsyncIterator[asyncpg.Connection]:
-        """Context manager for atomic transactions."""
-        async with self._get_conn() as conn:
-            async with conn.transaction():
-                yield conn
 
     async def close(self) -> None:
         """Close all database connections."""
@@ -118,12 +103,7 @@ class PostgresDatabase(Database):
     async def create_tables(self) -> None:
         # This method should ideally be handled by migrations or a dedicated setup script
         # For now, it can remain as a placeholder or delegate to a specific repo if needed.
-        self.debug_print("create_tables method in psql.py is a placeholder. Use migrations.")
         pass
-
-    async def _fetchval(self, query: str, *args: Any) -> Any:
-        async with self._get_conn() as conn:
-            return await conn.fetchval(query, *args)
 
     # --- Implementations of abstract methods from Database (delegating to repositories) ---
 
@@ -284,3 +264,33 @@ class PostgresDatabase(Database):
         fields: Optional[List[str]] = None, # Pass fields argument
     ) -> list[dict[str, Any]]:
         return await self.stores.get_stores_within_radius(lat, lon, radius_meters, chain_code, fields)
+
+    # --- V2-specific methods (delegating to GoldenProductRepository) ---
+
+    async def get_g_products_hybrid_search(
+        self,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+        category: Optional[str] = None,
+        brand: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
+
+    async def get_g_stores_nearby(
+        self,
+        lat: float,
+        lon: float,
+        radius_meters: int,
+        chain_code: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await self.golden_products.get_g_stores_nearby(lat, lon, radius_meters, chain_code)
+
+    async def get_g_product_prices_by_location(
+        self, product_id: int, store_ids: list[int]
+    ) -> list[dict[str, Any]]:
+        return await self.golden_products.get_g_product_prices_by_location(product_id, store_ids)
+
+    async def get_g_product_details(self, product_id: int) -> dict[str, Any] | None:
+        return await self.golden_products.get_g_product_details(product_id)

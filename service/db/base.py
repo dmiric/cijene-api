@@ -1,34 +1,63 @@
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Any, AsyncGenerator, AsyncIterator
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, List
+
+import asyncpg
+from contextlib import asynccontextmanager
 
 
 class BaseRepository(ABC):
     """Base abstract class for all repositories, providing common connection management."""
 
+    def __init__(self):
+        self.pool: Optional[asyncpg.Pool] = None
+
+    async def connect(self, pool: asyncpg.Pool) -> None:
+        """Initialize the database connection with a shared pool."""
+        self.pool = pool
+
+    @asynccontextmanager
+    async def _get_conn(self) -> AsyncGenerator[asyncpg.Connection, None]:
+        """Context manager to acquire a connection from the pool."""
+        if not self.pool:
+            raise RuntimeError("Database pool is not initialized for this repository")
+        async with self.pool.acquire() as conn:
+            yield conn
+
+    @asynccontextmanager
+    async def _atomic(self) -> AsyncIterator[asyncpg.Connection]:
+        """Context manager for atomic transactions."""
+        async with self._get_conn() as conn:
+            async with conn.transaction():
+                yield conn
+
+    async def _fetchval(self, query: str, *args: Any) -> Any:
+        """Fetch a single value from the database."""
+        async with self._get_conn() as conn:
+            return await conn.fetchval(query, *args)
+
+    async def _fetchrow(self, query: str, *args: Any) -> Optional[asyncpg.Record]:
+        """Fetch a single row from the database."""
+        async with self._get_conn() as conn:
+            return await conn.fetchrow(query, *args)
+
+    async def _fetch(self, query: str, *args: Any) -> List[asyncpg.Record]:
+        """Fetch multiple rows from the database."""
+        async with self._get_conn() as conn:
+            return await conn.fetch(query, *args)
+
+    async def _execute(self, query: str, *args: Any) -> str:
+        """Execute a query and return the status."""
+        async with self._get_conn() as conn:
+            return await conn.execute(query, *args)
+
+
+class Database(ABC):
+    """Base abstract class for database implementations."""
+
     @abstractmethod
     async def connect(self) -> None:
         """Initialize the database connection."""
-        pass
-
-    @abstractmethod
-    async def close(self) -> None:
-        """Close all database connections."""
-        pass
-
-    @abstractmethod
-    async def _get_conn(self) -> AsyncGenerator[Any, None]:
-        """Context manager to acquire a connection from the pool."""
-        pass
-
-    @abstractmethod
-    async def _atomic(self) -> AsyncIterator[Any]:
-        """Context manager for atomic transactions."""
-        pass
-
-    @abstractmethod
-    async def _fetchval(self, query: str, *args: Any) -> Any:
-        """Fetch a single value from the database."""
         pass
 
 

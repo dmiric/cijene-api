@@ -262,3 +262,26 @@ gpush: ## Add all changes, commit with a message, and push to the remote reposit
 	git add .
 	git commit -m "$(M)"
 	git push
+
+test: ## Run a full test sequence: rebuild API, access docs, get API logs, and tail last 30 lines of logs.
+	$(MAKE) rebuild-api
+	@echo "Waiting for API to start..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		pwsh.exe -Command "Start-Sleep -Seconds 5"; \
+	else \
+		sleep 2; \
+	fi
+	@echo "Accessing API documentation to generate logs..."
+	@echo "Accessing API documentation to generate logs with httpie..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		pwsh.exe -Command "http GET http://localhost:8000/docs#/ --ignore-stdin --timeout 3 | Out-Null 2>$null" ; true; \
+	else \
+		-http GET http://localhost:8000/docs#/ --ignore-stdin --timeout 5 > /dev/null; \
+	fi
+	$(MAKE) logs-api
+	@echo "Displaying last 30 lines of API logs..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		pwsh.exe -Command "Get-Content -Path './logs/api.log' -Tail 30"; \
+	else \
+		tail -n 30 './logs/api.log'; \
+	fi
