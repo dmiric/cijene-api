@@ -247,6 +247,27 @@ test-stores: ## Run pytest integration tests for the stores API service
 		--env POSTGRES_DB=$(POSTGRES_DB) \
 		api pytest tests/test_stores.py
 
+test-auth: ## Run pytest integration tests for the authentication API service
+	@echo "Running authentication API integration tests..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
+		--env DEBUG=1 \
+		--env DB_HOST=db \
+		--env DB_PORT=5432 \
+		--env POSTGRES_USER=$(POSTGRES_USER) \
+		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env POSTGRES_DB=$(POSTGRES_DB) \
+		--env JWT_SECRET_KEY=$(JWT_SECRET_KEY) \
+		--env JWT_ALGORITHM=$(JWT_ALGORITHM) \
+		--env ACCESS_TOKEN_EXPIRE_MINUTES=$(ACCESS_TOKEN_EXPIRE_MINUTES) \
+		--env REFRESH_TOKEN_EXPIRE_DAYS=$(REFRESH_TOKEN_EXPIRE_DAYS) \
+		--env SMTP_SERVER=$(SMTP_SERVER) \
+		--env SMTP_PORT=$(SMTP_PORT) \
+		--env SMTP_USERNAME=$(SMTP_USERNAME) \
+		--env SMTP_PASSWORD=$(SMTP_PASSWORD) \
+		--env SENDER_EMAIL=$(SENDER_EMAIL) \
+		--env EMAIL_VERIFICATION_BASE_URL=$(EMAIL_VERIFICATION_BASE_URL) \
+		api pytest tests/test_auth.py
+
 logs-api: ## Display full logs for the API service
 	@echo "Displaying full API logs..."
 	docker compose -f docker-compose.yml -f docker-compose.local.yml logs api

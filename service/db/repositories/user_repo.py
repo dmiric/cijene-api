@@ -96,7 +96,7 @@ class UserRepository(BaseRepository):
             row = await conn.fetchrow(
                 """
                 SELECT
-                    u.id, u.is_active, u.created_at, u.deleted_at,
+                    u.id, u.is_active, u.created_at, u.deleted_at, u.hashed_password, u.is_verified, u.verification_token,
                     upd.name, upd.email, upd.api_key, upd.last_login, upd.updated_at AS personal_updated_at
                 FROM users u
                 LEFT JOIN user_personal_data upd ON u.id = upd.user_id
@@ -105,7 +105,15 @@ class UserRepository(BaseRepository):
                 user_id,
             )
             if row:
-                user_data = {k: v for k, v in row.items() if k in User.__annotations__}
+                user_data = {
+                    "id": row["id"],
+                    "is_active": row["is_active"],
+                    "created_at": row["created_at"],
+                    "deleted_at": row["deleted_at"],
+                    "hashed_password": row["hashed_password"],
+                    "is_verified": row["is_verified"],
+                    "verification_token": row["verification_token"],
+                }
                 personal_data = {
                     "user_id": row["id"],
                     "name": row["name"],
@@ -167,6 +175,213 @@ class UserRepository(BaseRepository):
 
             return User(**user_record), UserPersonalData(**personal_data_record) # type: ignore
 
+    async def add_user_with_password(self, name: str, email: str, hashed_password: str, verification_token: UUID) -> tuple[User, UserPersonalData]:
+        """
+        Add a new user with a hashed password, verification token, and personal data.
+        """
+        new_user_uuid = uuid4()
+        api_key = str(uuid4()) # Still generate an API key for existing API key auth
+        created_at = datetime.now()
+        is_active = True # User is active but not yet email verified
+
+        async with self._atomic() as conn:
+            user_record = await conn.fetchrow(
+                """
+                INSERT INTO users (id, is_active, created_at, hashed_password, is_verified, verification_token)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING id, is_active, created_at, deleted_at, hashed_password, is_verified, verification_token
+                """,
+                new_user_uuid,
+                is_active,
+                created_at,
+                hashed_password,
+                False, # Not verified initially
+                verification_token,
+            )
+            if user_record is None:
+                raise RuntimeError(f"Failed to insert user {name}")
+
+            personal_data_record = await conn.fetchrow(
+                """
+                INSERT INTO user_personal_data (user_id, name, email, api_key, updated_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING user_id, name, email, api_key, last_login, updated_at
+                """,
+                new_user_uuid,
+                name,
+                email,
+                api_key,
+                datetime.now(),
+            )
+            if personal_data_record is None:
+                raise RuntimeError(f"Failed to insert personal data for user {name}")
+
+            return User(**user_record), UserPersonalData(**personal_data_record) # type: ignore
+
+    async def get_user_by_email(self, email: str) -> tuple[User | None, UserPersonalData | None]:
+        """
+        Retrieve a user by their email, including personal data.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    u.id, u.is_active, u.created_at, u.deleted_at, u.hashed_password, u.is_verified, u.verification_token,
+                    upd.name, upd.email, upd.api_key, upd.last_login, upd.updated_at AS personal_updated_at
+                FROM users u
+                LEFT JOIN user_personal_data upd ON u.id = upd.user_id
+                WHERE upd.email = $1 AND u.deleted_at IS NULL
+                """,
+                email,
+            )
+            if row:
+                user_data = {k: v for k, v in row.items() if k in User.__annotations__}
+                personal_data = {
+                    "user_id": row["id"],
+                    "name": row["name"],
+                    "email": row["email"],
+                    "api_key": row["api_key"],
+                    "last_login": row["last_login"],
+                    "updated_at": row["personal_updated_at"]
+                }
+                return User(**user_data), UserPersonalData(**personal_data) # type: ignore
+            return None, None
+
+    async def verify_user_email(self, verification_token: UUID) -> bool:
+        """
+        Marks a user's email as verified.
+        """
+        async with self._atomic() as conn:
+            result = await conn.execute(
+                """
+                UPDATE users
+                SET is_verified = TRUE, verification_token = NULL
+                WHERE verification_token = $1 AND is_verified = FALSE
+                """,
+                verification_token,
+            )
+            _, rowcount = result.split(" ")
+            return int(rowcount) == 1
+
+    async def get_user_by_verification_token(self, verification_token: UUID) -> User | None:
+        """
+        Retrieve a user by their verification token.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, is_active, created_at, deleted_at, hashed_password, is_verified, verification_token
+                FROM users
+                WHERE verification_token = $1 AND deleted_at IS NULL
+                """,
+                verification_token,
+            )
+            return User(**row) if row else None
+
+    async def add_refresh_token(self, user_id: UUID, token: str, expires_at: datetime) -> None:
+        """
+        Adds a new refresh token for a user.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                INSERT INTO refresh_tokens (user_id, token, expires_at)
+                VALUES ($1, $2, $3)
+                """,
+                user_id,
+                token,
+                expires_at,
+            )
+
+    async def get_refresh_token(self, token: str) -> dict | None:
+        """
+        Retrieves a refresh token and its associated user_id.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id, token, expires_at
+                FROM refresh_tokens
+                WHERE token = $1 AND expires_at > NOW()
+                """,
+                token,
+            )
+            return dict(row) if row else None
+
+    async def delete_refresh_token(self, token: str) -> bool:
+        """
+        Deletes a refresh token.
+        """
+        async with self._atomic() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM refresh_tokens
+                WHERE token = $1
+                """,
+                token,
+            )
+            return result == "DELETE 1"
+
+    async def add_password_reset_token(self, user_id: UUID, token: str, expires_at: datetime) -> None:
+        """
+        Adds a new password reset token for a user.
+        """
+        async with self._atomic() as conn:
+            await conn.execute(
+                """
+                INSERT INTO password_reset_tokens (user_id, token, expires_at)
+                VALUES ($1, $2, $3)
+                """,
+                user_id,
+                token,
+                expires_at,
+            )
+
+    async def get_password_reset_token(self, token: str) -> dict | None:
+        """
+        Retrieves a password reset token.
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id, token, expires_at, used
+                FROM password_reset_tokens
+                WHERE token = $1 AND expires_at > NOW() AND used = FALSE
+                """,
+                token,
+            )
+            return dict(row) if row else None
+
+    async def mark_password_reset_token_used(self, token_id: int) -> bool:
+        """
+        Marks a password reset token as used.
+        """
+        async with self._atomic() as conn:
+            result = await conn.execute(
+                """
+                UPDATE password_reset_tokens
+                SET used = TRUE, expires_at = NOW() -- Expire immediately after use
+                WHERE id = $1 AND used = FALSE
+                """,
+                token_id,
+            )
+            return result == "UPDATE 1"
+
+    async def update_user_password(self, user_id: UUID, hashed_password: str) -> bool:
+        """
+        Updates a user's hashed password.
+        """
+        async with self._atomic() as conn:
+            result = await conn.execute(
+                """
+                UPDATE users
+                SET hashed_password = $1
+                WHERE id = $2
+                """,
+                hashed_password,
+                user_id,
+            )
+            return result == "UPDATE 1"
     
     async def add_user_location(self, user_id: UUID, location_data: dict) -> UserLocation:
         """

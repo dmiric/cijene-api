@@ -14,6 +14,30 @@ class User:
     is_active: bool
     created_at: datetime
     deleted_at: Optional[datetime] = None # Added for soft delete
+    hashed_password: str
+    is_verified: bool = False
+    verification_token: Optional[UUID] = None
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    refresh_token: Optional[str] = None
+
+class UserRegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class UserLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

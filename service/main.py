@@ -19,6 +19,7 @@ from service.routers.v2.user_locations import router as v2_user_locations_router
 from service.routers.v2.ai_tools import router as v2_ai_tools_router # New import
 from service.routers.v2.shopping_lists import router as v2_shopping_lists_router # New import
 from service.routers.v2.shopping_list_items import router as v2_shopping_list_items_router # New import
+from service.routers.auth import router as auth_router # New import for authentication router
 from service.config import settings
 from service.db.base import database_container, get_db_session # Import from base.py
 from service.db.psql import PostgresDatabase # Keep this import for type hinting in settings.get_db()
@@ -73,15 +74,7 @@ app.include_router(v2_user_locations_router, prefix="/v2") # New router
 app.include_router(v2_ai_tools_router, prefix="/v2") # New router
 app.include_router(v2_shopping_lists_router, prefix="/v2")
 app.include_router(v2_shopping_list_items_router, prefix="/v2")
-
-
-@app.exception_handler(404)
-async def custom_404_handler(request: Request, exc: HTTPException):
-    """Custom 404 handler with helpful message directing to API docs."""
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Resource not found. Check documentation at /docs"},
-    )
+app.include_router(auth_router, prefix="/auth") # Include the new authentication router
 
 
 @app.get("/", include_in_schema=False)
