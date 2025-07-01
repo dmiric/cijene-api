@@ -15,10 +15,6 @@ endif
 DATE ?= $(shell date +%Y-%m-%d)
 # Define default excluded volumes for rebuild-everything
 EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data,cijene-api-clone_pgadmin_data
-#Near by
-LAT ?= 45.29278835973543
-LON ?= 18.791376990006086
-RADIUS ?= 1500
 # Search products
 API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 
@@ -72,32 +68,11 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 		bash ./scripts/rebuild.sh --exclude="$(EXCLUDE_VOLUMES)"; \
 	fi
 	
-
-dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
+dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
 
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db
-
-#	@echo "Checking for existing crawled data..."
-#	@if [ ! -f "./output/$(DATE).zip" ]; then \
-#		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-#		$(MAKE) crawl-sample; \
-#	else \
-#		echo "Existing zip found: ./output/$(DATE).zip"; \
-#	fi
-
-#	@echo "Importing data..."
-#	$(MAKE) import-data
-
-#	@echo "Normalizing data..."
-#	$(MAKE) normalize-data
-
-#	@echo "Enriching data..."
-#	$(MAKE) enrich-data
-
-#	@echo "Geocoding stores..."
-#	$(MAKE) geocode-stores
 
 	@echo "Enriching chains from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/chains.csv TYPE=chains
@@ -111,7 +86,38 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 
 	@echo "Development fresh start completed."
 
-docker-prune: ## Stop all containers and perform a deep clean of the Docker system.
+dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
+	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
+
+	@echo "Applying database migrations..."
+	$(MAKE) migrate-db
+
+	@echo "Checking for existing crawled data..."
+	@if [ ! -f "./output/$(DATE).zip" ]; then \
+		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+		$(MAKE) crawl-sample; \
+	else \
+		echo "Existing zip found: ./output/$(DATE).zip"; \
+	fi
+
+	@echo "Importing data..."
+	$(MAKE) import-data
+
+	@echo "Normalizing data..."
+	$(MAKE) normalize-data
+
+	@echo "Enriching data..."
+	$(MAKE) enrich-data
+
+	@echo "Geocoding stores..."
+	$(MAKE) geocode-stores
+
+	@echo "Enriching users and user locations from backups..."
+	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=all-user-data USER_LOCATIONS_CSV_FILE=./backups/user_locations.csv
+
+	@echo "Development fresh start completed."
+
+prune-docker: ## Stop all containers and perform a deep clean of the Docker system.
 	@echo "Stopping all running project containers..."
 	docker compose down
 	@echo "Pruning Docker system. This will remove all stopped containers, all unused networks, all dangling images, and all unused build cache."
@@ -119,7 +125,7 @@ docker-prune: ## Stop all containers and perform a deep clean of the Docker syst
 	docker system prune -a --volumes
 	@echo "Docker system prune complete."
 
-## Crawler Commands
+## Crawling, importing and enriching Commands
 crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output to logs/crawler_console.log
 	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain spar,lidl,kaufland > logs/crawler_console.log 2>&1
 	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
@@ -217,14 +223,35 @@ search-products: ## Search for products by name. Usage: make search-products QUE
 	$(eval DATE_PARAM=$(if $(SEARCH_DATE),&date=$(SEARCH_DATE),))
 	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)$(DATE_PARAM)" | jq . > prod.json
 
-test-nearby: ## Test the nearby stores endpoint. Usage: make test-nearby [LATITUDE=val] [LONGITUDE=val] [RADIUS=val] API_KEY=your_api_key
-	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make test-nearby API_KEY=your_api_key"; exit 1; fi
-	curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/stores/nearby/?lat=$(LAT)&lon=$(LON)&radius_meters=$(RADIUS)" | jq .
+## Testing and Logging Commands
+# API
+test-api: ## Run pytest integration tests for the API service
+	@echo "Running API integration tests..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
+		--env DEBUG=1 \
+		--env DB_HOST=db \
+		--env DB_PORT=5432 \
+		--env POSTGRES_USER=$(POSTGRES_USER) \
+		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env POSTGRES_DB=$(POSTGRES_DB) \
+		api pytest tests/
 
-## Logging Commands
-logs-api: ## Display logs for the API service and save to ./logs/api.log (empties file first)
-	mkdir -p logs && > ./logs/api.log && docker compose -f docker-compose.yml -f docker-compose.local.yml logs api > ./logs/api.log
+test-stores: ## Run pytest integration tests for the stores API service
+	@echo "Running stores API integration tests..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
+		--env DEBUG=1 \
+		--env DB_HOST=db \
+		--env DB_PORT=5432 \
+		--env POSTGRES_USER=$(POSTGRES_USER) \
+		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env POSTGRES_DB=$(POSTGRES_DB) \
+		api pytest tests/test_stores.py
 
+logs-api: ## Display full logs for the API service
+	@echo "Displaying full API logs..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml logs api
+
+# Crawler
 logs-crawler: ## Display logs for the Crawler service and save to ./logs/crawler.log (empties file first)
 	mkdir -p logs && > ./logs/crawler.log && docker compose -f docker-compose.yml -f docker-compose.local.yml logs crawler > ./logs/crawler.log
 
@@ -262,26 +289,3 @@ gpush: ## Add all changes, commit with a message, and push to the remote reposit
 	git add .
 	git commit -m "$(M)"
 	git push
-
-test: ## Run a full test sequence: rebuild API, access docs, get API logs, and tail last 30 lines of logs.
-	$(MAKE) rebuild-api
-	@echo "Waiting for API to start..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh.exe -Command "Start-Sleep -Seconds 5"; \
-	else \
-		sleep 2; \
-	fi
-	@echo "Accessing API documentation to generate logs..."
-	@echo "Accessing API documentation to generate logs with httpie..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh.exe -Command "http GET http://localhost:8000/docs#/ --ignore-stdin --timeout 3 | Out-Null 2>$null" ; true; \
-	else \
-		-http GET http://localhost:8000/docs#/ --ignore-stdin --timeout 5 > /dev/null; \
-	fi
-	$(MAKE) logs-api
-	@echo "Displaying last 30 lines of API logs..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh.exe -Command "Get-Content -Path './logs/api.log' -Tail 30"; \
-	else \
-		tail -n 30 './logs/api.log'; \
-	fi

@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Optional, List
 
 import asyncpg
 from contextlib import asynccontextmanager
+import asyncio # Import asyncio
 
 
 class BaseRepository(ABC):
@@ -432,3 +433,26 @@ class Database(ABC):
             )
         else:
             raise ValueError(f"Unsupported database: {url}")
+
+# A container for the database instance, to be initialized during startup
+class DatabaseContainer:
+    def __init__(self):
+        self.db: Optional["PostgresDatabase"] = None
+
+database_container = DatabaseContainer()
+
+async def get_db_session() -> "PostgresDatabase":
+    """
+    Dependency that provides the initialized database instance.
+    Waits for the database to be initialized if not ready.
+    """
+    # Add a small loop to wait for the database to be initialized
+    # This handles potential race conditions where dependencies are resolved
+    # before the startup event fully completes.
+    max_retries = 10
+    retry_delay = 0.5 # seconds
+    for i in range(max_retries):
+        if database_container.db is not None:
+            return database_container.db
+        await asyncio.sleep(retry_delay)
+    raise RuntimeError("Database not initialized after multiple retries")

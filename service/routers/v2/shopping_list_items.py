@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from service.db.models import ShoppingListItem, ShoppingListItemStatus, UserPersonalData # Import UserPersonalData
 from service.db.psql import PostgresDatabase
 from service.routers.auth import RequireAuth
+from service.db.base import get_db_session # Import from base.py
 
 router = APIRouter(tags=["Shopping List Items"])
 
@@ -29,6 +30,8 @@ class ShoppingListItemResponse(BaseModel):
     id: int
     shopping_list_id: int
     g_product_id: int
+    product_name: Optional[str] = None # Added product name
+    chain_code: Optional[str] = None # Added chain code
     quantity: Decimal
     base_unit_type: str
     price_at_addition: Optional[Decimal] = None
@@ -45,7 +48,7 @@ async def add_item_to_shopping_list(
     list_id: int,
     request: ShoppingListItemCreateRequest,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Add an item to a specific shopping list for the authenticated user.
@@ -65,13 +68,13 @@ async def add_item_to_shopping_list(
         store_id_at_addition=request.store_id_at_addition,
         notes=request.notes,
     )
-    return ShoppingListItemResponse(**shopping_list_item.__dict__)
+    return shopping_list_item
 
 @router.get("/shopping_lists/{list_id}/items", response_model=List[ShoppingListItemResponse])
 async def get_shopping_list_items(
     list_id: int,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Retrieve all active items for a specific shopping list for the authenticated user.
@@ -83,14 +86,14 @@ async def get_shopping_list_items(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping list not found")
 
     shopping_list_items = await db.shopping_list_items.get_shopping_list_items(shopping_list_id=list_id)
-    return [ShoppingListItemResponse(**item.__dict__) for item in shopping_list_items]
+    return shopping_list_items
 
 @router.get("/shopping_lists/{list_id}/items/{item_id}", response_model=ShoppingListItemResponse)
 async def get_shopping_list_item_by_id(
     list_id: int,
     item_id: int,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Retrieve a specific active item from a shopping list by its ID.
@@ -104,7 +107,7 @@ async def get_shopping_list_item_by_id(
     shopping_list_item = await db.shopping_list_items.get_shopping_list_item_by_id(item_id=item_id, shopping_list_id=list_id)
     if not shopping_list_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping list item not found")
-    return ShoppingListItemResponse(**shopping_list_item.__dict__)
+    return shopping_list_item
 
 @router.put("/shopping_lists/{list_id}/items/{item_id}", response_model=bool)
 async def update_shopping_list_item(
@@ -112,7 +115,7 @@ async def update_shopping_list_item(
     item_id: int,
     request: ShoppingListItemUpdateRequest,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Update an item's quantity, status, or notes within a shopping list.
@@ -139,7 +142,7 @@ async def soft_delete_shopping_list_item(
     list_id: int,
     item_id: int,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Soft-delete a shopping list item by setting its deleted_at timestamp.
@@ -160,7 +163,7 @@ async def mark_item_bought(
     list_id: int,
     item_id: int,
     auth: UserPersonalData = RequireAuth,
-    db: PostgresDatabase = Depends(PostgresDatabase),
+    db: PostgresDatabase = Depends(get_db_session),
 ):
     """
     Mark a shopping list item as bought.

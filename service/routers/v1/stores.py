@@ -180,7 +180,7 @@ class NearbyStoreResponse(BaseModel):
     zipcode: str | None = Field(None, description="Postal code of the store location.")
     lat: Decimal | None = Field(None, description="Latitude of the store.")
     lon: Decimal | None = Field(None, description="Longitude of the store.")
-    distance_meters: Decimal | None = Field(None, description="Distance from the query point in meters.")
+    distance_meters: float | None = Field(None, description="Distance from the query point in meters.")
 
 
 class ListNearbyStoresResponse(BaseModel):

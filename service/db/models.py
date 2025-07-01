@@ -4,8 +4,8 @@ from decimal import Decimal
 from uuid import UUID # Import UUID type
 from enum import Enum # Import Enum
 
-from dataclasses import dataclass, fields
 from pydantic import BaseModel, Field # Added for ProductSearchItemV2
+from dataclasses import dataclass, fields # Keep dataclass for other models
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -176,6 +176,9 @@ class GProduct:
     variants: Optional[dict] = None # JSONB type in DB
     text_for_embedding: Optional[str] = None
     keywords: Optional[List[str]] = None # TEXT[] type in DB
+    is_generic_product: bool = False # Added for generic product identification
+    seasonal_start_month: Optional[int] = None
+    seasonal_end_month: Optional[int] = None
     embedding: Optional[List[float]] = None # VECTOR(768) type in DB
     created_at: datetime
     updated_at: datetime
@@ -206,6 +209,7 @@ class GProductBestOffer:
     best_unit_price_per_kg: Optional[Decimal] = None
     best_unit_price_per_l: Optional[Decimal] = None
     best_unit_price_per_piece: Optional[Decimal] = None
+    lowest_price_in_season: Optional[Decimal] = None # New field for seasonal lowest price
     best_price_store_id: Optional[int] = None
     best_price_found_at: Optional[datetime] = None
 
@@ -241,8 +245,7 @@ class ShoppingListItemStatus(str, Enum):
     UNAVAILABLE = "unavailable"
     DELETED = "deleted"
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ShoppingList:
+class ShoppingList(BaseModel):
     id: int
     user_id: UUID
     name: str
@@ -251,11 +254,12 @@ class ShoppingList:
     updated_at: datetime
     deleted_at: Optional[datetime] = None
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ShoppingListItem:
+class ShoppingListItem(BaseModel):
     id: int
     shopping_list_id: int
     g_product_id: int
+    product_name: Optional[str] = None # Added product name
+    chain_code: Optional[str] = None # Added chain code
     quantity: Decimal
     base_unit_type: str # Corresponds to unit_type_enum in DB, can be mapped to Python Enum if needed
     price_at_addition: Optional[Decimal] = None

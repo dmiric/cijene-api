@@ -174,6 +174,29 @@ CREATE TABLE IF NOT EXISTS shopping_lists (
 CREATE INDEX IF NOT EXISTS idx_shopping_lists_user_id ON shopping_lists (user_id);
 CREATE INDEX IF NOT EXISTS idx_shopping_lists_deleted_at ON shopping_lists (deleted_at);
 
+-- Step 2: Create the new tables with the 'g_' prefix.
+
+-- Table 2.1: g_products (The Canonical Product Record)
+-- Stores the single, AI-cleaned source of truth for every product.
+CREATE TABLE IF NOT EXISTS g_products (
+    id SERIAL PRIMARY KEY,
+    ean VARCHAR(255) UNIQUE NOT NULL,
+    canonical_name TEXT NOT NULL,
+    brand TEXT,
+    category TEXT NOT NULL,
+    base_unit_type unit_type_enum NOT NULL,
+    variants JSONB, -- Stores an array of variant details (e.g., [{"weight_g": 270}, {"weight_g": 300}]).
+    text_for_embedding TEXT,
+    keywords TEXT[],
+    is_generic_product BOOLEAN DEFAULT FALSE,
+    seasonal_start_month INTEGER,
+    seasonal_end_month INTEGER,
+    embedding VECTOR(768),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+
 CREATE TABLE IF NOT EXISTS shopping_list_items (
     id SERIAL PRIMARY KEY,
     shopping_list_id INTEGER NOT NULL REFERENCES shopping_lists(id) ON DELETE CASCADE,
@@ -193,25 +216,6 @@ CREATE TABLE IF NOT EXISTS shopping_list_items (
 CREATE INDEX IF NOT EXISTS idx_shopping_list_items_list_id ON shopping_list_items (shopping_list_id);
 CREATE INDEX IF NOT EXISTS idx_shopping_list_items_product_id ON shopping_list_items (g_product_id);
 CREATE INDEX IF NOT EXISTS idx_shopping_list_items_deleted_at ON shopping_list_items (deleted_at);
-
--- Step 2: Create the new tables with the 'g_' prefix.
-
--- Table 2.1: g_products (The Canonical Product Record)
--- Stores the single, AI-cleaned source of truth for every product.
-CREATE TABLE IF NOT EXISTS g_products (
-    id SERIAL PRIMARY KEY,
-    ean VARCHAR(255) UNIQUE NOT NULL,
-    canonical_name TEXT NOT NULL,
-    brand TEXT,
-    category TEXT NOT NULL,
-    base_unit_type unit_type_enum NOT NULL,
-    variants JSONB, -- Stores an array of variant details (e.g., [{"weight_g": 270}, {"weight_g": 300}]).
-    text_for_embedding TEXT,
-    keywords TEXT[],
-    embedding VECTOR(768),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 -- Table 2.2: g_prices (Centralized, Time-Series Pricing Data)
 -- Tracks the price of a product at a specific store over time.
@@ -236,6 +240,7 @@ CREATE TABLE IF NOT EXISTS g_product_best_offers (
     best_unit_price_per_kg DECIMAL(10, 4),
     best_unit_price_per_l DECIMAL(10, 4),
     best_unit_price_per_piece DECIMAL(10, 4),
+    lowest_price_in_season DECIMAL(10, 4), -- New field for seasonal lowest price
     best_price_store_id INTEGER, -- Links to the store with the best offer.
     best_price_found_at TIMESTAMP WITH TIME ZONE
 );

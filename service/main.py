@@ -20,29 +20,31 @@ from service.routers.v2.ai_tools import router as v2_ai_tools_router # New impor
 from service.routers.v2.shopping_lists import router as v2_shopping_lists_router # New import
 from service.routers.v2.shopping_list_items import router as v2_shopping_list_items_router # New import
 from service.config import settings
-
-db = settings.get_db()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager to handle startup and shutdown events."""
-    await db.connect()
-    await db.create_tables()
-    yield
-    await db.close()
-
+from service.db.base import database_container, get_db_session # Import from base.py
+from service.db.psql import PostgresDatabase # Keep this import for type hinting in settings.get_db()
 
 app = FastAPI(
     title="Cijene API",
     description="Service for product pricing data by Croatian grocery chains",
     version=settings.version,
     debug=settings.debug,
-    lifespan=lifespan,
     openapi_components={
         "securitySchemes": {"HTTPBearer": {"type": "http", "scheme": "bearer"}}
     },
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Startup event handler to initialize the database."""
+    database_container.db = settings.get_db()
+    await database_container.db.connect()
+    await database_container.db.create_tables()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown event handler to close the database connection."""
+    if database_container.db:
+        await database_container.db.close()
 
 # Custom JSON serializer for Decimal objects
 def json_decimal_encoder(obj):
@@ -116,6 +118,7 @@ def main():
         host=settings.host,
         port=settings.port,
         log_level=log_level,
+        reload=False, # Disable auto-reloading for stable logs during testing
     )
 
 

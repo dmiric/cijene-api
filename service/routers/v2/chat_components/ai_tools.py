@@ -278,6 +278,41 @@ async def multi_search_tool(queries: List[dict]):
     return {"results": results}
 
 
+async def get_seasonal_product_deals_tool_v2(
+    canonical_name: str,
+    category: str,
+    current_month: Optional[int] = None,
+    limit: int = 10,
+    offset: int = 0
+):
+    """
+    Finds the lowest seasonal price for generic products across all chains
+    that match the canonical name and category and are currently in season.
+    Args:
+        canonical_name (str): The canonical name of the generic product (e.g., "Crvene Naranče").
+        category (str): The category of the product (e.g., "Voće i povrće").
+        current_month (Optional[int]): The current month (1-12). Defaults to current system month if not provided.
+        limit (int): Maximum number of results to return.
+        offset (int): Number of results to skip.
+    """
+    debug_print(f"Tool Call: get_seasonal_product_deals_tool_v2(canonical_name={canonical_name}, category={category}, current_month={current_month})")
+    try:
+        if current_month is None:
+            current_month = datetime.now().month
+
+        results = await db.golden_products.get_overall_seasonal_best_price_for_generic_product(
+            canonical_name=canonical_name,
+            category=category,
+            current_month=current_month,
+            limit=limit,
+            offset=offset
+        )
+        return pydantic_to_dict({"seasonal_products": results})
+    except Exception as e:
+        debug_print(f"Error in get_seasonal_product_deals_tool_v2: {e}")
+        return {"error": str(e)}
+
+
 # Map tool names to their Python functions
 available_tools = {
     "search_products_v2": search_products_tool_v2,
@@ -285,5 +320,6 @@ available_tools = {
     "get_product_details_v2": get_product_details_tool_v2,
     "find_nearby_stores_v2": find_nearby_stores_tool_v2,
     "get_user_locations": get_user_locations_tool,
-    "multi_search_tool": multi_search_tool, # Add the new multi-search tool
+    "multi_search_tool": multi_search_tool,
+    "get_seasonal_product_deals_v2": get_seasonal_product_deals_tool_v2, # Add the new seasonal deals tool
 }

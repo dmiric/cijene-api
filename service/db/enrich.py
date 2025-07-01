@@ -385,10 +385,12 @@ async def enrich_g_products(csv_path: Path) -> None:
     csv_columns = set(data[0].keys())
     expected_columns = {
         "id", "ean", "canonical_name", "brand", "category", "base_unit_type",
-        "variants", "text_for_embedding", "keywords", "embedding", "created_at", "updated_at"
+        "variants", "text_for_embedding", "keywords", "is_generic_product",
+        "seasonal_start_month", "seasonal_end_month", # Added new fields
+        "embedding", "created_at", "updated_at"
     }
     if csv_columns != expected_columns:
-        raise ValueError("CSV file headers do not match expected columns for g_products")
+        raise ValueError(f"CSV file headers do not match expected columns for g_products. Expected: {expected_columns}, Got: {csv_columns}")
 
     logger.info(f"Starting g_products enrichment from {csv_path} with {len(data)} entries")
     t0 = time()
@@ -406,6 +408,17 @@ async def enrich_g_products(csv_path: Path) -> None:
 
         keywords = [k.strip() for k in row["keywords"].strip('{}').split(',') if k.strip()] if row["keywords"] else None
         embedding = [float(e) for e in row["embedding"].strip('[]').split(',') if e.strip()] if row["embedding"] else None
+        
+        is_generic_product = row["is_generic_product"].lower() == "true" if row["is_generic_product"] else False
+
+        def safe_int(value_str):
+            if value_str and value_str.lower() != "null":
+                try:
+                    return int(value_str)
+                except ValueError:
+                    logger.warning(f"Invalid Integer value: '{value_str}'. Setting to None.")
+                    return None
+            return None
 
         g_products_to_add.append(
             GProduct(
@@ -417,6 +430,9 @@ async def enrich_g_products(csv_path: Path) -> None:
                 variants=variants,
                 text_for_embedding=row["text_for_embedding"] if row["text_for_embedding"] else None,
                 keywords=keywords,
+                is_generic_product=is_generic_product, # Pass the new field
+                seasonal_start_month=safe_int(row["seasonal_start_month"]),
+                seasonal_end_month=safe_int(row["seasonal_end_month"]),
                 embedding=embedding,
                 created_at=parser.parse(row["created_at"]),
                 updated_at=parser.parse(row["updated_at"]),
@@ -503,7 +519,8 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
     csv_columns = set(data[0].keys())
     expected_columns = {
         "product_id", "best_unit_price_per_kg", "best_unit_price_per_l",
-        "best_unit_price_per_piece", "best_price_store_id", "best_price_found_at"
+        "best_unit_price_per_piece", "lowest_price_in_season", # Added new field
+        "best_price_store_id", "best_price_found_at"
     }
     if csv_columns != expected_columns:
         raise ValueError("CSV file headers do not match expected columns for g_product_best_offers")
@@ -537,6 +554,7 @@ async def enrich_product_best_offers(csv_path: Path) -> None:
                 best_unit_price_per_kg=safe_decimal(row["best_unit_price_per_kg"]),
                 best_unit_price_per_l=safe_decimal(row["best_unit_price_per_l"]),
                 best_unit_price_per_piece=safe_decimal(row["best_unit_price_per_piece"]),
+                lowest_price_in_season=safe_decimal(row["lowest_price_in_season"]), # Added new field
                 best_price_store_id=safe_int(row["best_price_store_id"]),
                 best_price_found_at=parser.parse(row["best_price_found_at"]) if row["best_price_found_at"] else None,
             )

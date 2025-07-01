@@ -252,6 +252,7 @@ class StoreRepository(BaseRepository):
             fields_to_select = STORE_AI_FIELDS # Default to AI fields for this common AI tool
         else:
             fields_to_select = fields
+        self.debug_print(f"Fields to select in get_stores_within_radius: {fields_to_select}")
 
         # Basic validation for fields
         valid_fields = set(STORE_AI_FIELDS + ["distance_meters"]) # Include distance for sorting
@@ -263,10 +264,11 @@ class StoreRepository(BaseRepository):
         for field in fields_to_select:
             if field == "chain_code":
                 select_parts.append("c.code AS chain_code")
-            elif field == "distance_meters":
-                select_parts.append(f"ST_Distance(s.location::geography, ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geography) AS distance_meters")
             else:
                 select_parts.append(f"s.{field}") # Direct mapping for other fields
+        
+        # Always include distance_meters for nearby queries
+        select_parts.append(f"ST_Distance(s.location::geography, ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geography) AS distance_meters")
 
         select_clause = ", ".join(select_parts)
 

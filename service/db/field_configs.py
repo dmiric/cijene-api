@@ -15,7 +15,7 @@ USER_LOCATION_AI_FIELDS = [
 # --- Stores ---
 # Fields for AI store information
 STORE_AI_FIELDS = [
-    "id", "address", "city", "zipcode", "lat", "lon", "chain_code"
+    "id", "code", "type", "address", "city", "zipcode", "lat", "lon", "chain_code"
 ]
 
 # --- Products ---
@@ -30,13 +30,15 @@ PRODUCT_FULL_FIELDS = [
 # Fields for AI product search results (excluding sensitive/large fields like embedding)
 PRODUCT_AI_SEARCH_FIELDS = [
     "id", "ean", "canonical_name", "brand", "category",
-    "base_unit_type", "variants", "text_for_embedding", "keywords"
+    "base_unit_type", "variants", "text_for_embedding", "keywords", "is_generic_product",
+    "seasonal_start_month", "seasonal_end_month"
 ]
 
 # Fields for AI product details (excluding embedding)
 PRODUCT_AI_DETAILS_FIELDS = [
     "ean", "canonical_name", "brand", "category", "base_unit_type",
-    "variants", "text_for_embedding", "keywords"
+    "variants", "text_for_embedding", "keywords", "is_generic_product",
+    "seasonal_start_month", "seasonal_end_month"
 ]
 
 # Fields for AI product prices

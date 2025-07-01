@@ -321,8 +321,11 @@ class GoldenProductRepository(BaseRepository):
                 p.text_for_embedding,
                 p.base_unit_type,
                 json.dumps(p.variants) if p.variants is not None else None, # Convert to JSON string
-                p.embedding,
                 p.keywords,
+                p.is_generic_product,
+                p.seasonal_start_month, # Added seasonal_start_month
+                p.seasonal_end_month,   # Added seasonal_end_month
+                p.embedding,
             )
             for p in g_products
         ]
@@ -335,7 +338,8 @@ class GoldenProductRepository(BaseRepository):
                 columns=[
                     'ean',
                     'canonical_name', 'brand', 'category', 'text_for_embedding',
-                    'base_unit_type', 'variants', 'embedding', 'keywords'
+                    'base_unit_type', 'variants', 'keywords', 'is_generic_product',
+                    'seasonal_start_month', 'seasonal_end_month', 'embedding'
                 ]
             )
             self.debug_print(f"add_many_g_products: Inserted {result} rows.")
@@ -390,6 +394,7 @@ class GoldenProductRepository(BaseRepository):
                 o.best_unit_price_per_kg,
                 o.best_unit_price_per_l,
                 o.best_unit_price_per_piece,
+                o.lowest_price_in_season, # Added lowest_price_in_season
                 o.best_price_store_id,
                 o.best_price_found_at,
             )
@@ -401,8 +406,61 @@ class GoldenProductRepository(BaseRepository):
                 records=records,
                 columns=[
                     'product_id', 'best_unit_price_per_kg', 'best_unit_price_per_l',
-                    'best_unit_price_per_piece', 'best_price_store_id', 'best_price_found_at'
+                    'best_unit_price_per_piece', 'lowest_price_in_season', 'best_price_store_id', 'best_price_found_at'
                 ]
             )
             self.debug_print(f"add_many_g_product_best_offers: Inserted {result} rows.")
             return result
+
+    async def get_overall_seasonal_best_price_for_generic_product(
+        self,
+        canonical_name: str,
+        category: str,
+        current_month: int,
+        limit: int = 10,
+        offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """
+        Finds the lowest seasonal price for generic products across all chains
+        that match the canonical name and category and are currently in season.
+        """
+        self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: canonical_name={canonical_name}, category={category}, current_month={current_month}")
+        
+        async with self._get_conn() as conn:
+            query = """
+                SELECT
+                    gp.id AS product_id,
+                    gp.canonical_name,
+                    gp.category,
+                    gp.brand,
+                    gp.base_unit_type,
+                    gp.variants,
+                    gp.text_for_embedding,
+                    gp.keywords,
+                    gp.is_generic_product,
+                    gp.seasonal_start_month,
+                    gp.seasonal_end_month,
+                    gpbo.lowest_price_in_season,
+                    gpbo.best_price_store_id,
+                    gpbo.best_price_found_at
+                FROM g_products gp
+                JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
+                WHERE
+                    gp.is_generic_product = TRUE
+                    AND gp.canonical_name ILIKE $1
+                    AND gp.category ILIKE $2
+                    AND gp.seasonal_start_month IS NOT NULL
+                    AND gp.seasonal_end_month IS NOT NULL
+                    AND (
+                        ($3 >= gp.seasonal_start_month AND $3 <= gp.seasonal_end_month) OR
+                        (gp.seasonal_start_month > gp.seasonal_end_month AND ($3 >= gp.seasonal_start_month OR $3 <= gp.seasonal_end_month))
+                    )
+                ORDER BY gpbo.lowest_price_in_season ASC NULLS LAST
+                LIMIT $4 OFFSET $5;
+            """
+            params = [f"%{canonical_name}%", f"%{category}%", current_month, limit, offset]
+            
+            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: Executing Query: {query}")
+            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: With Params: {params}")
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]

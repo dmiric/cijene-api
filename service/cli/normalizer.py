@@ -59,6 +59,14 @@ You will be given an array of raw product names, along with aggregated brands, c
     *   All keywords must be lowercase.
     *   Do not include generic marketing words like "akcija" or "jeftino".
 
+9.  **Determine `is_generic_product` (boolean)**:
+    *   Set to `true` if the product is a common, unbranded item (e.g., fresh fruits, vegetables, bulk nuts, etc.) where the primary identifier is its type rather than a specific brand.
+    *   Set to `false` for all branded products or products with distinct packaging/variants that are not typically considered "generic" produce.
+
+10. **Determine `seasonal_start_month` and `seasonal_end_month` (integer | null)**:
+    *   If the product is seasonal (e.g., fresh fruits, vegetables), identify its typical start and end months (1-12) *based on typical seasonality and availability in Croatia*.
+    *   If not seasonal, return `null` for both.
+
 **Provide the final output as a single, clean JSON object with the following structure. Do not add any text or explanation outside of the JSON object.**
 
 ```json
@@ -75,7 +83,10 @@ You will be given an array of raw product names, along with aggregated brands, c
     }
   ],
   "text_for_embedding": "string",
-  "keywords": ["string"]
+  "keywords": ["string"],
+  "is_generic_product": "boolean",
+  "seasonal_start_month": "integer | null",
+  "seasonal_end_month": "integer | null"
 }
 """
 
@@ -195,8 +206,9 @@ def create_golden_record(
         cur.execute("""
             INSERT INTO g_products (
                 ean, canonical_name, brand, category, base_unit_type,
-                variants, text_for_embedding, keywords, embedding
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                variants, text_for_embedding, keywords, is_generic_product,
+                seasonal_start_month, seasonal_end_month, embedding
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             ean,
@@ -207,6 +219,9 @@ def create_golden_record(
             json.dumps(normalized_data['variants']), # Store JSONB
             normalized_data['text_for_embedding'],
             normalized_data['keywords'],
+            normalized_data['is_generic_product'],
+            normalized_data.get('seasonal_start_month'), # Use .get() for optional fields
+            normalized_data.get('seasonal_end_month'),   # Use .get() for optional fields
             embedding
         ))
         return cur.fetchone()['id']
@@ -219,9 +234,14 @@ def update_best_offer(
     g_product_id: int,
     base_unit_type: str,
     price_entry: Dict[str, Any],
-    current_unit_price: Decimal
+    current_unit_price: Decimal,
+    seasonal_start_month: Optional[int],
+    seasonal_end_month: Optional[int]
 ) -> None:
-    """Updates g_product_best_offers if the new unit price is better."""
+    """
+    Updates g_product_best_offers if the new unit price is better,
+    and updates lowest_price_in_season if applicable.
+    """
     update_column = None
     if base_unit_type == 'WEIGHT':
         update_column = 'best_unit_price_per_kg'
@@ -230,26 +250,68 @@ def update_best_offer(
     elif base_unit_type == 'COUNT':
         update_column = 'best_unit_price_per_piece'
 
-    if update_column:
-        try:
-            cur.execute(f"""
-                INSERT INTO g_product_best_offers (
-                    product_id, {update_column}, best_price_store_id, best_price_found_at
-                ) VALUES (%s, %s, %s, NOW())
-                ON CONFLICT (product_id) DO UPDATE SET
-                    {update_column} = EXCLUDED.{update_column},
-                    best_price_store_id = EXCLUDED.best_price_store_id,
-                    best_price_found_at = NOW()
-                WHERE
-                    EXCLUDED.{update_column} < COALESCE(g_product_best_offers.{update_column}, 'Infinity');
-            """, (
-                g_product_id,
-                current_unit_price,
-                price_entry['store_id']
-            ))
-            print(f"Updated best offer for product {g_product_id} ({update_column}: {current_unit_price})")
-        except Exception as e:
-            print(f"Error updating best offer for product {g_product_id}: {e}")
+    current_month = datetime.now().month
+    is_in_season = False
+    if seasonal_start_month and seasonal_end_month:
+        if seasonal_start_month <= seasonal_end_month:
+            is_in_season = seasonal_start_month <= current_month <= seasonal_end_month
+        else: # Season spans across year end (e.g., Nov-Feb)
+            is_in_season = current_month >= seasonal_start_month or current_month <= seasonal_end_month
+
+    lowest_price_in_season_update = ""
+    lowest_price_in_season_param = None
+
+    if is_in_season and current_unit_price is not None:
+        # Fetch current lowest_price_in_season from DB to compare
+        cur.execute("""
+            SELECT lowest_price_in_season FROM g_product_best_offers WHERE product_id = %s
+        """, (g_product_id,))
+        existing_lowest_in_season = cur.fetchone()
+        
+        if existing_lowest_in_season and existing_lowest_in_season['lowest_price_in_season'] is not None:
+            if current_unit_price < existing_lowest_in_season['lowest_price_in_season']:
+                lowest_price_in_season_update = ", lowest_price_in_season = EXCLUDED.lowest_price_in_season"
+                lowest_price_in_season_param = current_unit_price
+        else:
+            # If no existing lowest_price_in_season or it's NULL, set it to current price
+            lowest_price_in_season_update = ", lowest_price_in_season = EXCLUDED.lowest_price_in_season"
+            lowest_price_in_season_param = current_unit_price
+
+    try:
+        # Construct the INSERT/UPDATE query dynamically
+        query_columns = ["product_id", update_column, "best_price_store_id", "best_price_found_at"]
+        query_values = ["%s", "%s", "%s", "NOW()"]
+        query_excluded_sets = [
+            f"{update_column} = EXCLUDED.{update_column}",
+            "best_price_store_id = EXCLUDED.best_price_store_id",
+            "best_price_found_at = NOW()"
+        ]
+        query_where_clause = f"EXCLUDED.{update_column} < COALESCE(g_product_best_offers.{update_column}, 'Infinity')"
+        
+        params = [g_product_id, current_unit_price, price_entry['store_id']]
+
+        if lowest_price_in_season_param is not None:
+            query_columns.append("lowest_price_in_season")
+            query_values.append("%s")
+            query_excluded_sets.append("lowest_price_in_season = EXCLUDED.lowest_price_in_season")
+            params.append(lowest_price_in_season_param)
+            # Add condition for lowest_price_in_season update
+            query_where_clause += f" OR (EXCLUDED.lowest_price_in_season < COALESCE(g_product_best_offers.lowest_price_in_season, 'Infinity'))"
+
+
+        final_query = f"""
+            INSERT INTO g_product_best_offers ({', '.join(query_columns)})
+            VALUES ({', '.join(query_values)})
+            ON CONFLICT (product_id) DO UPDATE SET
+                {', '.join(query_excluded_sets)}
+            WHERE
+                {query_where_clause};
+        """
+        
+        cur.execute(final_query, tuple(params))
+        print(f"Updated best offer for product {g_product_id} ({update_column}: {current_unit_price}, lowest_in_season: {lowest_price_in_season_param})")
+    except Exception as e:
+        print(f"Error updating best offer for product {g_product_id}: {e}")
 
 def mark_chain_products_as_processed(cur: PgCursor, chain_product_ids: List[int]) -> None:
     """Marks a list of chain_products as processed."""
@@ -274,6 +336,7 @@ def process_unprocessed_data() -> None:
 
         # 1. Extract: Query unprocessed data grouped by EAN
         # Define the list of EANs to filter by
+        # 3850104259616 frutty products begin here
         ean_filter_list = [
             "3850104227530",
             "3850104244827",
@@ -324,7 +387,107 @@ def process_unprocessed_data() -> None:
             "3838471021272",
             "3830001714692",
             "3838471032537",
-            "3850104259616"
+            "3850104259616", 
+            "3859894042248",
+"3859888163362",
+"20489212",
+"spar:377365",
+"4337185381690",
+"4062300278530",
+"3859892735715",
+"20539399",
+"8019033020017",
+"4335619104570",
+"spar:34490",
+"3858881580343",
+"8602300204687",
+"3850108036978",
+"3609200006972",
+"8001090621764",
+"4337185613722",
+"8002734100171",
+"8076809580670",
+"spar:10729",
+"4337185382536",
+"3870128039322",
+"8002734100300",
+"8057013880060",
+"5310005005098",
+"3856021219788",
+"3859893697067",
+"3858889331091",
+"spar:40605",
+"3856021219498",
+"spar:207316",
+"8436588101099",
+"3858893252313",
+"3850151244870",
+"3838606881313",
+"4740098090496",
+"9062300132387",
+"9100000905884",
+"4335619167803",
+"3856020262617",
+"3859894055453",
+"9100000633893",
+"lidl:0080220",
+"4011800584511",
+"8001300501206",
+"3858881735330",
+"3608580705161",
+"4062300269842",
+"spar:370087",
+"3859889267847",
+"20449568",
+"2832750000000",
+"4063367108518",
+"3858890973006",
+"3856028500674",
+"5310005001489",
+"4062300278585",
+"9062300140672",
+"9100000810577",
+"3856024805964",
+"4056489877332",
+"9100000734811",
+"3859889287043",
+"3858893252412",
+"5997536134314",
+"5310005001496",
+"4056489676669",
+"9006900013981",
+"4056489006947",
+"3859892735708",
+"4335619260832",
+"3859893822865",
+"3858890265538",
+"5310005005104",
+"3859889287128",
+"9000100656832",
+"3858889897733",
+"4015400795193",
+"20538224",
+"9062300132455",
+"3856021206184",
+"9100000764986",
+"3871059000504",
+"3830069179846",
+"spar:149154",
+"3609200010474",
+"2831948000000",
+"3870128003019",
+"3858881249257",
+"3858888530211",
+"8004030271418",
+"4335619058750",
+"3858893252443",
+"4062300278547",
+"3830036310906",
+"5999571051878",
+"4063367379093",
+"20287559",
+"3800048200038",
+"9008700215862",
         ]
         cur.execute("""
             SELECT
@@ -382,11 +545,13 @@ def process_unprocessed_data() -> None:
                         g_product_id = g_product_id['id']
                         print(f"Golden record already exists for EAN {ean} with ID {g_product_id}. Skipping normalization.")
 
-                    # Fetch g_product's base_unit_type and variants
-                    product_cur.execute("SELECT base_unit_type, variants FROM g_products WHERE id = %s", (g_product_id,))
+                    # Fetch g_product's base_unit_type, variants, and seasonal info
+                    product_cur.execute("SELECT base_unit_type, variants, seasonal_start_month, seasonal_end_month FROM g_products WHERE id = %s", (g_product_id,))
                     g_product_info = product_cur.fetchone()
                     base_unit_type = g_product_info['base_unit_type']
                     variants = g_product_info['variants'] if g_product_info['variants'] else []
+                    seasonal_start_month = g_product_info['seasonal_start_month']
+                    seasonal_end_month = g_product_info['seasonal_end_month']
 
                     # Load (Prices & Best Offers)
                     # Fetch all raw price data for the EAN from legacy tables
@@ -468,7 +633,15 @@ def process_unprocessed_data() -> None:
                     # After the loop, if we found a best offer, update the database ONCE.
                     if best_offer_entry and best_unit_price_overall is not None:
                         # Call the update function just one time with the best price found
-                        update_best_offer(product_cur, g_product_id, base_unit_type, best_offer_entry, best_unit_price_overall)
+                        update_best_offer(
+                            product_cur,
+                            g_product_id,
+                            base_unit_type,
+                            best_offer_entry,
+                            best_unit_price_overall,
+                            seasonal_start_month, # Pass seasonal info
+                            seasonal_end_month    # Pass seasonal info
+                        )
 
                     # Mark as Processed
                     mark_chain_products_as_processed(product_cur, chain_product_ids)
