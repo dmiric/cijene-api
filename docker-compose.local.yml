@@ -15,6 +15,8 @@ services:
       - ./backups:/app/backups # Mount backups directory for enrichment CSVs
     environment:
       DEBUG: "true" # Enable debug for local development
+      SMTP_SERVER: "mailhog" # Point to MailHog service
+      SMTP_PORT: "1025" # MailHog's SMTP port
     command: [ "sh", "-c", "python service/db/migrate.py && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Enable --reload
     logging:
       # Add this section
@@ -47,6 +49,18 @@ services:
       - ./pgadmin/servers_dev.json:/pgadmin4/servers.json
       - ./pgadmin/pgpass:/pgadmin4/pgpass
     # This command is still essential to fix the pgpass file permissions.
+
+  mailhog:
+    # Add MailHog service
+    image: mailhog/mailhog
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "1025:1025" # SMTP server
+      - "8025:8025" # Web UI
 
 volumes:
   crawler_data: {}

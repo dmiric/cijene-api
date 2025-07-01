@@ -77,9 +77,12 @@ async def send_verification_email(email: str, verification_token: UUID, backgrou
 
 def _send_email_sync(msg: EmailMessage):
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(settings.smtp_server, settings.smtp_port, context=context) as server:
-            server.login(settings.smtp_username, settings.smtp_password)
+        # MailHog on port 1025 does not use SSL, so use SMTP instead of SMTP_SSL
+        with smtplib.SMTP(settings.smtp_server, settings.smtp_port) as server:
+            # MailHog does not require authentication by default, but we keep the login call
+            # in case it's configured for it or for compatibility with other SMTP servers.
+            if settings.smtp_username and settings.smtp_password:
+                server.login(settings.smtp_username, settings.smtp_password)
             server.send_message(msg)
         logger.info(f"Verification email sent to {msg['To']}")
     except Exception as e:
