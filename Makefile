@@ -74,15 +74,16 @@ dev-csv-start: ## Perform a fast fresh start for development, using sample data 
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db
 
-	@echo "Enriching chains from backups..."
+	@echo "Enriching from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/chains.csv TYPE=chains
-
-	@echo "Enriching users and user locations from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=all-user-data USER_LOCATIONS_CSV_FILE=./backups/user_locations.csv
 	$(MAKE) enrich CSV_FILE=./backups/g_products.csv TYPE=g_products
 	$(MAKE) enrich CSV_FILE=./backups/g_prices.csv TYPE=g_prices
 	$(MAKE) enrich CSV_FILE=./backups/g_product_best_offers.csv TYPE=g_product-best-offers
 	$(MAKE) enrich CSV_FILE=./backups/stores.csv TYPE=stores
+
+	@echo "Running Tests..."
+	$(MAKE) test-api
 
 	@echo "Development fresh start completed."
 
@@ -103,11 +104,11 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Importing data..."
 	$(MAKE) import-data
 
-	@echo "Normalizing data..."
-	$(MAKE) normalize-data
-
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
+
+#	@echo "Normalizing data..."
+#	$(MAKE) normalize-data
 
 	@echo "Geocoding stores..."
 	$(MAKE) geocode-stores
@@ -156,6 +157,17 @@ dump-database: ## Dump the entire database to a gzipped backup file in the db_ba
 	docker compose exec backup /scripts/dump_database.sh
 	mkdir -p backups
 	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
+
+csv-export: ## Export specified database tables to CSV files in the backups/ folder
+	@mkdir -p backups
+	@echo "Exporting tables to CSV..."
+	@for table in chains g_products g_prices g_product_best_offers stores; do \
+		echo "Exporting $$table.csv..."; \
+		docker compose exec db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "\COPY $$table TO '/tmp/$$table.csv' WITH (FORMAT CSV, HEADER, ENCODING 'UTF8');"; \
+		docker compose cp db:/tmp/$$table.csv ./backups/$$table.csv; \
+		echo "Exported $$table.csv to backups/$$table.csv"; \
+	done
+	@echo "All specified tables exported to CSV."
 
 restore-tables: ## Restore specified database tables from the db_backups volume. Usage: make restore-tables [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@echo "Copying backup files from host's ./backups/ to container's /backups/..."
@@ -227,14 +239,16 @@ search-products: ## Search for products by name. Usage: make search-products QUE
 # API
 test-api: ## Run pytest integration tests for the API service
 	@echo "Running API integration tests..."
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
-		--env DEBUG=1 \
-		--env DB_HOST=db \
-		--env DB_PORT=5432 \
-		--env POSTGRES_USER=$(POSTGRES_USER) \
-		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
-		--env POSTGRES_DB=$(POSTGRES_DB) \
-		api pytest tests/
+	
+	@echo "Test auth..."
+	$(MAKE) test-auth
+
+	@echo "Test stores..."
+	$(MAKE) test-stores
+
+	@echo "Test Shopping Lists..."
+	$(MAKE) test-shopping-lists
+
 
 test-stores: ## Run pytest integration tests for the stores API service
 	@echo "Running stores API integration tests..."

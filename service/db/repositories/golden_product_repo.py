@@ -160,10 +160,11 @@ class GoldenProductRepository(BaseRepository):
 
     
     async def get_g_product_prices_by_location(
-        self, product_id: int, store_ids: list[int]
+        self, product_id: int, store_ids: Optional[List[int]] = None
     ) -> list[dict[str, Any]]:
         """
         Queries g_prices for a specific product across a list of stores, ordered by price.
+        If store_ids is None or empty, it queries for all stores.
         """
         self.debug_print(f"get_g_product_prices_by_location: product_id={product_id}, store_ids={store_ids}")
         async with self._get_conn() as conn:
@@ -173,7 +174,7 @@ class GoldenProductRepository(BaseRepository):
                     gp.canonical_name AS product_name,
                     gp.brand AS product_brand,
                     gs.id AS store_id,
-                    gs.code AS store_code, -- Changed from gs.name to gs.code
+                    gs.code AS store_code,
                     gs.address AS store_address,
                     gs.city AS store_city,
                     gpr.price_date,
@@ -186,15 +187,48 @@ class GoldenProductRepository(BaseRepository):
                 FROM g_prices gpr
                 JOIN g_products gp ON gpr.product_id = gp.id
                 JOIN stores gs ON gpr.store_id = gs.id
-                WHERE gpr.product_id = $1 AND gpr.store_id = ANY($2)
-                ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC
+                WHERE gpr.product_id = $1
             """
-            self.debug_print(f"get_g_product_prices_by_location: Executing Query: {query}")
-            self.debug_print(f"get_g_product_prices_by_location: With Params: {[product_id, store_ids]}")
-            rows = await conn.fetch(query, product_id, store_ids)
-            return [dict(row) for row in rows]
+            params = [product_id]
+            param_counter = 2
 
-    
+            if store_ids: # Only add store_id filter if store_ids is not empty or None
+                query += f" AND gpr.store_id = ANY(${param_counter})"
+                params.append(store_ids)
+                param_counter += 1
+
+            query += " ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC"
+
+            self.debug_print(f"get_g_product_prices_by_location: Executing Query: {query}")
+            self.debug_print(f"get_g_product_prices_by_location: With Params: {params}")
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    async def get_g_product_by_ean(self, ean: str) -> Optional[GProductWithId]:
+        """
+        Retrieves a single golden product by its EAN.
+        """
+        self.debug_print(f"get_g_product_by_ean: ean={ean}")
+        query = """
+            SELECT id, ean, canonical_name, brand, category, base_unit_type,
+                   variants, text_for_embedding, keywords, is_generic_product,
+                   seasonal_start_month, seasonal_end_month, embedding,
+                   created_at, updated_at
+            FROM g_products
+            WHERE ean = $1
+        """
+        async with self._get_conn() as conn:
+            row = await conn.fetchrow(query, ean)
+            if row:
+                row_dict = dict(row)
+                if "embedding" in row_dict and isinstance(row_dict["embedding"], str):
+                    try:
+                        row_dict["embedding"] = json.loads(row_dict["embedding"])
+                    except json.JSONDecodeError:
+                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
+                        row_dict["embedding"] = None
+                return GProductWithId(**row_dict)
+            return None
+
     async def get_g_product_details(
         self,
         product_id: int,

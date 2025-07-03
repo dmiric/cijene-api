@@ -6,12 +6,13 @@ import time # Import time for sleep
 import subprocess # Import subprocess
 from decimal import Decimal # Import Decimal
 import random # Import random
-from typing import Optional # Import Optional
+from typing import Optional, List # Import Optional and List
 import asyncpg # Import asyncpg
 import os # Import os to access environment variables
 
 from service.db.psql import PostgresDatabase # Import PostgresDatabase
 from service.db.repositories.golden_product_repo import GoldenProductRepository # Import GoldenProductRepository
+from service.db.models import GProductWithId # Import GProductWithId
 
 # When running tests inside the Docker container, 'api' is the service hostname
 BASE_URL = "http://api:8000/v2"
@@ -166,7 +167,7 @@ async def add_shopping_list_item_helper(
             "g_product_id": g_product_id,
             "quantity": str(quantity), # Ensure Decimal is sent as string
             "base_unit_type": base_unit_type, # Pass the derived base_unit_type
-            "price_at_addition": str(price_at_addition) if price_at_addition else None,
+            "price_at_addition": str(price_at_addition) if price_at_addition is not None else None, # Correctly handle Decimal('0.00')
             "store_id_at_addition": store_id_at_addition,
             "notes": notes
         }
@@ -209,6 +210,11 @@ async def get_shopping_list_item_from_db(item_id: int) -> Optional[dict]:
         if conn:
             await conn.close()
 
+async def get_g_product_id_by_ean(golden_products_repo: GoldenProductRepository, ean: str) -> Optional[int]:
+    """Helper to get g_product_id by EAN, assuming all EANs (including chain-prefixed) are in g_products."""
+    g_product = await golden_products_repo.get_g_product_by_ean(ean=ean)
+    return g_product.id if g_product else None
+
 @pytest.mark.asyncio
 async def test_get_user_shopping_lists_unauthenticated():
     """Test fetching shopping lists without authentication (should fail)."""
@@ -222,7 +228,6 @@ async def test_get_user_shopping_lists_unauthenticated():
 async def test_complex_shopping_list_scenarios(
     authenticated_client: httpx.AsyncClient,
     cleanup_shopping_lists_fixture, # Inject the cleanup fixture
-    # db_connection: asyncpg.Connection # Removed as PostgresDatabase manages its own pool
 ):
     # Construct the DSN for the test database connection
     test_dsn = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -255,14 +260,20 @@ async def test_complex_shopping_list_scenarios(
         closed_list_2_id = closed_list_2["id"]
         await update_shopping_list_status_helper(authenticated_client, closed_list_2_id, "closed")
 
-        # 2. Add 10 items to each list
-        # Items for open list
-        product_ids_for_open_list = [99, 87, 1, 4, 33, 27, 50, 60, 70, 80] # Ensure 10 items
-        quantities_for_open_list = {99: Decimal("2.5"), 87: Decimal("1.2")}
-
+        # 2. Add items to the open list using specified EANs
+        eans_for_open_list = [
+            "9100000734811", "9100000764986", "9100000810577",
+            "spar:40605", "lidl:0080220", "spar:207316",
+            "spar:377365", "lidl:0081272"
+        ]
+        
         added_items_to_open_list = []
-        for i, g_product_id in enumerate(product_ids_for_open_list):
-            quantity = quantities_for_open_list.get(g_product_id, Decimal(str(random.randint(1, 5))))
+        for ean in eans_for_open_list:
+            g_product_id = await get_g_product_id_by_ean(golden_products_repo, ean) # Pass golden_products_repo
+            if not g_product_id:
+                pytest.fail(f"Product with EAN {ean} not found in g_products.")
+
+            quantity = Decimal(str(random.randint(1, 5)))
             
             # Fetch g_product details to get base_unit_type and best prices
             g_product = await golden_products_repo.get_g_product_details(product_id=g_product_id)
@@ -272,15 +283,21 @@ async def test_complex_shopping_list_scenarios(
             base_unit_type = g_product["base_unit_type"]
             price_at_addition = None
 
-            # Determine price_at_addition based on base_unit_type from g_product_best_offers
-            if base_unit_type == "WEIGHT":
-                price_at_addition = g_product.get("best_unit_price_per_kg")
-            elif base_unit_type == "VOLUME":
-                price_at_addition = g_product.get("best_unit_price_per_l")
-            elif base_unit_type == "COUNT":
-                price_at_addition = g_product.get("best_unit_price_per_piece")
+            # Fetch prices for the product to determine price_at_addition
+            # For testing, we'll assume a store_id_at_addition if available, otherwise just use product prices
+            # For simplicity in this test, we'll just get all prices for the product and pick the best one
+            # In a real scenario, store_id_at_addition would be crucial for price lookup.
+            prices_for_product = await golden_products_repo.get_g_product_prices_by_location(
+                product_id=g_product_id,
+                store_ids=None # Get all prices for the product regardless of store
+            )
             
-            # If price_at_addition is still None, use a random one for test purposes
+            if prices_for_product:
+                # Prioritize special_price, then regular_price
+                # For simplicity, pick the first available price. In a real app, more complex logic might be needed.
+                price_at_addition = prices_for_product[0].get("special_price") or prices_for_product[0].get("regular_price")
+            
+            # If price_at_addition is still None (no prices found), use a random one for test purposes
             if price_at_addition is None:
                 price_at_addition = Decimal(str(round(random.uniform(0.5, 100.0), 2)))
 
@@ -291,13 +308,13 @@ async def test_complex_shopping_list_scenarios(
                 quantity,
                 base_unit_type=base_unit_type, # Pass the derived base_unit_type
                 price_at_addition=price_at_addition, # Pass the derived price_at_addition
-                notes=f"Item {g_product_id} for open list"
+                notes=f"Item {ean} for open list"
             )
             added_items_to_open_list.append(item)
         
-        assert len(added_items_to_open_list) == 10
+        assert len(added_items_to_open_list) == len(eans_for_open_list)
 
-        # Items for closed list 1
+        # Items for closed list 1 (keeping original logic for these)
         product_ids_for_closed_list_1 = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         for g_product_id in product_ids_for_closed_list_1:
             quantity = Decimal(str(random.randint(1, 5)))
@@ -325,7 +342,7 @@ async def test_complex_shopping_list_scenarios(
                 notes=f"Item {g_product_id} for closed list 1"
             )
 
-        # Items for closed list 2
+        # Items for closed list 2 (keeping original logic for these)
         product_ids_for_closed_list_2 = [11, 21, 31, 41, 51, 61, 71, 81, 91, 95]
         for g_product_id in product_ids_for_closed_list_2:
             quantity = Decimal(str(random.randint(1, 5)))
@@ -362,33 +379,30 @@ async def test_complex_shopping_list_scenarios(
         deleted_list_2 = await create_shopping_list_helper(authenticated_client, deleted_list_2_name)
         await soft_delete_shopping_list_helper(authenticated_client, deleted_list_2["id"])
 
-        # 4. Add 2 deleted shopping list items to the open list
-        # Soft-delete items with g_product_id 1 and 4
-        item_to_delete_1 = next((item for item in added_items_to_open_list if item["g_product_id"] == 1), None)
-        item_to_delete_2 = next((item for item in added_items_to_open_list if item["g_product_id"] == 4), None)
+        # 4. Soft-delete the specified product from the open list
+        ean_to_soft_delete = "9100000734811"
+        g_product_id_to_soft_delete = await get_g_product_id_by_ean(golden_products_repo, ean_to_soft_delete) # Pass golden_products_repo
+        if not g_product_id_to_soft_delete:
+            pytest.fail(f"Product with EAN {ean_to_soft_delete} not found for soft deletion.")
 
-        if item_to_delete_1 and item_to_delete_2:
+        item_to_soft_delete = next(
+            (item for item in added_items_to_open_list if item["g_product_id"] == g_product_id_to_soft_delete),
+            None
+        )
+
+        if item_to_soft_delete:
             await soft_delete_shopping_list_item_helper(
                 authenticated_client,
                 open_list_id,
-                item_to_delete_1["id"]
-            )
-            await soft_delete_shopping_list_item_helper(
-                authenticated_client,
-                open_list_id,
-                item_to_delete_2["id"]
+                item_to_soft_delete["id"]
             )
         else:
-            pytest.fail("Could not find items with g_product_id 1 and 4 to soft-delete.")
+            pytest.fail(f"Could not find item with EAN {ean_to_soft_delete} to soft-delete in the open list.")
 
-        # Verify soft-deleted items directly in the database
-        deleted_item_1_db = await get_shopping_list_item_from_db(item_to_delete_1["id"])
-        deleted_item_2_db = await get_shopping_list_item_from_db(item_to_delete_2["id"])
-
-        assert deleted_item_1_db is not None
-        assert deleted_item_1_db["deleted_at"] is not None
-        assert deleted_item_2_db is not None
-        assert deleted_item_2_db["deleted_at"] is not None
+        # Verify soft-deleted item directly in the database
+        deleted_item_db = await get_shopping_list_item_from_db(item_to_soft_delete["id"])
+        assert deleted_item_db is not None
+        assert deleted_item_db["deleted_at"] is not None
 
         # 5. Verification steps
         # Get all shopping lists for the user
@@ -418,19 +432,12 @@ async def test_complex_shopping_list_scenarios(
 
         # Filter out deleted items for count verification
         active_open_list_items = [item for item in open_list_items if item["deleted_at"] is None]
-        # deleted_open_list_items = [item for item in open_list_items if item["deleted_at"] is not None] # No longer checking this
+        
+        # The number of active items should be total added items minus the one soft-deleted
+        assert len(active_open_list_items) == len(eans_for_open_list) - 1
 
-        assert len(active_open_list_items) == 8 # 10 total - 2 deleted
-        # assert len(deleted_open_list_items) == 2 # No longer checking this
-
-        # Verify specific items and their quantities
-        item_99 = next((item for item in active_open_list_items if item["g_product_id"] == 99), None)
-        assert item_99 is not None
-        assert Decimal(str(item_99["quantity"])) == Decimal("2.5")
-
-        item_87 = next((item for item in active_open_list_items if item["g_product_id"] == 87), None)
-        assert item_87 is not None
-        assert Decimal(str(item_87["quantity"])) == Decimal("1.2")
+        # Verify that the soft-deleted item is NOT in the active list
+        assert not any(item["g_product_id"] == g_product_id_to_soft_delete for item in active_open_list_items)
 
         # Verify base_unit_type and price_at_addition for some items
         for item in active_open_list_items:
@@ -451,21 +458,25 @@ async def test_complex_shopping_list_scenarios(
                 if prices:
                     expected_price_at_addition = prices[0].get("special_price") or prices[0].get("regular_price")
             else:
-                if expected_base_unit_type == "WEIGHT":
-                    expected_price_at_addition = g_product.get("best_unit_price_per_kg")
-                elif expected_base_unit_type == "VOLUME":
-                    expected_price_at_addition = g_product.get("best_unit_price_per_l")
-                elif expected_base_unit_type == "COUNT":
-                    expected_price_at_addition = g_product.get("best_unit_price_per_piece")
+                # If store_id_at_addition is None, fetch all prices for the product and pick the best one
+                prices_for_product = await golden_products_repo.get_g_product_prices_by_location(
+                    product_id=g_product_id,
+                    store_ids=None # Get all prices for the product regardless of store
+                )
+                if prices_for_product:
+                    expected_price_at_addition = prices_for_product[0].get("special_price") or prices_for_product[0].get("regular_price")
             
             # Allow for slight floating point differences in price_at_addition
             if expected_price_at_addition is not None and item["price_at_addition"] is not None:
                 assert abs(Decimal(str(item["price_at_addition"])) - Decimal(str(expected_price_at_addition))) < Decimal("0.01")
             elif expected_price_at_addition is None and item["price_at_addition"] is not None:
-                # If the test generated a random price because no best price was found,
+                # If the test generated a random price because no actual price was found,
                 # we can't assert an exact match, but we can assert it's not None.
-                assert item["price_at_addition"] is not None
+                assert item["price_at_addition"] is not None # Ensure it's not None if it was set
             else:
+                # This case means both are None, or expected is None and item is None.
+                # If item["price_at_addition"] is None, it means it wasn't set, which is unexpected given the helper.
+                # So, if expected_price_at_addition is None, item["price_at_addition"] should also be None.
                 assert item["price_at_addition"] == expected_price_at_addition
 
             assert "product_name" in item

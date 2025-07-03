@@ -31,6 +31,7 @@ class ShoppingListItemResponse(BaseModel):
     shopping_list_id: int
     g_product_id: int
     product_name: Optional[str] = None # Added product name
+    is_generic_product: Optional[bool] = None # Added for generic product identification
     chain_code: Optional[str] = None # Added chain code
     quantity: Decimal
     base_unit_type: str

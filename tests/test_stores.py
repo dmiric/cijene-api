@@ -19,8 +19,15 @@ DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
 
-# Use the test user ID and API key from .clinerules/testing-credentials.md
-TEST_API_KEY = "ec7cc315-c434-4c1f-aab7-3dba3545d113"
+# Base URL for the API (without /v1) for login endpoint
+API_ROOT_URL = "http://api:8000"
+BASE_URL = f"{API_ROOT_URL}/v1" # Note: This is v1 endpoint
+HEALTH_URL = f"{API_ROOT_URL}/health"
+
+# Test user credentials
+TEST_USER_EMAIL = "test.stores.user@example.com"
+TEST_USER_PASSWORD = "TestPassword123!"
+TEST_USER_NAME = "Test Stores User"
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_api():
@@ -50,9 +57,68 @@ def setup_api():
     pass
 
 @pytest.fixture(scope="function")
-async def authenticated_client():
-    """Provides an httpx client with authentication headers."""
-    headers = {"Authorization": f"Bearer {TEST_API_KEY}"}
+async def test_user_credentials(db_connection: asyncpg.Connection):
+    """
+    Registers a temporary test user, manually verifies their email in DB,
+    and yields their email and password. Cleans up the user after the test.
+    """
+    register_data = {
+        "name": TEST_USER_NAME,
+        "email": TEST_USER_EMAIL,
+        "password": TEST_USER_PASSWORD
+    }
+    print(f"\nRegistering test user: {TEST_USER_EMAIL}")
+    async with httpx.AsyncClient(base_url=API_ROOT_URL) as client:
+        register_response = await client.post("/auth/register", json=register_data)
+        if register_response.status_code == 409:
+            print(f"User {TEST_USER_EMAIL} already registered. Proceeding with manual verification and login.")
+        else:
+            register_response.raise_for_status() # Ensure registration was successful (201)
+            print(f"User {TEST_USER_EMAIL} registered successfully.")
+
+    # Manually verify email in DB for testing purposes
+    user_record = await db_connection.fetchrow(
+        "SELECT id FROM users JOIN user_personal_data ON users.id = user_personal_data.user_id WHERE email = $1",
+        TEST_USER_EMAIL
+    )
+    if user_record:
+        await db_connection.execute(
+            "UPDATE users SET is_verified = TRUE, verification_token = NULL WHERE id = $1",
+            user_record["id"]
+        )
+        print(f"Manually verified email for user {TEST_USER_EMAIL}.")
+    else:
+        pytest.fail(f"Test user {TEST_USER_EMAIL} not found in DB after registration attempt.")
+
+    yield {"email": TEST_USER_EMAIL, "password": TEST_USER_PASSWORD}
+
+    # Clean up user from DB
+    print(f"Cleaning up test user: {TEST_USER_EMAIL}")
+    try:
+        await db_connection.execute("DELETE FROM users WHERE email = $1;", TEST_USER_EMAIL)
+        await db_connection.execute("DELETE FROM user_personal_data WHERE email = $1;", TEST_USER_EMAIL)
+        print(f"Cleaned up user {TEST_USER_EMAIL}.")
+    except Exception as e:
+        print(f"Error cleaning up user {TEST_USER_EMAIL}: {e}")
+
+@pytest.fixture(scope="function")
+async def authenticated_client(test_user_credentials: dict):
+    """Provides an httpx client with authentication headers using a JWT token."""
+    # Login to get JWT token
+    login_payload = {
+        "email": test_user_credentials["email"],
+        "password": test_user_credentials["password"]
+    }
+    print(f"Attempting to log in user: {test_user_credentials['email']}")
+    async with httpx.AsyncClient(base_url=API_ROOT_URL) as client:
+        response = await client.post("/auth/token", json=login_payload)
+        if response.status_code != 200:
+            pytest.fail(f"Failed to obtain JWT token for test user. Status: {response.status_code}, Response: {response.text}")
+        token_data = response.json()
+        access_token = token_data["access_token"]
+        print(f"Successfully obtained JWT token for {test_user_credentials['email']}")
+
+    headers = {"Authorization": f"Bearer {access_token}"}
     async with httpx.AsyncClient(base_url=BASE_URL, headers=headers) as client:
         yield client
 

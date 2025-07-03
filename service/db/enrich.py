@@ -110,37 +110,32 @@ async def enrich_products(csv_path: Path) -> None:
     for row in data:
         product = existing_products.get(row["barcode"])
 
-        if not product:
-            # This shouldn't happen but we can gracefully handle it
-            await db.products.add_ean(row["barcode"])
-            product = Product(
+        # Only update if the product already exists
+        if product:
+            # If product.brand or product.name already exist, skip updating
+            if product.brand and product.name:
+                logger.info(f"Product with EAN {row['barcode']} already has brand and name. Skipping update.")
+                continue
+
+            unit, qty = convert_unit_and_quantity(row["unit"], row["quantity"])
+            updated_product = Product(
                 ean=row["barcode"],
-                brand="",
-                name="",
-                quantity=Decimal(0),
-                unit="kom",
+                brand=row["brand"],
+                name=row["name"],
+                quantity=qty,
+                unit=unit,
             )
 
-        if product.brand or product.name:
-            continue
-
-        unit, qty = convert_unit_and_quantity(row["unit"], row["quantity"])
-        updated_product = Product(
-            ean=row["barcode"],
-            brand=row["brand"],
-            name=row["name"],
-            quantity=qty,
-            unit=unit,
-        )
-
-        was_updated = await db.products.update_product(updated_product)
-        if was_updated:
-            updated_count += 1
+            was_updated = await db.products.update_product(updated_product)
+            if was_updated:
+                updated_count += 1
+        else:
+            logger.info(f"Product with EAN {row['barcode']} not found. Skipping new product.")
 
     t1 = time()
     dt = int(t1 - t0)
     logger.info(
-        f"Enriched {updated_count} products from {csv_path.name} in {dt} seconds"
+        f"Updated {updated_count} products from {csv_path.name} in {dt} seconds"
     )
 
 
@@ -245,17 +240,26 @@ async def enrich_stores(csv_path: Path) -> None:
         )
         
         # Use add_store which handles both insert and update (upsert)
-        store_id = await db.stores.add_store(store_obj)
-        if store_id:
+        was_updated = await db.stores.update_store(
+            chain_id=store_obj.chain_id,
+            store_code=store_obj.code,
+            address=store_obj.address,
+            city=store_obj.city,
+            zipcode=store_obj.zipcode,
+            lat=store_obj.lat,
+            lon=store_obj.lon,
+            phone=store_obj.phone,
+        )
+        if was_updated:
             updated_count += 1
         else:
-            logger.warning(
-                f"Failed to add or update store: chain_id={chain_id}, code={store_code}"
+            logger.info(
+                f"Store not found for update (chain_id={chain_id}, code={store_code}). Skipping new store."
             )
 
     t1 = time()
     dt = int(t1 - t0)
-    logger.info(f"Enriched {updated_count} stores from {csv_path.name} in {dt} seconds")
+    logger.info(f"Updated {updated_count} stores from {csv_path.name} in {dt} seconds")
 
 
 async def enrich_users(csv_path: Path) -> Dict[int, UUID]:
