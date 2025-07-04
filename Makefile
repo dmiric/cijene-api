@@ -6,6 +6,13 @@ export POSTGRES_DB
 export SSH_USER
 export SSH_IP
 
+# A helper variable to detect the OS
+ifeq ($(OS),Windows_NT)
+   	IS_WINDOWS := true
+else
+    IS_WINDOWS := false
+endif
+
 ifeq ($(OS),Windows_NT)
     DOCKER_BUILD_LOG_FILE := logs/docker-build.log
 else
@@ -39,24 +46,24 @@ help: ## Display this help message
 ## Docker & Build Commands
 rebuild: ## Rebuild and restart all Docker containers
 	@echo "Building and restarting Docker containers. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"
-else
-	@mkdir -p logs # Ensure directory exists
-	@> $(DOCKER_BUILD_LOG_FILE) # Empty the log file
-endif
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
+	else \
+		mkdir -p logs; \
+		> $(DOCKER_BUILD_LOG_FILE); \
+	fi
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
 	@echo "Docker containers rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
 rebuild-api: ## Rebuild and restart only the API service
 	@echo "Building and restarting API service. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"
-else
-	@mkdir -p logs # Ensure directory exists
-	@> $(DOCKER_BUILD_LOG_FILE) # Empty the log file
-endif
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
+	else \
+		mkdir -p logs; \
+		> $(DOCKER_BUILD_LOG_FILE); \
+	fi
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
@@ -107,8 +114,8 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
 
-#	@echo "Normalizing data..."
-#	$(MAKE) normalize-data
+	@echo "Normalizing data..."
+	$(MAKE) normalize-data
 
 	@echo "Geocoding stores..."
 	$(MAKE) geocode-stores
@@ -175,27 +182,18 @@ restore-tables: ## Restore specified database tables from the db_backups volume.
 	@echo "Starting database restore..."
 	docker compose exec backup /scripts/restore_tables.sh $(TIMESTAMP)
 
-# A helper variable to detect the OS
-ifeq ($(OS),Windows_NT)
-    IS_WINDOWS := true
-else
-    IS_WINDOWS := false
-endif
-
 restore-database: ## Restore the entire database from a gzipped backup file. Usage: make restore-database [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@# This target now handles OS detection directly
 	@echo "Copying backup files to container..."
-ifeq ($(IS_WINDOWS), true)
-	# Windows commands
-	pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
-	@echo "Starting database restore..."
-	pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"
-else
-	# Linux/macOS commands
-	bash ./scripts/copy_dump_to_container.sh "$(TIMESTAMP)"
-	@echo "Starting database restore..."
-	bash ./scripts/restore_database.sh "$(TIMESTAMP)"
-endif
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		pwsh -File ./scripts/copy_dump_to_container.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"; \
+		echo "Starting database restore..."; \
+		pwsh -File ./scripts/restore_database.ps1 "$(TIMESTAMP)" "$(POSTGRES_USER)" "$(POSTGRES_PASSWORD)" "$(POSTGRES_DB)" "$(DB_HOST)" "$(DB_PORT)"; \
+	else \
+		bash ./scripts/copy_dump_to_container.sh "$(TIMESTAMP)"; \
+		echo "Starting database restore..."; \
+		bash ./scripts/restore_database.sh "$(TIMESTAMP)"; \
+	fi
 	@echo "Database restore process completed successfully."
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
@@ -208,10 +206,10 @@ geocode-stores: ## Geocode stores in the database that are missing latitude/long
 ## Data Management Commands
 unzip-crawler-output: ## Unzips the latest crawled data on the host. Usage: make unzip-crawler-output [DATE=YYYY-MM-DD]
 	@if [ -z "$(DATE)" ]; then echo "Unzipping today's archive..."; else echo "Unzipping archive for $(DATE)..."; fi
-	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
-		unzip -o './output/$(DATE).zip' -d './output/$(DATE)_unzipped'; \
-	else \
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh -Command "Expand-Archive -Path '$(CURDIR)/output/$(DATE).zip' -DestinationPath '$(CURDIR)/output/$(DATE)_unzipped' -Force"; \
+	else \
+		unzip -o './output/$(DATE).zip' -d './output/$(DATE)_unzipped'; \
 	fi
 
 enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=products|stores|users|user-locations|search-keywords [USER_LOCATIONS_CSV_FILE=./path/to/user_locations.csv]
@@ -312,17 +310,17 @@ logs-crawler: ## Display logs for the Crawler service and save to ./logs/crawler
 	mkdir -p logs && > ./logs/crawler.log && docker compose -f docker-compose.yml -f docker-compose.local.yml logs crawler > ./logs/crawler.log
 
 logs-tail: ## Continuously display logs from ./logs/api.log
-	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
-		tail -f './logs/api.log'; \
-	else \
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh.exe -Command "Get-Content -Path './logs/api.log' -Wait"; \
+	else \
+		tail -f './logs/api.log'; \
 	fi
 
 logs-crawler-console: ## Continuously display console output from logs/crawler_console.log
-	@if [ "$(ENVIRONMENT)" = "linux" ]; then \
-		tail -f './logs/crawler_console.log'; \
-	else \
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh.exe -Command "Get-Content -Path './logs/crawler_console.log' -Wait"; \
+	else \
+		tail -f './logs/crawler_console.log'; \
 	fi
 
 ## SSH Commands

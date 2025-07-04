@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
+import json # Import json
 
 import asyncpg
 
@@ -50,9 +51,6 @@ class ShoppingListItemRepository(BaseRepository):
                 sli.id,
                 sli.shopping_list_id,
                 sli.g_product_id,
-                gp.canonical_name AS product_name,
-                gp.is_generic_product,
-                c.code AS chain_code,
                 sli.quantity,
                 sli.base_unit_type,
                 sli.price_at_addition,
@@ -62,16 +60,74 @@ class ShoppingListItemRepository(BaseRepository):
                 sli.added_at,
                 sli.bought_at,
                 sli.updated_at,
-                sli.deleted_at
+                sli.deleted_at,
+                
+                -- From g_products (gp)
+                gp.canonical_name AS product_name,
+                gp.ean,
+                gp.brand,
+                gp.category,
+                gp.variants::jsonb, -- Explicitly cast to jsonb
+                gp.is_generic_product,
+                gp.seasonal_start_month,
+                gp.seasonal_end_month,
+
+                -- From chains (c)
+                c.code AS chain_code,
+
+                -- From current_price (lateral join)
+                current_price.price_date AS current_price_date,
+                current_price.regular_price AS current_regular_price,
+                current_price.special_price AS current_special_price,
+                current_price.price_per_kg AS current_price_per_kg,
+                current_price.price_per_l AS current_price_per_l,
+                current_price.price_per_piece AS current_price_per_piece,
+                current_price.is_on_special_offer AS current_is_on_special_offer,
+
+                -- From g_product_best_offers (gpbo)
+                gpbo.best_unit_price_per_kg,
+                gpbo.best_unit_price_per_l,
+                gpbo.best_unit_price_per_piece,
+                gpbo.lowest_price_in_season,
+                gpbo.best_price_store_id,
+                gpbo.best_price_found_at
             FROM shopping_list_items sli
             LEFT JOIN g_products gp ON sli.g_product_id = gp.id
             LEFT JOIN stores s ON sli.store_id_at_addition = s.id
             LEFT JOIN chains c ON s.chain_id = c.id
+            LEFT JOIN g_product_best_offers gpbo ON sli.g_product_id = gpbo.product_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    gp_current_price.price_date,
+                    gp_current_price.regular_price,
+                    gp_current_price.special_price,
+                    gp_current_price.price_per_kg,
+                    gp_current_price.price_per_l,
+                    gp_current_price.price_per_piece,
+                    gp_current_price.is_on_special_offer
+                FROM g_prices AS gp_current_price
+                WHERE gp_current_price.product_id = sli.g_product_id
+                  AND (sli.store_id_at_addition IS NULL OR gp_current_price.store_id = sli.store_id_at_addition)
+                ORDER BY gp_current_price.price_date DESC
+                LIMIT 1
+            ) AS current_price ON TRUE
             WHERE sli.shopping_list_id = $1 AND sli.deleted_at IS NULL
             ORDER BY sli.added_at DESC
         """
         records = await self.pool.fetch(query, shopping_list_id)
-        return [ShoppingListItem(**record) for record in records]
+        
+        # Manually deserialize variants if it's a string
+        processed_records = []
+        for record in records:
+            record_dict = dict(record)
+            if "variants" in record_dict and isinstance(record_dict["variants"], str):
+                try:
+                    record_dict["variants"] = json.loads(record_dict["variants"])
+                except json.JSONDecodeError:
+                    record_dict["variants"] = None # Handle malformed JSON
+            processed_records.append(record_dict)
+        
+        return [ShoppingListItem(**record) for record in processed_records]
 
     async def get_shopping_list_item_by_id(self, item_id: int, shopping_list_id: int) -> Optional[ShoppingListItem]:
         query = """
@@ -79,9 +135,6 @@ class ShoppingListItemRepository(BaseRepository):
                 sli.id,
                 sli.shopping_list_id,
                 sli.g_product_id,
-                gp.canonical_name AS product_name,
-                gp.is_generic_product,
-                c.code AS chain_code,
                 sli.quantity,
                 sli.base_unit_type,
                 sli.price_at_addition,
@@ -91,11 +144,57 @@ class ShoppingListItemRepository(BaseRepository):
                 sli.added_at,
                 sli.bought_at,
                 sli.updated_at,
-                sli.deleted_at
+                sli.deleted_at,
+                
+                -- From g_products (gp)
+                gp.canonical_name AS product_name,
+                gp.ean,
+                gp.brand,
+                gp.category,
+                gp.variants,
+                gp.is_generic_product,
+                gp.seasonal_start_month,
+                gp.seasonal_end_month,
+
+                -- From chains (c)
+                c.code AS chain_code,
+
+                -- From current_price (lateral join)
+                current_price.price_date AS current_price_date,
+                current_price.regular_price AS current_regular_price,
+                current_price.special_price AS current_special_price,
+                current_price.price_per_kg AS current_price_per_kg,
+                current_price.price_per_l AS current_price_per_l,
+                current_price.price_per_piece AS current_price_per_piece,
+                current_price.is_on_special_offer AS current_is_on_special_offer,
+
+                -- From g_product_best_offers (gpbo)
+                gpbo.best_unit_price_per_kg,
+                gpbo.best_unit_price_per_l,
+                gpbo.best_unit_price_per_piece,
+                gpbo.lowest_price_in_season,
+                gpbo.best_price_store_id,
+                gpbo.best_price_found_at
             FROM shopping_list_items sli
             LEFT JOIN g_products gp ON sli.g_product_id = gp.id
             LEFT JOIN stores s ON sli.store_id_at_addition = s.id
             LEFT JOIN chains c ON s.chain_id = c.id
+            LEFT JOIN g_product_best_offers gpbo ON sli.g_product_id = gpbo.product_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    gp_current_price.price_date,
+                    gp_current_price.regular_price,
+                    gp_current_price.special_price,
+                    gp_current_price.price_per_kg,
+                    gp_current_price.price_per_l,
+                    gp_current_price.price_per_piece,
+                    gp_current_price.is_on_special_offer
+                FROM g_prices AS gp_current_price
+                WHERE gp_current_price.product_id = sli.g_product_id
+                  AND (sli.store_id_at_addition IS NULL OR gp_current_price.store_id = sli.store_id_at_addition)
+                ORDER BY gp_current_price.price_date DESC
+                LIMIT 1
+            ) AS current_price ON TRUE
             WHERE sli.id = $1 AND sli.shopping_list_id = $2 AND sli.deleted_at IS NULL
         """
         record = await self.pool.fetchrow(query, item_id, shopping_list_id)

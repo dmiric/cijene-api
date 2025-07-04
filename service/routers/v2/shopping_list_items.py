@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date # Import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -30,9 +30,15 @@ class ShoppingListItemResponse(BaseModel):
     id: int
     shopping_list_id: int
     g_product_id: int
-    product_name: Optional[str] = None # Added product name
-    is_generic_product: Optional[bool] = None # Added for generic product identification
-    chain_code: Optional[str] = None # Added chain code
+    product_name: Optional[str] = None
+    ean: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    variants: Optional[List[dict]] = None # Changed to List[dict]
+    is_generic_product: Optional[bool] = None
+    seasonal_start_month: Optional[int] = None
+    seasonal_end_month: Optional[int] = None
+    chain_code: Optional[str] = None
     quantity: Decimal
     base_unit_type: str
     price_at_addition: Optional[Decimal] = None
@@ -43,6 +49,23 @@ class ShoppingListItemResponse(BaseModel):
     bought_at: Optional[datetime] = None
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    
+    # Current Price Information (from g_prices)
+    current_price_date: Optional[date] = None
+    current_regular_price: Optional[Decimal] = None
+    current_special_price: Optional[Decimal] = None
+    current_price_per_kg: Optional[Decimal] = None
+    current_price_per_l: Optional[Decimal] = None
+    current_price_per_piece: Optional[Decimal] = None
+    current_is_on_special_offer: Optional[bool] = None
+
+    # Best Offer Information (from g_product_best_offers)
+    best_unit_price_per_kg: Optional[Decimal] = None
+    best_unit_price_per_l: Optional[Decimal] = None
+    best_unit_price_per_piece: Optional[Decimal] = None
+    lowest_price_in_season: Optional[Decimal] = None
+    best_price_store_id: Optional[int] = None
+    best_price_found_at: Optional[datetime] = None
 
 @router.post("/shopping_lists/{list_id}/items", response_model=ShoppingListItemResponse, status_code=status.HTTP_201_CREATED)
 async def add_item_to_shopping_list(

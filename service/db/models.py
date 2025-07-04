@@ -197,7 +197,7 @@ class GProduct:
     brand: Optional[str] = None
     category: str
     base_unit_type: str # This should ideally be an Enum, but using str for simplicity based on SQL schema
-    variants: Optional[dict] = None # JSONB type in DB
+    variants: Optional[List[dict]] = None # JSONB type in DB, expecting list of dicts
     text_for_embedding: Optional[str] = None
     keywords: Optional[List[str]] = None # TEXT[] type in DB
     is_generic_product: bool = False # Added for generic product identification
@@ -282,11 +282,17 @@ class ShoppingListItem(BaseModel):
     id: int
     shopping_list_id: int
     g_product_id: int
-    product_name: Optional[str] = None # Added product name
-    is_generic_product: Optional[bool] = None # Added for generic product identification
-    chain_code: Optional[str] = None # Added chain code
+    product_name: Optional[str] = None
+    ean: Optional[str] = None # From GProduct
+    brand: Optional[str] = None # From GProduct
+    category: Optional[str] = None # From GProduct
+    variants: Optional[List[dict]] = None # From GProduct (JSONB), expecting list of dicts
+    is_generic_product: Optional[bool] = None
+    seasonal_start_month: Optional[int] = None # From GProduct
+    seasonal_end_month: Optional[int] = None # From GProduct
+    chain_code: Optional[str] = None
     quantity: Decimal
-    base_unit_type: str # Corresponds to unit_type_enum in DB, can be mapped to Python Enum if needed
+    base_unit_type: str
     price_at_addition: Optional[Decimal] = None
     store_id_at_addition: Optional[int] = None
     status: ShoppingListItemStatus
@@ -295,6 +301,23 @@ class ShoppingListItem(BaseModel):
     bought_at: Optional[datetime] = None
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    
+    # Current Price Information (from g_prices)
+    current_price_date: Optional[date] = None
+    current_regular_price: Optional[Decimal] = None
+    current_special_price: Optional[Decimal] = None
+    current_price_per_kg: Optional[Decimal] = None
+    current_price_per_l: Optional[Decimal] = None
+    current_price_per_piece: Optional[Decimal] = None
+    current_is_on_special_offer: Optional[bool] = None
+
+    # Best Offer Information (from g_product_best_offers)
+    best_unit_price_per_kg: Optional[Decimal] = None
+    best_unit_price_per_l: Optional[Decimal] = None
+    best_unit_price_per_piece: Optional[Decimal] = None
+    lowest_price_in_season: Optional[Decimal] = None
+    best_price_store_id: Optional[int] = None
+    best_price_found_at: Optional[datetime] = None
 
 class ProductSearchItemV2(BaseModel):
     id: int
