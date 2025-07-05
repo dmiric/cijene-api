@@ -11,13 +11,13 @@ from datetime import date, datetime
 from dateutil import parser
 import json
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import Product, User, UserPersonalData, UserLocation, GProduct, GPrice, GProductBestOffer, Store, Chain
 from uuid import UUID, uuid4
 
 logger = logging.getLogger("enricher")
 
-db = settings.get_db()
+db = get_settings().get_db()
 
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:

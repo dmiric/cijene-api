@@ -17,7 +17,7 @@ langchain-openai==0.1.8
 tiktoken==0.7.0
 jq==1.6
 pgvector[asyncpg]
-google-generativeai
+google-genai
 openpyxl
 python-dateutil
 pytest==8.2.2
@@ -25,3 +25,6 @@ httpx==0.27.0
 pytest-asyncio==0.23.7
 passlib[bcrypt]
 python-jose[cryptography]
+protobuf
+proto-plus
+google-api-core

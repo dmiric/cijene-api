@@ -4,12 +4,12 @@ from pydantic import BaseModel, Field
 from typing import Any, Optional, List
 import sys
 
-from service.config import settings
+from service.config import get_settings
 from service.routers.auth import RequireAuth
 from fastapi import Depends
 
 router = APIRouter(tags=["Stores V2"], dependencies=[RequireAuth])
-db = settings.get_db()
+db = get_settings().get_db()
 
 # Pydantic Models for Responses
 

@@ -3,13 +3,13 @@ from typing import Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import User, UserPersonalData
 from service.routers.auth import verify_authentication, RequireAuth
 from pydantic import BaseModel, EmailStr
 
 router = APIRouter(tags=["Users V2"])
-db = settings.get_db()
+db = get_settings().get_db()
 
 # Pydantic Models for V2 User Endpoints
 class UserCreateRequest(BaseModel):

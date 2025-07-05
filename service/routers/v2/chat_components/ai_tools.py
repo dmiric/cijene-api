@@ -1,9 +1,10 @@
-from service.config import settings
+from service.config import get_settings
 import sys
 from typing import Optional, List, Any
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime # Import datetime
 import asyncio # Import asyncio for concurrent execution
+from uuid import UUID # Import UUID
 from service.utils.timing import timing_decorator, debug_print # Import the decorator and debug_print
 from service.db.field_configs import (
     USER_LOCATION_AI_FIELDS, # Import AI fields for user locations
@@ -16,25 +17,34 @@ from service.db.field_configs import (
 
 from .ai_helpers import pydantic_to_dict, filter_product_fields # A new helper file
 
-db = settings.get_db()
+db = get_settings().get_db()
 
 # --- Tool Functions ---
 async def search_products_tool_v2(
     q: str,
-    limit: int = 20,
-    offset: int = 0,
-    sort_by: Optional[str] = None,
-    store_ids: Optional[str] = None,
+    limit: Optional[int] = 20, # Set default here
+    offset: Optional[int] = 0, # Set default here
+    *, # All subsequent arguments must be keyword-only
+    sort_by: Optional[str] = "relevance", # Set default here
+    store_ids: Optional[str] = None, # Set default here
 ):
     """
     Search for products by name using hybrid search (vector + keyword) and optionally filter by stores.
     Args:
         q (str): The user's natural language query.
-        limit (int): Maximum number of results to return.
-        offset (int): Number of results to skip.
+        limit (Optional[int]): Maximum number of results to return.
+        offset (Optional[int]): Number of results to skip.
         sort_by (Optional[str]): How to sort the results (e.g., 'best_value_kg', 'relevance').
         store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
     """
+    # Remove internal default value assignments as they are now in the signature
+    # if limit is None:
+    #     limit = 20
+    # if offset is None:
+    #     offset = 0
+    # if sort_by is None:
+    #     sort_by = "relevance" # Default sort_by
+
     try:
         # Step 1: Perform hybrid search using db.get_g_products_hybrid_search
         products = await db.get_g_products_hybrid_search(
@@ -193,17 +203,21 @@ async def get_product_details_tool_v2(product_id: int):
 async def find_nearby_stores_tool_v2(
     lat: float,
     lon: float,
-    radius_meters: int = 5000,
-    chain_code: Optional[str] = None,
+    radius_meters: Optional[int],
+    chain_code: Optional[str],
 ):
     """
     Finds stores within a specified radius of a geographic point using the 'stores' table.
     Args:
         lat (float): Latitude of the center point.
         lon (float): Longitude of the center point.
-        radius_meters (int): Radius in meters to search within.
+        radius_meters (Optional[int]): Radius in meters to search within.
         chain_code (Optional[str]): Optional: Filter by a specific chain.
     """
+    # Reintroduce default value internally
+    if radius_meters is None:
+        radius_meters = 5000
+
     try:
         # Use db (psql.py) and get_stores_within_radius for 'stores' table
         response = await db.get_stores_within_radius(
@@ -220,22 +234,6 @@ async def find_nearby_stores_tool_v2(
 
 
 
-async def get_user_locations_tool():
-    """
-    Retrieves a user's saved locations.
-    """
-    try:
-        # This still uses the original db as user locations are not g_tables
-        # The user_id is now passed directly from the chat endpoint's auth dependency
-        # and will be handled by the calling function.
-        # This tool function no longer needs to accept user_id as an argument.
-        locations = await db.users.get_user_locations_by_user_id(
-            # user_id is now passed directly from chat_endpoint_v2
-            fields=USER_LOCATION_AI_FIELDS # Pass the specific fields for AI
-        )
-        return pydantic_to_dict({"locations": locations})
-    except Exception as e:
-        return {"error": str(e)}
 
 
 
@@ -259,8 +257,39 @@ async def multi_search_tool(queries: List[dict]):
             results.append({f"query_{i}_error": f"Tool '{tool_name}' not found."})
             continue
 
+        # Ensure 'offset', 'store_ids', and 'sort_by' are always present for search_products_v2
+        if tool_name == "search_products_v2":
+            tool_args["offset"] = tool_args.get("offset")
+            tool_args["store_ids"] = tool_args.get("store_ids")
+            # Explicitly set sort_by to its default if not provided by the model
+            if "sort_by" not in tool_args or tool_args["sort_by"] is None:
+                tool_args["sort_by"] = "relevance"
+
         tool_func = available_tools[tool_name]
-        tasks.append(tool_func(**tool_args))
+        debug_print(f"multi_search_tool: Preparing to call {tool_name}")
+        debug_print(f"multi_search_tool: tool_func type: {type(tool_func)}")
+        debug_print(f"multi_search_tool: tool_args for {tool_name}: {tool_args}")
+
+        # Check if it's a coroutine function and append the coroutine object
+        if asyncio.iscoroutinefunction(tool_func):
+            tasks.append(tool_func(**tool_args))
+            debug_print(f"multi_search_tool: Appended coroutine for {tool_name}")
+        else:
+            # If it's not a coroutine function, execute it directly (if it's synchronous)
+            # or raise an error if it's expected to be async.
+            debug_print(f"multi_search_tool: WARNING: {tool_name} is not a coroutine function. Executing directly.")
+            try:
+                result = tool_func(**tool_args)
+                # If it returns a Future/Task, it's still async, so await it
+                if asyncio.isfuture(result) or asyncio.iscoroutine(result):
+                    tasks.append(result)
+                else:
+                    # Wrap synchronous result in a future to be gathered
+                    tasks.append(asyncio.Future())
+                    tasks[-1].set_result(result)
+            except Exception as e:
+                debug_print(f"multi_search_tool: Error executing sync tool {tool_name}: {e}")
+                results.append({f"query_{i}_error": str(e)})
 
     if not tasks:
         return {"results": []}
@@ -280,9 +309,9 @@ async def multi_search_tool(queries: List[dict]):
 async def get_seasonal_product_deals_tool_v2(
     canonical_name: str,
     category: str,
-    current_month: Optional[int] = None,
-    limit: int = 10,
-    offset: int = 0
+    current_month: Optional[int],
+    limit: Optional[int],
+    offset: Optional[int]
 ):
     """
     Finds the lowest seasonal price for generic products across all chains
@@ -291,14 +320,19 @@ async def get_seasonal_product_deals_tool_v2(
         canonical_name (str): The canonical name of the generic product (e.g., "Crvene Naranče").
         category (str): The category of the product (e.g., "Voće i povrće").
         current_month (Optional[int]): The current month (1-12). Defaults to current system month if not provided.
-        limit (int): Maximum number of results to return.
-        offset (int): Number of results to skip.
+        limit (Optional[int]): Maximum number of results to return.
+        offset (Optional[int]): Number of results to skip.
     """
+    # Reintroduce default values internally
+    if current_month is None:
+        current_month = datetime.now().month
+    if limit is None:
+        limit = 10
+    if offset is None:
+        offset = 0
+
     debug_print(f"Tool Call: get_seasonal_product_deals_tool_v2(canonical_name={canonical_name}, category={category}, current_month={current_month})")
     try:
-        if current_month is None:
-            current_month = datetime.now().month
-
         results = await db.golden_products.get_overall_seasonal_best_price_for_generic_product(
             canonical_name=canonical_name,
             category=category,
@@ -312,13 +346,50 @@ async def get_seasonal_product_deals_tool_v2(
         return {"error": str(e)}
 
 
+from .internal_tools import get_user_locations_tool # Assuming you move the original tool logic here
+
+# NEW COMPOSITE TOOL
+async def find_nearby_stores_for_user_tool(user_id: str, radius_meters: Optional[int]) -> dict:
+    """
+    Finds nearby stores for a given user by first retrieving their primary
+    saved location and then searching around that location.
+    """
+    debug_print(f"Composite tool 'find_nearby_stores_for_user' called for user {user_id}")
+    
+    # Convert user_id from str to UUID for internal use
+    user_id_uuid = UUID(user_id)
+
+    # Step 1: Get user location
+    location_data = await get_user_locations_tool(user_id=user_id_uuid)
+    if "error" in location_data:
+        return location_data # Pass through the error
+        
+    locations = location_data.get("locations", [])
+    if not locations:
+        return {"error": "No saved locations found for the user."}
+
+    # Step 2: Use the first location to find stores
+    first_location = locations[0]
+    lat = first_location.get("latitude")
+    lon = first_location.get("longitude")
+
+    if lat is None or lon is None:
+        return {"error": "Saved location is missing coordinate data."}
+
+    # Reintroduce default value internally
+    if radius_meters is None:
+        radius_meters = 1500
+
+    # Step 3: Find nearby stores
+    return await find_nearby_stores_tool_v2(lat=float(lat), lon=float(lon), radius_meters=radius_meters)
+
 # Map tool names to their Python functions
 available_tools = {
     "search_products_v2": search_products_tool_v2,
     "get_product_prices_by_location_v2": get_product_prices_by_location_tool_v2,
     "get_product_details_v2": get_product_details_tool_v2,
     "find_nearby_stores_v2": find_nearby_stores_tool_v2,
-    "get_user_locations": get_user_locations_tool,
     "multi_search_tool": multi_search_tool,
     "get_seasonal_product_deals_v2": get_seasonal_product_deals_tool_v2, # Add the new seasonal deals tool
+    "find_nearby_stores_for_user": find_nearby_stores_for_user_tool, # Add the new composite tool
 }

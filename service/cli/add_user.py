@@ -2,7 +2,7 @@ import asyncio
 import argparse
 import logging
 import uuid
-from service.config import settings
+from service.config import get_settings
 from service.db.psql import PostgresDatabase
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ async def main():
     parser.add_argument("email", type=str, help="The email for the new user.") # Added email argument
     args = parser.parse_args()
 
-    db: PostgresDatabase = settings.get_db()
+    db: PostgresDatabase = get_settings().get_db()
 
     try:
         await db.connect()

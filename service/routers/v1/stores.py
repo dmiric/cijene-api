@@ -4,13 +4,13 @@ from pydantic import BaseModel, Field
 import sys
 from typing import Any, Optional
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import Store, StoreWithId, ChainWithId, User
 from service.routers.auth import RequireAuth
 from fastapi import Depends
 
 router = APIRouter(tags=["Stores"], dependencies=[RequireAuth])
-db = settings.get_db()
+db = get_settings().get_db()
 
 def debug_print(*args, **kwargs):
     print("[DEBUG stores]", *args, file=sys.stderr, **kwargs)

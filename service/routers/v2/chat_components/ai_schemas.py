@@ -5,6 +5,9 @@ import datetime
 from decimal import Decimal
 from datetime import date
 from dataclasses import asdict, fields, is_dataclass
+from google import genai
+from .ai_models import gemini_client
+from .ai_tools import available_tools
 
 # --- Pydantic Models ---
 class ChatRequest(BaseModel):
@@ -33,130 +36,134 @@ class ChatResponse(BaseModel):
     message: str = Field(..., description="A message indicating the status or initial response.")
 
 # --- AI Tool Schemas ---
+# Manually define gemini_tools as FunctionDeclaration dictionaries
 gemini_tools = [
-    {
-        # <<< UPDATED TOOL >>>
-        # This tool is updated to require a 'caption' for each sub-query.
-        "function_declarations": [
-            {
-                "name": "multi_search_tool",
-                "description": "Omogućuje izvršavanje više upita za pretraživanje proizvoda odjednom. Svaki upit mora imati naslov (caption) koji će se prikazati korisniku.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "queries": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "caption": {
-                                        "type": "string",
-                                        "description": "Kratki, korisniku vidljiv naslov za ovu grupu pretrage (npr. 'Najbolja Vrijednost', 'Bio Izbor'). Mora biti na hrvatskom jeziku."
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "search_products_v2",
+            "description": "Search for products by name using hybrid search (vector + keyword) and advanced sorting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "q": {"type": "string", "description": "The user's natural language query."},
+                    "limit": {"type": "integer", "description": "Maximum number of results to return."},
+                    "offset": {"type": "integer", "description": "Number of results to skip."},
+                    "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'relevance')."},
+                    "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
+                },
+                "required": ["q"], # Only 'q' is strictly required
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "get_product_prices_by_location_v2",
+            "description": "Finds the prices for a single product at a list of specific stores.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {"type": "integer", "description": "The ID of the product."},
+                    "store_ids": {"type": "string", "description": "A comma-separated list of store IDs, e.g., 101,105,230."},
+                },
+                "required": ["product_id", "store_ids"],
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "get_product_details_v2",
+            "description": "Retrieves the full details for a single product.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {"type": "integer", "description": "The ID of the product."},
+                },
+                "required": ["product_id"],
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "find_nearby_stores_v2",
+            "description": "Finds stores within a specified radius of a geographic point using the 'stores' table.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "format": "float", "description": "Latitude of the center point."},
+                    "lon": {"type": "number", "format": "float", "description": "Longitude of the center point."},
+                    "radius_meters": {"type": "integer", "description": "Radius in meters to search within."},
+                    "chain_code": {"type": "string", "description": "Optional: Filter by a specific chain."},
+                },
+                "required": ["lat", "lon"],
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "multi_search_tool",
+            "description": "Executes multiple product search queries concurrently and returns all results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "The name of the tool function to call."},
+                                "arguments": {
+                                    "type": "object",
+                                    "description": "The arguments to pass to the tool. Must match the schema of the target tool.",
+                                    "properties": {
+                                        "q": {"type": "string", "description": "The user's natural language query."},
+                                        "limit": {"type": "integer", "description": "Maximum number of results to return."},
+                                        "offset": {"type": "integer", "description": "Number of results to skip."},
+                                        "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'relevance')."},
+                                        "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
                                     },
-                                    "name": {
-                                        "type": "string",
-                                        "description": "Naziv alata za pozivanje (uvijek 'search_products_v2')."
-                                    },
-                                    "arguments": {
-                                        "type": "object",
-                                        "description": "Argumenti za prosljeđivanje alatu search_products_v2."
-                                    }
+                                    "required": ["q"],
                                 },
-                                "required": ["caption", "name", "arguments"]
                             },
-                            "description": "Popis poziva alata za izvršavanje. Svaki poziv mora imati 'caption', 'name' i 'arguments'."
-                        }
-                    },
-                    "required": ["queries"],
+                            "required": ["name", "arguments"],
+                        },
+                        "description": "A list of tool calls to execute. Each item should be a dictionary with 'name' (the tool function name) and 'arguments' (a dictionary of arguments for that tool).",
+                    }
                 },
-            }
-        ]
-    },
-    {
-        # <<< SIMPLIFIED TOOL >>>
-        # This tool reflects your change, removing 'brand' and 'category'.
-        "function_declarations": [
-            {
-                "name": "search_products_v2",
-                "description": "Pretraživanje proizvoda pomoću hibridne pretrage (vektor + ključna riječ) i naprednog sortiranja.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "q": {"type": "string", "description": "Korisnikov upit prirodnim jezikom. Može sadržavati marku, kategoriju i druge atribute."},
-                        "limit": {"type": "integer", "description": "Maksimalan broj rezultata za povratak."},
-                        "offset": {"type": "integer", "description": "Broj rezultata za preskakanje."},
-                        "sort_by": {"type": "string", "description": "Neobavezno. Vrijednosti: 'relevance', 'best_value_kg', 'best_value_l', 'best_value_piece'."},
-                    },
-                    "required": ["q"],
+                "required": ["queries"],
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "get_seasonal_product_deals_v2",
+            "description": "Finds the lowest seasonal price for generic products across all chains that match the canonical name and category and are currently in season.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "canonical_name": {"type": "string", "description": "The canonical name of the generic product (e.g., 'Crvene Naranče')."},
+                    "category": {"type": "string", "description": "The category of the product (e.g., 'Voće i povrće')."},
+                    "current_month": {"type": "integer", "description": "The current month (1-12)."},
+                    "limit": {"type": "integer", "description": "Maximum number of results to return."},
+                    "offset": {"type": "integer", "description": "Number of results to skip."},
                 },
-            }
-        ]
-    },
-    {
-        # --- Unchanged Tools Below ---
-        "function_declarations": [
-            {
-                "name": "get_product_prices_by_location_v2",
-                "description": "Pronalazi cijene za jedan proizvod na popisu određenih trgovina.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "product_id": {"type": "integer", "description": "ID proizvoda."},
-                        "store_ids": {"type": "string", "description": "Popis ID-ova trgovina odvojenih zarezima, npr. 101,105,230."},
-                    },
-                    "required": ["product_id", "store_ids"],
+                "required": ["canonical_name", "category"],
+            },
+        }
+    ]),
+    genai.types.Tool(function_declarations=[
+        {
+            "name": "find_nearby_stores_for_user",
+            "description": "Finds nearby stores for a given user by first retrieving their primary saved location and then searching around that location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "The ID of the user."},
+                    "radius_meters": {"type": "integer", "description": "Radius in meters to search within."},
                 },
-            }
-        ]
-    },
-    {
-        "function_declarations": [
-            {
-                "name": "get_product_details_v2",
-                "description": "Dohvaća potpuni 'zlatni zapis' za jedan proizvod.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "product_id": {"type": "integer", "description": "ID proizvoda."},
-                    },
-                    "required": ["product_id"],
-                },
-            }
-        ]
-    },
-    {
-        "function_declarations": [
-            {
-                "name": "find_nearby_stores_v2",
-                "description": "Pronalazi trgovine unutar određenog radijusa od zemljopisne točke.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "lat": {"type": "number", "format": "float", "description": "Zemljopisna širina središnje točke."},
-                        "lon": {"type": "number", "format": "float", "description": "Zemljopisna dužina središnje točke."},
-                        "radius_meters": {"type": "integer", "description": "Radijus u metrima za pretraživanje."},
-                        "chain_code": {"type": "string", "description": "Neobavezno: Filtriranje po kodu lanca."},
-                    },
-                    "required": ["lat", "lon"],
-                },
-            }
-        ]
-    },
-    {
-        "function_declarations": [
-            {
-                "name": "get_user_locations",
-                "description": "Dohvaća spremljene lokacije korisnika.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "user_id": {"type": "integer", "description": "ID korisnika."},
-                    },
-                    "required": ["user_id"],
-                },
-            }
-        ]
-    },
+                "required": ["user_id"],
+            },
+        }
+    ]),
 ]
 
 openai_tools = [
@@ -251,14 +258,13 @@ openai_tools = [
     {
         "type": "function",
         "function": {
-            "name": "get_user_locations",
-            "description": "Dohvaća spremljene lokacije korisnika.",
+            "name": "find_nearby_stores_for_user",
+            "description": "Pronalazi trgovine u blizini korisnikove primarne spremljene lokacije. Koristite ovo kada korisnik traži nešto 'blizu mene' ili 'blizu kuće/posla'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_id": {"type": "integer", "description": "ID korisnika."},
+                    "radius_meters": {"type": "integer", "description": "Neobavezno. Radijus pretraživanja u metrima (zadano: 1500)."},
                 },
-                "required": ["user_id"],
             },
         },
     },

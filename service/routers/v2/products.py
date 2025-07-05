@@ -5,12 +5,12 @@ from typing import Any, Optional, List
 import sys
 import datetime # Import datetime
 
-from service.config import settings
+from service.config import get_settings
 from service.routers.auth import RequireAuth
 from fastapi import Depends
 
 router = APIRouter(tags=["Products V2"], dependencies=[RequireAuth])
-db = settings.get_db()
+db = get_settings().get_db()
 
 # Pydantic Models for Responses
 

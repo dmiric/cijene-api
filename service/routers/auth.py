@@ -12,7 +12,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import User, UserPersonalData, Token, UserRegisterRequest, UserLoginRequest, PasswordResetRequest, PasswordResetConfirm # Import new models
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,10 @@ router = APIRouter(tags=["Authentication"]) # Define APIRouter
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT secret key and algorithm from settings
-SECRET_KEY = settings.jwt_secret_key
-ALGORITHM = settings.jwt_algorithm
-ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
-REFRESH_TOKEN_EXPIRE_DAYS = settings.refresh_token_expire_days
+SECRET_KEY = get_settings().jwt_secret_key
+ALGORITHM = get_settings().jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = get_settings().access_token_expire_minutes
+REFRESH_TOKEN_EXPIRE_DAYS = get_settings().refresh_token_expire_days
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -51,7 +51,7 @@ def get_password_hash(password):
 
 async def send_verification_email(email: str, verification_token: UUID, background_tasks: BackgroundTasks):
     subject = "Verify your email for Cijene API"
-    verification_link = f"{settings.email_verification_base_url}/{verification_token}"
+    verification_link = f"{get_settings().email_verification_base_url}/{verification_token}"
     body = f"""
     Hi there,
 
@@ -69,7 +69,7 @@ async def send_verification_email(email: str, verification_token: UUID, backgrou
     msg = EmailMessage()
     msg.set_content(body)
     msg["Subject"] = subject
-    msg["From"] = settings.sender_email
+    msg["From"] = get_settings().sender_email
     msg["To"] = email
 
     # Use BackgroundTasks to send email asynchronously
@@ -78,11 +78,11 @@ async def send_verification_email(email: str, verification_token: UUID, backgrou
 def _send_email_sync(msg: EmailMessage):
     try:
         # MailHog on port 1025 does not use SSL, so use SMTP instead of SMTP_SSL
-        with smtplib.SMTP(settings.smtp_server, settings.smtp_port) as server:
+        with smtplib.SMTP(get_settings().smtp_server, get_settings().smtp_port) as server:
             # MailHog does not require authentication by default, but we keep the login call
             # in case it's configured for it or for compatibility with other SMTP servers.
-            if settings.smtp_username and settings.smtp_password:
-                server.login(settings.smtp_username, settings.smtp_password)
+            if get_settings().smtp_username and get_settings().smtp_password:
+                server.login(get_settings().smtp_username, get_settings().smtp_password)
             server.send_message(msg)
         logger.info(f"Verification email sent to {msg['To']}")
     except Exception as e:
@@ -90,7 +90,7 @@ def _send_email_sync(msg: EmailMessage):
 
 async def send_password_reset_email(email: str, reset_token: str, background_tasks: BackgroundTasks):
     subject = "Password Reset for Cijene API"
-    reset_link = f"{settings.email_verification_base_url.replace('verify-email', 'reset-password')}/{reset_token}" # Assuming a reset-password endpoint
+    reset_link = f"{get_settings().email_verification_base_url.replace('verify-email', 'reset-password')}/{reset_token}" # Assuming a reset-password endpoint
     body = f"""
     Hi,
 
@@ -108,7 +108,7 @@ async def send_password_reset_email(email: str, reset_token: str, background_tas
     msg = EmailMessage()
     msg.set_content(body)
     msg["Subject"] = subject
-    msg["From"] = settings.sender_email
+    msg["From"] = get_settings().sender_email
     msg["To"] = email
 
     background_tasks.add_task(_send_email_sync, msg)
@@ -117,7 +117,7 @@ async def send_password_reset_email(email: str, reset_token: str, background_tas
 # Security scheme for OpenAPI documentation
 security_scheme = HTTPBearer(scheme_name="HTTPBearer")
 
-db = settings.get_db()
+db = get_settings().get_db()
 
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)

@@ -4,13 +4,13 @@ from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import UserLocation, UserPersonalData
 from service.routers.auth import RequireAuth
 from pydantic import BaseModel
 
 router = APIRouter(tags=["User Locations V2"])
-db = settings.get_db()
+db = get_settings().get_db()
 
 # Pydantic Models for V2 User Location Endpoints
 class UserLocationCreateRequest(BaseModel):

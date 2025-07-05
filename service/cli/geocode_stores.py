@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import typer
 import logging
 
-from service.config import settings
+from service.config import get_settings
 from service.db.psql import PostgresDatabase
 from service.db.models import Store # Keep Store, remove StoreWithId
 
@@ -18,7 +18,7 @@ app = typer.Typer()
 
 async def get_db() -> PostgresDatabase:
     """Get a database instance."""
-    db = settings.get_db()
+    db = get_settings().get_db()
     if not isinstance(db, PostgresDatabase):
         raise RuntimeError("Database is not a PostgresDatabase instance.")
     await db.connect()

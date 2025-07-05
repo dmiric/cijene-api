@@ -65,12 +65,12 @@ class ChatRepository(BaseRepository):
     
     async def save_chat_message(
         self,
-        user_id: int,
-        session_id: str,
+        user_id: UUID, # Changed to UUID
+        session_id: UUID, # Changed to UUID
         message_text: str,
         is_user_message: bool,
-        tool_calls: Optional[List[dict]] = None,
-        tool_outputs: Optional[List[dict]] = None,
+        tool_calls: Optional[dict] = None,
+        tool_outputs: Optional[dict] = None,
         ai_response: Optional[str] = None,
     ) -> int:
         """
@@ -108,22 +108,22 @@ class ChatRepository(BaseRepository):
                 message.sender,
                 message.message_text,
                 message.timestamp,
-                json.dumps(message.tool_calls) if message.tool_calls else None,
-                json.dumps(message.tool_outputs) if message.tool_outputs else None,
+                json.dumps(message.tool_calls) if message.tool_calls else None, # Re-added json.dumps
+                json.dumps(message.tool_outputs) if message.tool_outputs else None, # Re-added json.dumps
                 message.ai_response,
             )
         self.debug_print(f"Saved chat message: {message.id}")
         return 1 # Return a dummy ID for now, as the method signature expects int
 
     
-    async def get_chat_messages(self, user_id: int, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
+    async def get_chat_messages(self, user_id: UUID, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
         """
         Retrieves chat messages for a given user and session, ordered by timestamp.
         """
         async with self._get_conn() as conn:
             rows = await conn.fetch(
                 """
-                SELECT id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs
+                SELECT id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs, ai_response
                 FROM chat_messages
                 WHERE user_id = $1 AND session_id = $2
                 ORDER BY timestamp ASC
@@ -141,7 +141,7 @@ class ChatRepository(BaseRepository):
                         tool_calls_data = json.loads(tool_calls_data)
                     except json.JSONDecodeError:
                         self.debug_print(f"Error decoding tool_calls string from DB: {tool_calls_data}")
-                        tool_calls_data = None # Set to None if decoding fails
+                        tool_calls_data = None
 
                 tool_outputs_data = row["tool_outputs"]
                 if isinstance(tool_outputs_data, str):
@@ -149,18 +149,19 @@ class ChatRepository(BaseRepository):
                         tool_outputs_data = json.loads(tool_outputs_data)
                     except json.JSONDecodeError:
                         self.debug_print(f"Error decoding tool_outputs string from DB: {tool_outputs_data}")
-                        tool_outputs_data = None # Set to None if decoding fails
+                        tool_outputs_data = None
 
                 chat_messages.append(
                     ChatMessage(
-                        id=str(row["id"]),
+                        id=row["id"],
                         user_id=row["user_id"],
-                        session_id=str(row["session_id"]),
+                        session_id=row["session_id"],
                         sender=row["sender"],
                         message_text=row["message_text"],
                         timestamp=row["timestamp"],
                         tool_calls=tool_calls_data,
                         tool_outputs=tool_outputs_data,
+                        ai_response=row["ai_response"], # Fetch ai_response
                     )
                 )
             return chat_messages

@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+from google import genai # Updated import
 from openai import OpenAI
 from dotenv import load_dotenv
 import sys
@@ -13,8 +13,7 @@ def debug_print(*args, **kwargs):
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 gemini_client = None
 if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-    gemini_client = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+    gemini_client = genai.Client() # Initialize the new client
 else:
     debug_print("GOOGLE_API_KEY not found.")
 

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 load_dotenv()
 
+_settings_instance: "Settings | None" = None
 
 class Settings:
     """Application settings loaded from environment variables."""
@@ -46,6 +47,10 @@ class Settings:
         self.sender_email: str = os.getenv("SENDER_EMAIL", "no-reply@example.com")
         self.email_verification_base_url: str = os.getenv("EMAIL_VERIFICATION_BASE_URL", "http://localhost:8000/auth/verify-email")
 
+        # AI Models
+        self.gemini_text_model: str = os.getenv("GEMINI_TEXT_MODEL")
+        self.max_tool_calls: int = int(os.getenv("MAX_TOOL_CALLS", "10"))
+
     def get_db(self) -> "Database":
         """
         Get the database instance based on the configured settings.
@@ -68,4 +73,8 @@ class Settings:
 
         return self._db
 
-settings = Settings()
+def get_settings() -> Settings:
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = Settings()
+    return _settings_instance

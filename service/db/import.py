@@ -11,12 +11,12 @@ from tempfile import TemporaryDirectory
 from time import time
 from typing import Any, Dict, List
 
-from service.config import settings
+from service.config import get_settings
 from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation # Added User, UserLocation, SearchKeyword
 
 logger = logging.getLogger("importer")
 
-db = settings.get_db()
+db = get_settings().get_db()
 
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:

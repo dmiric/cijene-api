@@ -20,15 +20,15 @@ from service.routers.v2.ai_tools import router as v2_ai_tools_router # New impor
 from service.routers.v2.shopping_lists import router as v2_shopping_lists_router # New import
 from service.routers.v2.shopping_list_items import router as v2_shopping_list_items_router # New import
 from service.routers.auth import router as auth_router # New import for authentication router
-from service.config import settings
+from service.config import get_settings
 from service.db.base import database_container, get_db_session # Import from base.py
 from service.db.psql import PostgresDatabase # Keep this import for type hinting in settings.get_db()
 
 app = FastAPI(
     title="Cijene API",
     description="Service for product pricing data by Croatian grocery chains",
-    version=settings.version,
-    debug=settings.debug,
+    version=get_settings().version,
+    debug=get_settings().debug,
     openapi_components={
         "securitySchemes": {"HTTPBearer": {"type": "http", "scheme": "bearer"}}
     },
@@ -37,7 +37,7 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler to initialize the database."""
-    database_container.db = settings.get_db()
+    database_container.db = get_settings().get_db()
     await database_container.db.connect()
     await database_container.db.create_tables()
 
@@ -80,7 +80,7 @@ app.include_router(auth_router, prefix="/auth") # Include the new authentication
 @app.get("/", include_in_schema=False)
 async def root():
     """Root endpoint redirects to main website."""
-    return RedirectResponse(url=settings.redirect_url, status_code=302)
+    return RedirectResponse(url=get_settings().redirect_url, status_code=302)
 
 
 @app.get("/health", tags=["Service status"])
@@ -90,7 +90,7 @@ async def health_check():
 
 
 def main():
-    log_level = logging.DEBUG if settings.debug else logging.INFO
+    log_level = logging.DEBUG if get_settings().debug else logging.INFO
     
     # Configure the root logger to ensure all messages are captured
     root_logger = logging.getLogger()
@@ -108,8 +108,8 @@ def main():
 
     uvicorn.run(
         "service.main:app",
-        host=settings.host,
-        port=settings.port,
+        host=get_settings().host,
+        port=get_settings().port,
         log_level=log_level,
         reload=False, # Disable auto-reloading for stable logs during testing
     )

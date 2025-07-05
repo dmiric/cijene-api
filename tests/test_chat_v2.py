@@ -200,7 +200,7 @@ async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UU
     # user_id should be in the request body as part of ChatRequest.
 
     response = await client.post(
-        "/chat",
+        "/chat_v2",
         json={"message_text": message}, # user_id is now derived from auth header
         timeout=30.0 # Increase timeout for potentially long AI responses
     )
