@@ -240,22 +240,11 @@ async def enrich_stores(csv_path: Path) -> None:
         )
         
         # Use add_store which handles both insert and update (upsert)
-        was_updated = await db.stores.update_store(
-            chain_id=store_obj.chain_id,
-            store_code=store_obj.code,
-            address=store_obj.address,
-            city=store_obj.city,
-            zipcode=store_obj.zipcode,
-            lat=store_obj.lat,
-            lon=store_obj.lon,
-            phone=store_obj.phone,
-        )
-        if was_updated:
+        store_id = await db.stores.add_store(store_obj)
+        if store_id:
             updated_count += 1
         else:
-            logger.info(
-                f"Store not found for update (chain_id={chain_id}, code={store_code}). Skipping new store."
-            )
+            logger.warning(f"Failed to add or update store: chain_id={chain_id}, code={store_code}")
 
     t1 = time()
     dt = int(t1 - t0)

@@ -133,16 +133,34 @@ class ChatRepository(BaseRepository):
                 session_id,
                 limit,
             )
-            return [
-                ChatMessage(
-                    id=str(row["id"]),
-                    user_id=row["user_id"],
-                    session_id=str(row["session_id"]),
-                    sender=row["sender"],
-                    message_text=row["message_text"],
-                    timestamp=row["timestamp"],
-                    tool_calls=row["tool_calls"],
-                    tool_outputs=row["tool_outputs"],
+            chat_messages = []
+            for row in rows:
+                tool_calls_data = row["tool_calls"]
+                if isinstance(tool_calls_data, str):
+                    try:
+                        tool_calls_data = json.loads(tool_calls_data)
+                    except json.JSONDecodeError:
+                        self.debug_print(f"Error decoding tool_calls string from DB: {tool_calls_data}")
+                        tool_calls_data = None # Set to None if decoding fails
+
+                tool_outputs_data = row["tool_outputs"]
+                if isinstance(tool_outputs_data, str):
+                    try:
+                        tool_outputs_data = json.loads(tool_outputs_data)
+                    except json.JSONDecodeError:
+                        self.debug_print(f"Error decoding tool_outputs string from DB: {tool_outputs_data}")
+                        tool_outputs_data = None # Set to None if decoding fails
+
+                chat_messages.append(
+                    ChatMessage(
+                        id=str(row["id"]),
+                        user_id=row["user_id"],
+                        session_id=str(row["session_id"]),
+                        sender=row["sender"],
+                        message_text=row["message_text"],
+                        timestamp=row["timestamp"],
+                        tool_calls=tool_calls_data,
+                        tool_outputs=tool_outputs_data,
+                    )
                 )
-                for row in rows
-            ]
+            return chat_messages

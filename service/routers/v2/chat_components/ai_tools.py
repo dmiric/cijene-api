@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 from decimal import Decimal
 from datetime import date
 import asyncio # Import asyncio for concurrent execution
-from service.utils.timing import timing_decorator # Import the decorator
+from service.utils.timing import timing_decorator, debug_print # Import the decorator and debug_print
 from service.db.field_configs import (
     USER_LOCATION_AI_FIELDS, # Import AI fields for user locations
     PRODUCT_AI_SEARCH_FIELDS, # Import AI fields for product search
@@ -24,9 +24,7 @@ async def search_products_tool_v2(
     limit: int = 20,
     offset: int = 0,
     sort_by: Optional[str] = None,
-    category: Optional[str] = None,
-    brand: Optional[str] = None,
-    store_ids: Optional[str] = None, # Added store_ids
+    store_ids: Optional[str] = None,
 ):
     """
     Search for products by name using hybrid search (vector + keyword) and optionally filter by stores.
@@ -35,8 +33,6 @@ async def search_products_tool_v2(
         limit (int): Maximum number of results to return.
         offset (int): Number of results to skip.
         sort_by (Optional[str]): How to sort the results (e.g., 'best_value_kg', 'relevance').
-        category (Optional[str]): Filter by product category.
-        brand (Optional[str]): Filter by product brand.
         store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
     """
     try:
@@ -46,11 +42,10 @@ async def search_products_tool_v2(
             limit=limit,
             offset=offset,
             sort_by=sort_by,
-            category=category,
-            brand=brand,
         )
 
         if not products:
+            debug_print("search_products_tool_v2 returning empty products list.")
             return {"products": []}
 
         # Filter products to include only AI-relevant fields
@@ -104,13 +99,15 @@ async def search_products_tool_v2(
                     product_dict["prices_in_stores"] = prices_in_stores_formatted
                     filtered_products_with_prices.append(product_dict)
             
+            debug_print(f"search_products_tool_v2 returning with store_ids: {len(filtered_products_with_prices)} products.")
             return pydantic_to_dict({"products": filtered_products_with_prices})
         
         # If no store_ids, return filtered products directly
+        debug_print(f"search_products_tool_v2 returning without store_ids: {len(filtered_products)} products.")
         return pydantic_to_dict({"products": filtered_products})
 
     except Exception as e:
-        debug_print(f"Error in search_products_tool_v2: {e}")
+        debug_print(f"search_products_tool_v2 caught exception: {e}")
         return {"error": str(e)}
 
 
@@ -223,16 +220,17 @@ async def find_nearby_stores_tool_v2(
 
 
 
-async def get_user_locations_tool(user_id: int):
+async def get_user_locations_tool():
     """
     Retrieves a user's saved locations.
-    Args:
-        user_id (int): The ID of the user.
     """
     try:
         # This still uses the original db as user locations are not g_tables
+        # The user_id is now passed directly from the chat endpoint's auth dependency
+        # and will be handled by the calling function.
+        # This tool function no longer needs to accept user_id as an argument.
         locations = await db.users.get_user_locations_by_user_id(
-            user_id,
+            # user_id is now passed directly from chat_endpoint_v2
             fields=USER_LOCATION_AI_FIELDS # Pass the specific fields for AI
         )
         return pydantic_to_dict({"locations": locations})
@@ -249,6 +247,7 @@ async def multi_search_tool(queries: List[dict]):
                               with 'name' (the tool function name) and 'arguments' (a dictionary
                               of arguments for that tool).
     """
+    debug_print(f"multi_search_tool received queries: {queries}") # Added debug print
     results = []
     tasks = []
 

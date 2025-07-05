@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS user_locations (
     location_name VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMPTZ DEFAULT NULL
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    UNIQUE (user_id, location_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_locations_user_id ON user_locations (user_id);

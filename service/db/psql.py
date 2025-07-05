@@ -273,10 +273,8 @@ class PostgresDatabase(Database):
         limit: int = 20,
         offset: int = 0,
         sort_by: Optional[str] = None,
-        category: Optional[str] = None,
-        brand: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by, category, brand)
+        return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by)
 
     async def get_g_stores_nearby(
         self,

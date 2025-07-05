@@ -125,7 +125,7 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 
 	@echo "Development fresh start completed."
 
-prune-docker: ## Stop all containers and perform a deep clean of the Docker system.
+docker-prune: ## Stop all containers and perform a deep clean of the Docker system.
 	@echo "Stopping all running project containers..."
 	docker compose down
 	@echo "Pruning Docker system. This will remove all stopped containers, all unused networks, all dangling images, and all unused build cache."
@@ -247,6 +247,9 @@ test-api: ## Run pytest integration tests for the API service
 	@echo "Test Shopping Lists..."
 	$(MAKE) test-shopping-lists
 
+	@echo "Test Chat V2..."
+	$(MAKE) test-chat-v2
+
 
 test-stores: ## Run pytest integration tests for the stores API service
 	@echo "Running stores API integration tests..."
@@ -300,6 +303,29 @@ test-shopping-lists: ## Run pytest integration tests for the shopping lists API 
 		--env SENDER_EMAIL=$(SENDER_EMAIL) \
 		--env EMAIL_VERIFICATION_BASE_URL=$(EMAIL_VERIFICATION_BASE_URL) \
 		api pytest tests/test_shopping_lists.py
+
+test-chat-v2: ## Run pytest integration tests for the chat v2 API service
+	@echo "Running chat v2 API integration tests..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
+		--env DEBUG=1 \
+		--env DB_HOST=db \
+		--env DB_PORT=5432 \
+		--env POSTGRES_USER=$(POSTGRES_USER) \
+		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env POSTGRES_DB=$(POSTGRES_DB) \
+		--env JWT_SECRET_KEY=$(JWT_SECRET_KEY) \
+		--env JWT_ALGORITHM=$(JWT_ALGORITHM) \
+		--env ACCESS_TOKEN_EXPIRE_MINUTES=$(ACCESS_TOKEN_EXPIRE_MINUTES) \
+		--env REFRESH_TOKEN_EXPIRE_DAYS=$(REFRESH_TOKEN_EXPIRE_DAYS) \
+		--env SMTP_SERVER=$(SMTP_SERVER) \
+		--env SMTP_PORT=$(SMTP_PORT) \
+		--env SMTP_USERNAME=$(SMTP_USERNAME) \
+		--env SMTP_PASSWORD=$(SMTP_PASSWORD) \
+		--env SENDER_EMAIL=$(SENDER_EMAIL) \
+		--env EMAIL_VERIFICATION_BASE_URL=$(EMAIL_VERIFICATION_BASE_URL) \
+		--env API_KEY=$(API_KEY) \
+		--env GOOGLE_API_KEY=$(GOOGLE_API_KEY) \
+		api pytest tests/test_chat_v2.py
 
 logs-api: ## Display full logs for the API service
 	@echo "Displaying full API logs..."

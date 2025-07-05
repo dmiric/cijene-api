@@ -72,6 +72,13 @@ class ShoppingListItemRepository(BaseRepository):
                 gp.seasonal_start_month,
                 gp.seasonal_end_month,
 
+                -- From stores (s)
+                s.address AS store_address,
+                s.city AS store_city,
+                s.lat AS store_lat,
+                s.lon AS store_lon,
+                s.phone AS store_phone,
+
                 -- From chains (c)
                 c.code AS chain_code,
 
@@ -156,6 +163,13 @@ class ShoppingListItemRepository(BaseRepository):
                 gp.seasonal_start_month,
                 gp.seasonal_end_month,
 
+                -- From stores (s)
+                s.address AS store_address,
+                s.city AS store_city,
+                s.lat AS store_lat,
+                s.lon AS store_lon,
+                s.phone AS store_phone,
+
                 -- From chains (c)
                 c.code AS chain_code,
 
@@ -198,7 +212,15 @@ class ShoppingListItemRepository(BaseRepository):
             WHERE sli.id = $1 AND sli.shopping_list_id = $2 AND sli.deleted_at IS NULL
         """
         record = await self.pool.fetchrow(query, item_id, shopping_list_id)
-        return ShoppingListItem(**record) if record else None
+        if record:
+            record_dict = dict(record)
+            if "variants" in record_dict and isinstance(record_dict["variants"], str):
+                try:
+                    record_dict["variants"] = json.loads(record_dict["variants"])
+                except json.JSONDecodeError:
+                    record_dict["variants"] = None # Handle malformed JSON
+            return ShoppingListItem(**record_dict)
+        return None
 
     async def update_shopping_list_item(
         self,

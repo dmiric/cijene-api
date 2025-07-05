@@ -60,14 +60,12 @@ class GoldenProductRepository(BaseRepository):
         limit: int = 20,
         offset: int = 0,
         sort_by: Optional[str] = None,
-        category: Optional[str] = None,
-        brand: Optional[str] = None,
     ) -> list[dict[str, Any]]: # Return list of dicts for flexibility
         """
         Performs hybrid search (vector + keyword) on g_products, fuses results with RRF,
         and applies sorting based on g_product_best_offers.
         """
-        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}, category={category}, brand={brand}")
+        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}")
 
         fields_to_select = list(PRODUCT_DB_SEARCH_FIELDS) # Start with all DB search fields
 
@@ -76,7 +74,6 @@ class GoldenProductRepository(BaseRepository):
             fields_to_select.append('rank')
 
         # Basic validation for fields (can be more robust)
-        # Valid fields are actual columns from g_products plus 'rank' and best offer fields
         valid_fields = set(PRODUCT_DB_SEARCH_FIELDS + ["embedding"]) # Add embedding as it's a DB field
         if not all(f in valid_fields for f in fields_to_select):
             raise ValueError("Invalid field requested for product search.")
@@ -85,7 +82,7 @@ class GoldenProductRepository(BaseRepository):
         select_parts = []
         for field in fields_to_select:
             if field == "rank":
-                select_parts.append("ts_rank_cd(to_tsvector('hr', array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank")
+                select_parts.append("ts_rank_cd(to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank")
             elif field.startswith("best_unit_price_"):
                 select_parts.append(f"gpbo.{field}")
             else:
@@ -98,17 +95,7 @@ class GoldenProductRepository(BaseRepository):
         param_counter = 2
 
         # Initial FTS condition
-        fts_condition = "to_tsvector('hr', array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)"
-        where_conditions.append(fts_condition)
-
-        if category:
-            where_conditions.append(f"category ILIKE ${param_counter}")
-            params.append(f"%{category}%")
-            param_counter += 1
-        if brand:
-            where_conditions.append(f"brand ILIKE ${param_counter}")
-            params.append(f"%{brand}%")
-            param_counter += 1
+        where_conditions.append(f"to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)")
 
         from_clause = "FROM g_products gp"
         join_clause = ""
@@ -139,9 +126,9 @@ class GoldenProductRepository(BaseRepository):
         params.extend([limit, offset])
 
         async with self._get_conn() as conn:
-            self.debug_print(f"get_g_products_hybrid_search: Executing Query: {final_query}")
+            self.debug_print(f"get_g_products_hybrid_search: Executing Query!")
             self.debug_print(f"get_g_products_hybrid_search: With Params: {params}")
-            rows = await conn.fetch(final_query, *params)
+            rows = await conn.fetch(final_query, *params, timeout=45.0) # Increase timeout for the query
             self.debug_print(f"get_g_products_hybrid_search: Rows fetched: {len(rows)}")
             
             # Return as list of dictionaries for flexibility
@@ -199,7 +186,7 @@ class GoldenProductRepository(BaseRepository):
 
             query += " ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC"
 
-            self.debug_print(f"get_g_product_prices_by_location: Executing Query: {query}")
+            self.debug_print(f"get_g_product_prices_by_location: Executing Query!!")
             self.debug_print(f"get_g_product_prices_by_location: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
@@ -494,7 +481,7 @@ class GoldenProductRepository(BaseRepository):
             """
             params = [f"%{canonical_name}%", f"%{category}%", current_month, limit, offset]
             
-            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: Executing Query: {query}")
+            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: Executing Query!!!")
             self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]

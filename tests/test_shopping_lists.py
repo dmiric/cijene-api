@@ -269,45 +269,43 @@ async def test_complex_shopping_list_scenarios(
         
         added_items_to_open_list = []
         for ean in eans_for_open_list:
-            g_product_id = await get_g_product_id_by_ean(golden_products_repo, ean) # Pass golden_products_repo
+            g_product_id = await get_g_product_id_by_ean(golden_products_repo, ean)
             if not g_product_id:
                 pytest.fail(f"Product with EAN {ean} not found in g_products.")
 
             quantity = Decimal(str(random.randint(1, 5)))
             
-            # Fetch g_product details to get base_unit_type and best prices
             g_product = await golden_products_repo.get_g_product_details(product_id=g_product_id)
             if not g_product:
                 pytest.fail(f"Product with ID {g_product_id} not found in g_products.")
 
             base_unit_type = g_product["base_unit_type"]
             price_at_addition = None
+            store_id_at_addition = None
 
-            # Fetch prices for the product to determine price_at_addition
-            # For testing, we'll assume a store_id_at_addition if available, otherwise just use product prices
-            # For simplicity in this test, we'll just get all prices for the product and pick the best one
-            # In a real scenario, store_id_at_addition would be crucial for price lookup.
             prices_for_product = await golden_products_repo.get_g_product_prices_by_location(
                 product_id=g_product_id,
-                store_ids=None # Get all prices for the product regardless of store
+                store_ids=None
             )
             
             if prices_for_product:
-                # Prioritize special_price, then regular_price
-                # For simplicity, pick the first available price. In a real app, more complex logic might be needed.
-                price_at_addition = prices_for_product[0].get("special_price") or prices_for_product[0].get("regular_price")
+                # Prioritize special_price, then regular_price, and get the associated store_id
+                selected_price_entry = prices_for_product[0]
+                price_at_addition = selected_price_entry.get("special_price") or selected_price_entry.get("regular_price")
+                store_id_at_addition = selected_price_entry.get("store_id")
             
-            # If price_at_addition is still None (no prices found), use a random one for test purposes
             if price_at_addition is None:
                 price_at_addition = Decimal(str(round(random.uniform(0.5, 100.0), 2)))
+                store_id_at_addition = None # Ensure store_id is None if price is random
 
             item = await add_shopping_list_item_helper(
                 authenticated_client,
                 open_list_id,
                 g_product_id,
                 quantity,
-                base_unit_type=base_unit_type, # Pass the derived base_unit_type
-                price_at_addition=price_at_addition, # Pass the derived price_at_addition
+                base_unit_type=base_unit_type,
+                price_at_addition=price_at_addition,
+                store_id_at_addition=store_id_at_addition, # Pass the derived store ID
                 notes=f"Item {ean} for open list"
             )
             added_items_to_open_list.append(item)
@@ -470,14 +468,22 @@ async def test_complex_shopping_list_scenarios(
             if expected_price_at_addition is not None and item["price_at_addition"] is not None:
                 assert abs(Decimal(str(item["price_at_addition"])) - Decimal(str(expected_price_at_addition))) < Decimal("0.01")
             elif expected_price_at_addition is None and item["price_at_addition"] is not None:
-                # If the test generated a random price because no actual price was found,
-                # we can't assert an exact match, but we can assert it's not None.
-                assert item["price_at_addition"] is not None # Ensure it's not None if it was set
+                assert item["price_at_addition"] is not None
             else:
-                # This case means both are None, or expected is None and item is None.
-                # If item["price_at_addition"] is None, it means it wasn't set, which is unexpected given the helper.
-                # So, if expected_price_at_addition is None, item["price_at_addition"] should also be None.
                 assert item["price_at_addition"] == expected_price_at_addition
+
+            # Assert store_id_at_addition is correctly set
+            # If a price was found, store_id_at_addition should match the one from the price entry
+            # If no price was found (and price_at_addition was random), store_id_at_addition should be None
+            expected_store_id_at_addition = None
+            prices_for_assertion = await golden_products_repo.get_g_product_prices_by_location(
+                product_id=g_product_id,
+                store_ids=None
+            )
+            if prices_for_assertion:
+                expected_store_id_at_addition = prices_for_assertion[0].get("store_id")
+            
+            assert item["store_id_at_addition"] == expected_store_id_at_addition
 
             assert "product_name" in item
             assert "chain_code" in item

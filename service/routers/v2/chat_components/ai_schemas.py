@@ -8,13 +8,12 @@ from dataclasses import asdict, fields, is_dataclass
 
 # --- Pydantic Models ---
 class ChatRequest(BaseModel):
-    user_id: int = Field(..., description="ID of the user initiating the chat.")
     session_id: Optional[UUID] = Field(None, description="Optional: UUID of the chat session to continue. If not provided, a new session will be started.")
     message_text: str = Field(..., description="The user's message.")
 
 class ChatMessageResponse(BaseModel):
     id: UUID
-    user_id: int
+    user_id: UUID
     session_id: UUID
     sender: str
     message_text: str
@@ -29,13 +28,19 @@ class ToolCall(BaseModel):
 class MultiSearchTool(BaseModel):
     queries: list[ToolCall] = Field(..., description="A list of tool calls to execute.")
 
+class ChatResponse(BaseModel):
+    session_id: UUID = Field(..., description="The UUID of the chat session.")
+    message: str = Field(..., description="A message indicating the status or initial response.")
+
 # --- AI Tool Schemas ---
 gemini_tools = [
     {
+        # <<< UPDATED TOOL >>>
+        # This tool is updated to require a 'caption' for each sub-query.
         "function_declarations": [
             {
                 "name": "multi_search_tool",
-                "description": "Omogućuje izvršavanje više upita za pretraživanje proizvoda odjednom i vraćanje svih rezultata. Koristite ovo kada korisnik traži više vrsta informacija o proizvodima koje se mogu dohvatiti različitim upitima (npr. najjeftinije po pakiranju i najjeftinije po komadu).",
+                "description": "Omogućuje izvršavanje više upita za pretraživanje proizvoda odjednom. Svaki upit mora imati naslov (caption) koji će se prikazati korisniku.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -44,12 +49,22 @@ gemini_tools = [
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "name": {"type": "string", "description": "Naziv alata za pozivanje (npr. 'search_products_v2', 'get_product_prices_by_location_v2')."},
-                                    "arguments": {"type": "object", "description": "Argumenti za prosljeđivanje alatu. Moraju odgovarati shemi argumenata ciljanog alata."},
+                                    "caption": {
+                                        "type": "string",
+                                        "description": "Kratki, korisniku vidljiv naslov za ovu grupu pretrage (npr. 'Najbolja Vrijednost', 'Bio Izbor'). Mora biti na hrvatskom jeziku."
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Naziv alata za pozivanje (uvijek 'search_products_v2')."
+                                    },
+                                    "arguments": {
+                                        "type": "object",
+                                        "description": "Argumenti za prosljeđivanje alatu search_products_v2."
+                                    }
                                 },
-                                "required": ["name", "arguments"],
+                                "required": ["caption", "name", "arguments"]
                             },
-                            "description": "Popis poziva alata za izvršavanje. Svaki poziv alata mora imati 'name' i 'arguments'.",
+                            "description": "Popis poziva alata za izvršavanje. Svaki poziv mora imati 'caption', 'name' i 'arguments'."
                         }
                     },
                     "required": ["queries"],
@@ -58,6 +73,8 @@ gemini_tools = [
         ]
     },
     {
+        # <<< SIMPLIFIED TOOL >>>
+        # This tool reflects your change, removing 'brand' and 'category'.
         "function_declarations": [
             {
                 "name": "search_products_v2",
@@ -65,12 +82,10 @@ gemini_tools = [
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "q": {"type": "string", "description": "Korisnikov upit prirodnim jezikom."},
+                        "q": {"type": "string", "description": "Korisnikov upit prirodnim jezikom. Može sadržavati marku, kategoriju i druge atribute."},
                         "limit": {"type": "integer", "description": "Maksimalan broj rezultata za povratak."},
                         "offset": {"type": "integer", "description": "Broj rezultata za preskakanje."},
                         "sort_by": {"type": "string", "description": "Neobavezno. Vrijednosti: 'relevance', 'best_value_kg', 'best_value_l', 'best_value_piece'."},
-                        "category": {"type": "string", "description": "Za filtriranje po kategoriji."},
-                        "brand": {"type": "string", "description": "Za filtriranje po marki."},
                     },
                     "required": ["q"],
                 },
@@ -78,6 +93,7 @@ gemini_tools = [
         ]
     },
     {
+        # --- Unchanged Tools Below ---
         "function_declarations": [
             {
                 "name": "get_product_prices_by_location_v2",
@@ -181,8 +197,6 @@ openai_tools = [
                     "limit": {"type": "integer", "description": "Maksimalan broj rezultata za povratak."},
                     "offset": {"type": "integer", "description": "Broj rezultata za preskakanje."},
                     "sort_by": {"type": "string", "description": "Neobavezno. Vrijednosti: 'relevance', 'best_value_kg', 'best_value_l', 'best_value_piece'."},
-                    "category": {"type": "string", "description": "Za filtriranje po kategoriji."},
-                    "brand": {"type": "string", "description": "Za filtriranje po marki."},
                 },
                 "required": ["q"],
             },

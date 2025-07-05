@@ -67,6 +67,22 @@ class ShoppingListItemResponse(BaseModel):
     best_price_store_id: Optional[int] = None
     best_price_found_at: Optional[datetime] = None
 
+    # Store Information (from stores and chains)
+    store_address: Optional[str] = None
+    store_city: Optional[str] = None
+    store_lat: Optional[Decimal] = None
+    store_lon: Optional[Decimal] = None
+    store_phone: Optional[str] = None
+    chain_code: Optional[str] = None
+
+    # Store Information (from stores and chains)
+    store_address: Optional[str] = None
+    store_city: Optional[str] = None
+    store_lat: Optional[Decimal] = None
+    store_lon: Optional[Decimal] = None
+    store_phone: Optional[str] = None
+    chain_code: Optional[str] = None
+
 @router.post("/shopping_lists/{list_id}/items", response_model=ShoppingListItemResponse, status_code=status.HTTP_201_CREATED)
 async def add_item_to_shopping_list(
     list_id: int,

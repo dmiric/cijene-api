@@ -319,6 +319,14 @@ class ShoppingListItem(BaseModel):
     best_price_store_id: Optional[int] = None
     best_price_found_at: Optional[datetime] = None
 
+    # Store Information (from stores and chains, for store_id_at_addition)
+    store_address: Optional[str] = None
+    store_city: Optional[str] = None
+    store_lat: Optional[Decimal] = None
+    store_lon: Optional[Decimal] = None
+    store_phone: Optional[str] = None
+    chain_code: Optional[str] = None
+
 class ProductSearchItemV2(BaseModel):
     id: int
     name: str
