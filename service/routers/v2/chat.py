@@ -1,5 +1,6 @@
-# print(">>> Importing chat_v2.py") -> You can keep or remove this
-from fastapi import APIRouter, Depends, status, Request
+# service/routers/v2/chat.py
+
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 from uuid import UUID, uuid4
 
@@ -7,17 +8,14 @@ from service.config import get_settings
 from service.routers.auth import verify_authentication, RequireAuth
 from service.routers.v2.chat_components.initial_context import INITIAL_SYSTEM_INSTRUCTIONS
 
-# --- Import our new refactored components ---
-from .chat_components.ai_providers import get_ai_provider
+# --- We no longer need to import get_ai_provider here ---
 from .chat_components.chat_orchestrator import ChatOrchestrator
 from .chat_components.ai_schemas import ChatRequest
-from service.db.models import UserPersonalData # Import UserPersonalData
-from service.utils.timing import debug_print # Import debug_print
+from service.utils.timing import debug_print
 
 router = APIRouter(tags=["AI Chat V2"], dependencies=[Depends(verify_authentication)])
 db = get_settings().get_db()
 
-# --- NEW: Use a dependency for shared setup logic ---
 async def get_chat_context(auth: RequireAuth = Depends(verify_authentication)) -> dict:
     """Dependency to prepare common chat context."""
     user_id = auth.user_id
@@ -42,7 +40,6 @@ async def event_stream_post(
     user_id = context["user_id"]
     debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}")
     
-    # Save the user's message
     await db.chat.save_chat_message(
         user_id=user_id,
         session_id=session_id,
@@ -50,15 +47,15 @@ async def event_stream_post(
         is_user_message=True
     )
 
-    # Initialize and run the orchestrator
-    ai_provider = get_ai_provider()
+    # --- KEY CHANGE: Simplified Orchestrator creation ---
+    # We no longer create the provider here. The orchestrator does it for us.
     orchestrator = ChatOrchestrator(
         user_id=user_id,
         session_id=session_id,
         db=db,
-        ai_provider=ai_provider,
         system_instructions=context["system_instructions"]
     )
+    # --- END CHANGE ---
     
     generator = orchestrator.stream_response(chat_request.message_text)
     return StreamingResponse(generator, media_type="text/event-stream")
@@ -70,20 +67,19 @@ async def event_stream_get(
 ):
     """
     Continues a chat stream for an existing session. 
-    Note: This will re-evaluate the conversation based on history.
     """
     user_id = context["user_id"]
     debug_print(f"[chat.py] Received GET request for user_id: {user_id}, session_id: {session_id}")
-    ai_provider = get_ai_provider()
+    
+    # --- KEY CHANGE: Simplified Orchestrator creation ---
+    # We no longer create the provider here. The orchestrator does it for us.
     orchestrator = ChatOrchestrator(
         user_id=context["user_id"],
         session_id=session_id,
         db=db,
-        ai_provider=ai_provider,
         system_instructions=context["system_instructions"]
     )
+    # --- END CHANGE ---
 
-    # The user_message_text is None, as this GET request does not add a new message.
-    # The orchestrator will use the existing history to generate the next step.
     generator = orchestrator.stream_response(user_message_text=None)
     return StreamingResponse(generator, media_type="text/event-stream")

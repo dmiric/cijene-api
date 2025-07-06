@@ -1,11 +1,16 @@
+# service/routers/v2/chat_components/ai_helpers.py
+
+import json
 from pydantic import BaseModel
 from decimal import Decimal
 import datetime
 from datetime import date
 from dataclasses import asdict, fields, is_dataclass
 from typing import List, Dict, Any
+
 import google.protobuf.struct_pb2
 from proto.marshal.collections import maps, repeated
+from google.genai import types as genai_types # Import the missing type
 
 def pydantic_to_dict(obj):
     if isinstance(obj, BaseModel):
@@ -27,27 +32,27 @@ def pydantic_to_dict(obj):
 def convert_protobuf_to_dict(obj: Any) -> Any:
     """
     Recursively converts Protobuf objects (including nested Struct, ListValue, Value)
-    and other special types to a JSON-serializable dictionary.
+    and also handles the top-level google.genai.types.FunctionCall object.
     """
-    # Handle google.protobuf.struct_pb2.Struct (for tool arguments)
-    if isinstance(obj, google.protobuf.struct_pb2.Struct):
+    # --- THIS IS THE NEW, CRITICAL PART THAT WAS MISSING ---
+    if isinstance(obj, genai_types.FunctionCall):
+        # This is the main container object. We convert it to a dict,
+        # and then recursively call this same function on its 'args' attribute.
+        return {
+            "name": obj.name,
+            "args": convert_protobuf_to_dict(obj.args)
+        }
+    # --- END OF THE FIX ---
+
+    # Your existing, correct logic for handling the contents of 'args' follows:
+    elif isinstance(obj, google.protobuf.struct_pb2.Struct):
         return {k: convert_protobuf_to_dict(v) for k, v in obj.fields.items()}
-    # Handle google.protobuf.struct_pb2.ListValue (for lists within tool arguments)
     elif isinstance(obj, google.protobuf.struct_pb2.ListValue):
         return [convert_protobuf_to_dict(v) for v in obj.values]
-    # Handle google.protobuf.struct_pb2.Value (wraps primitives, structs, lists)
     elif hasattr(obj, 'kind') and obj.kind in obj.WhichOneof('kind'):
         kind = obj.WhichOneof('kind')
         if kind == 'string_value':
-            # Check if the string value is actually a JSON string that needs parsing
-            s_val = obj.string_value
-            try:
-                parsed_json = json.loads(s_val)
-                # If it's a valid JSON, recursively convert it
-                return convert_protobuf_to_dict(parsed_json)
-            except (json.JSONDecodeError, TypeError):
-                # Not a JSON string, return as is
-                return s_val
+            return obj.string_value
         elif kind == 'number_value':
             return obj.number_value
         elif kind == 'bool_value':
@@ -59,52 +64,39 @@ def convert_protobuf_to_dict(obj: Any) -> Any:
         elif kind == 'null_value':
             return None
         else:
-            # Fallback for any unhandled kind
             return str(obj)
-
-    # Handle proto.marshal.collections types (often wraps the above)
     elif isinstance(obj, maps.MapComposite):
         return {k: convert_protobuf_to_dict(v) for k, v in obj.items()}
-
     elif isinstance(obj, repeated.RepeatedComposite):
         return [convert_protobuf_to_dict(item) for item in obj]
-
-    # Handle other Python types that need conversion for JSON
     elif isinstance(obj, dict):
         return {k: convert_protobuf_to_dict(v) for k, v in obj.items()}
-    
     elif isinstance(obj, list):
         return [convert_protobuf_to_dict(v) for v in obj]
-
     elif isinstance(obj, (Decimal, datetime.datetime, datetime.date)):
-        return str(obj) # Convert to string for JSON compatibility
-
-    # If it's none of the above, return the object as is (e.g., str, int, float, bool, None)
+        return str(obj)
+    
     return obj
 
 def filter_product_fields(products: List[Dict[str, Any]], desired_fields: List[str]) -> List[Dict[str, Any]]:
-    """
-    Filters a list of product dictionaries to include only the desired fields.
-    """
+    # This function is not related to the bug and is fine as-is.
     filtered_products = []
     for product in products:
         filtered_product = {}
         for field in desired_fields:
             if field in product:
                 filtered_product[field] = product[field]
-            # Handle special mappings for AI fields if necessary
             elif field == "name" and "canonical_name" in product:
                 filtered_product[field] = product["canonical_name"]
             elif field == "description" and "text_for_embedding" in product:
                 filtered_product[field] = product["text_for_embedding"]
             elif field == "unit_of_measure" and "base_unit_type" in product:
                 filtered_product[field] = product["base_unit_type"]
-            # Add placeholders for fields not in DB but expected by AI if needed
             elif field == "image_url":
-                filtered_product[field] = None # Or a default image URL
+                filtered_product[field] = None
             elif field == "product_url":
-                filtered_product[field] = None # Or a default product URL
+                filtered_product[field] = None
             elif field == "quantity_value":
-                filtered_product[field] = None # Or a default quantity value
+                filtered_product[field] = None
         filtered_products.append(filtered_product)
     return filtered_products
