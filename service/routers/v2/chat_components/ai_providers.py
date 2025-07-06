@@ -151,8 +151,6 @@ class GeminiProvider(AbstractAIProvider):
                 genai.types.Content(role=item.role, parts=list(item.parts))
                 for item in history
             ]
-            debug_print(f"GeminiProvider: Current history for API call (deep copied): {current_history_for_api}")
-
             try:
                 # STEP 1: Send the current history and tool declarations to the model
                 # The result, `streaming_response`, IS the async-iterable.
@@ -175,8 +173,7 @@ class GeminiProvider(AbstractAIProvider):
                 new_history_entries_for_orchestrator = [] # Collect new history entries to send back to orchestrator
 
                 async for raw_chunk in streaming_response: # Iterate over raw chunks
-                    debug_print(f"GeminiProvider: Raw chunk received: {raw_chunk}")
-                    
+            
                     # Parse the raw chunk into StreamedPart objects
                     parsed_parts = self.parse_chunk(raw_chunk)
 

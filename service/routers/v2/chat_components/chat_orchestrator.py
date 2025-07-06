@@ -23,8 +23,9 @@ class ChatOrchestrator:
 
     async def _load_history(self):
         """Loads chat history from the database."""
+        debug_print(f"[ChatOrchestrator] Loading history for user_id: {self.user_id}, session_id: {self.session_id}")
         self.history = await self.db.chat.get_chat_messages(self.user_id, self.session_id)
-        debug_print(f"[ChatOrchestrator] Loaded history from DB: {self.history}")
+        debug_print(f"[ChatOrchestrator] Loaded history from DB: {len(self.history)} messages.")
 
     async def stream_response(self, user_message_text: Optional[str]) -> AsyncGenerator[str, None]:
         """Orchestrates the chat flow, yielding SSE events."""
@@ -47,14 +48,13 @@ class ChatOrchestrator:
                 tool_outputs=None,
                 ai_response=None
             ))
-            debug_print(f"[ChatOrchestrator] Appended new user message to in-memory history: {user_message_text}")
+            debug_print(f"[ChatOrchestrator] Appended new user message to in-memory history for user_id: {self.user_id}, session_id: {self.session_id}: {user_message_text}")
 
 
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history, user_message_text)
         debug_print(f"[ChatOrchestrator] Formatted AI history before sending to provider (initial): {ai_history}")
 
         while True:
-            debug_print(f"[ChatOrchestrator] AI history at start of loop iteration: {ai_history}") # NEW: Debug log for history in loop
             tool_call_info = None
             
             try:
@@ -108,7 +108,7 @@ class ChatOrchestrator:
         tool_name = tool_call_info["name"]
         tool_args = tool_call_info["args"]
 
-        debug_print(f"Executing tool: {tool_name} with args: {tool_args}")
+        debug_print(f"[ChatOrchestrator] Executing tool: {tool_name} for user_id: {self.user_id}, session_id: {self.session_id} with args: {tool_args}")
         
         # Inject user_id if needed by the tool
         if tool_name in ["find_nearby_stores_for_user", "get_user_personal_data"]:

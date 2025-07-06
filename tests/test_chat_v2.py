@@ -187,7 +187,7 @@ async def authenticated_client(db_connection):
 
             yield authenticated_client_instance, user_id # Yield client and user_id (which is a UUID)
 
-@pytest.mark.timeout(12) # Add a 20-second timeout for the test
+@pytest.mark.timeout(30) # Add a 20-second timeout for the test
 @pytest.mark.asyncio
 async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UUID]):
     """

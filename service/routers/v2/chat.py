@@ -12,6 +12,7 @@ from .chat_components.ai_providers import get_ai_provider
 from .chat_components.chat_orchestrator import ChatOrchestrator
 from .chat_components.ai_schemas import ChatRequest
 from service.db.models import UserPersonalData # Import UserPersonalData
+from service.utils.timing import debug_print # Import debug_print
 
 router = APIRouter(tags=["AI Chat V2"], dependencies=[Depends(verify_authentication)])
 db = get_settings().get_db()
@@ -39,6 +40,7 @@ async def event_stream_post(
     """Handles a new or continuing chat conversation via POST."""
     session_id = chat_request.session_id or uuid4()
     user_id = context["user_id"]
+    debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}")
     
     # Save the user's message
     await db.chat.save_chat_message(
@@ -70,6 +72,8 @@ async def event_stream_get(
     Continues a chat stream for an existing session. 
     Note: This will re-evaluate the conversation based on history.
     """
+    user_id = context["user_id"]
+    debug_print(f"[chat.py] Received GET request for user_id: {user_id}, session_id: {session_id}")
     ai_provider = get_ai_provider()
     orchestrator = ChatOrchestrator(
         user_id=context["user_id"],
