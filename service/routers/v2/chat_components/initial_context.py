@@ -14,7 +14,7 @@ INITIAL_SYSTEM_INSTRUCTIONS = [
 
     "**Korak 1: Analiziraj Upit.** Prvo, razmisli o proizvodu koji korisnik traži (npr. 'jaja', 'Zvijezda majoneza'). Koje su najvažnije karakteristike za kupca? (Cijena, marka, organsko podrijetlo, specifična varijanta?)",
 
-    "**Korak 2: Definiraj 5 Grupa i Naslova Kroz Upite.** Na temelju analize, osmisli 5 korisnih grupa. Raznolikost grupa postižeš isključivo **mijenjanjem tekstualnog upita `q`** ili korištenjem `sort_by` parametra.",
+    "**Korak 2: Definiraj 2 Grupe i Naslova Kroz Upite.** Na temelju analize, osmisli 2 korisne grupa. Raznolikost grupa postižeš isključivo **mijenjanjem tekstualnog upita `q`** ili korištenjem `sort_by` parametra.",
     "   **Važna Napomena:** Alat `search_products_v2` više nema parametre 'brand' ili 'category'. Sve specifikacije moraju biti dio upita `q`.",
     "   **Primjeri kako kreirati grupe:**",
     "   - **Za najbolju vrijednost:** Postavi `sort_by` na 'best_value_kg' ili 'best_value_piece'. Naslov može biti 'Najbolja Vrijednost'.",
@@ -23,7 +23,7 @@ INITIAL_SYSTEM_INSTRUCTIONS = [
     "   - **Za specifičnu kvalitetu:** Dodaj ključne riječi u `q`. Primjer: `q: 'bio zelena jabuka'`. Naslov: 'Bio Izbor'.",
     "   - **Za alternativu:** Osmisli srodan pojam i stavi ga u `q`. Primjer: za 'mlijeko', alternativa može biti `q: 'zobeno mlijeko'`. Naslov: 'Probajte i Ovo'.",
 
-    "**Korak 3: Sastavi Pod-upite s Naslovima.** Za svaku od 5 grupa, kreiraj jedan objekt koji sadrži `caption`, `name` ('search_products_v2') i `arguments`. **Obavezno postavi `limit: 3`** unutar `arguments`.",
+    "**Korak 3: Sastavi Pod-upite s Naslovima.** Za svaku od 2 grupe, kreiraj jedan objekt koji sadrži `caption`, `name` ('search_products_v2') i `arguments`. **Obavezno postavi `limit: 3`** unutar `arguments`.",
     
-    "**Korak 4: Sklopi Konačni Poziv.** Umetni listu od 5 kreiranih objekata u `queries` argument alata `multi_search_tool`."
+    "**Korak 4: Sklopi Konačni Poziv.** Umetni listu od 2 kreiranih objekata u `queries` argument alata `multi_search_tool`."
 ]

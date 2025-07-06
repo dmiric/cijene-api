@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Any, Dict
+from typing import AsyncGenerator, Any, Dict, List # Removed Tuple from import
 import json
 import asyncio # Added for retry mechanism
 from google import genai
@@ -34,7 +34,7 @@ class AbstractAIProvider(ABC):
         pass
 
     @abstractmethod
-    async def generate_stream(self, history: list) -> Any: # Changed return type hint
+    async def generate_stream(self, history: list) -> AsyncGenerator[Any, None]: # Changed return type hint
         pass
 
     @abstractmethod
@@ -140,24 +140,26 @@ class GeminiProvider(AbstractAIProvider):
         """
         Correctly awaits the API call once, then iterates over the resulting
         asynchronous iterable object.
+        Yields StreamedPart objects, including "history_update" parts for new history entries.
         """
         # This loop handles multi-turn function calling
         for attempt in range(get_settings().max_tool_calls): # Limit tool calls to prevent infinite loops
             # Create a deep copy of the history for each attempt to prevent in-place modification issues
             # This ensures a clean history is sent to the API for each turn.
-            current_history = [
+            # The history passed here is already formatted by format_history
+            current_history_for_api = [
                 genai.types.Content(role=item.role, parts=list(item.parts))
                 for item in history
             ]
-            debug_print(f"GeminiProvider: Current history for API call (deep copied): {current_history}")
+            debug_print(f"GeminiProvider: Current history for API call (deep copied): {current_history_for_api}")
 
             try:
                 # STEP 1: Send the current history and tool declarations to the model
                 # The result, `streaming_response`, IS the async-iterable.
-                debug_print(f"GeminiProvider: History sent to API: {current_history}") # NEW: Debug log for history
+                debug_print(f"GeminiProvider: History sent to API: {current_history_for_api}")
                 streaming_response = await gemini_client.aio.models.generate_content_stream(
                     model=get_settings().gemini_text_model, # Use model from settings
-                    contents=current_history, # Use the deep copied history
+                    contents=current_history_for_api, # Use the deep copied history
                     config=genai.types.GenerateContentConfig(
                         tools=gemini_tools # Pass the generated tool declarations
                     )
@@ -165,11 +167,12 @@ class GeminiProvider(AbstractAIProvider):
 
                 # This print will execute if the await above succeeds.
                 debug_print(f"GeminiProvider: Successfully awaited API. Type of streaming_response is {type(streaming_response)}. Starting iteration.")
-                debug_print(f"GeminiProvider: dir(streaming_response): {dir(streaming_response)}") # New debug print
+                debug_print(f"GeminiProvider: dir(streaming_response): {dir(streaming_response)}")
 
                 # STEP 2: Iterate over the streaming response
                 full_response_content = []
                 function_calls_in_this_turn = [] # Renamed for clarity
+                new_history_entries_for_orchestrator = [] # Collect new history entries to send back to orchestrator
 
                 async for raw_chunk in streaming_response: # Iterate over raw chunks
                     debug_print(f"GeminiProvider: Raw chunk received: {raw_chunk}")
@@ -195,12 +198,13 @@ class GeminiProvider(AbstractAIProvider):
                 if function_calls_in_this_turn:
                     debug_print(f"GeminiProvider: Executing {len(function_calls_in_this_turn)} function calls.")
                     
-                    # Append the model's response (which contains the tool call) to the original history
-                    # This ensures the history is correctly updated for the *next* iteration of the orchestrator
-                    history.append(genai.types.Content(role="model", parts=[
-                        genai.types.Part(function_call=genai.types.FunctionCall(name=fc["name"], args=fc["args"])) # Corrected
+                    # Append the model's response (which contains the tool call) to new_history_entries_for_orchestrator
+                    new_model_content = genai.types.Content(role="model", parts=[
+                        genai.types.Part(function_call=genai.types.FunctionCall(name=fc["name"], args=fc["args"]))
                         for fc in function_calls_in_this_turn
-                    ]))
+                    ])
+                    new_history_entries_for_orchestrator.append(new_model_content)
+                    debug_print(f"GeminiProvider: Appended new model content to new_history_entries_for_orchestrator: {new_model_content}")
 
                     for func_call_dict in function_calls_in_this_turn:
                         tool_name = func_call_dict["name"]
@@ -210,8 +214,9 @@ class GeminiProvider(AbstractAIProvider):
                             error_msg = f"Tool '{tool_name}' not found in available_tools."
                             debug_print(f"ERROR: {error_msg}")
                             yield StreamedPart(type="error", content=error_msg)
-                            history.append(genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response={"error": error_msg}))])) # Corrected
-                            return # End stream if tool not found
+                            new_history_entries_for_orchestrator.append(genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response={"error": error_msg}))]))
+                            yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update on error
+                            return # End stream on tool not found
 
                         tool_func = available_tools[tool_name]
                         debug_print(f"GeminiProvider: Calling tool '{tool_name}' with args: {tool_args}")
@@ -230,25 +235,28 @@ class GeminiProvider(AbstractAIProvider):
                             debug_print(f"GeminiProvider: Final content for FunctionResponse: {final_content} (type: {type(final_content)})")
 
                             yield StreamedPart(type="tool_output", content={"name": tool_name, "content": tool_result})
-                            history.append(genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response=final_content))])) # Corrected
-                            debug_print(f"GeminiProvider: History after appending FunctionResponse: {history}") # NEW: Debug log for history after appending tool output
+                            new_tool_output_content = genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response=final_content))])
+                            new_history_entries_for_orchestrator.append(new_tool_output_content)
+                            debug_print(f"GeminiProvider: Appended new tool output content to new_history_entries_for_orchestrator: {new_tool_output_content}")
                         except Exception as tool_e:
                             error_msg = f"Error executing tool '{tool_name}': {tool_e}"
                             debug_print(f"ERROR: {error_msg}")
                             yield StreamedPart(type="error", content=error_msg)
-                            history.append(genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response={"error": error_msg}))])) # Corrected
-                            debug_print(f"GeminiProvider: History after appending error FunctionResponse: {history}") # NEW: Debug log for history after appending error tool output
+                            new_history_entries_for_orchestrator.append(genai.types.Content(role="user", parts=[genai.types.Part(function_response=genai.types.FunctionResponse(name=tool_name, response={"error": error_msg}))]))
+                            yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update on error
                             return # End stream on tool execution error
                     
-                    # Continue the loop for the next turn with updated history
-                    continue
+                    yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update before continuing loop
+                    continue # Continue the loop to send updated history to model
                 else:
                     # If no function calls, and we have text content, it's the final response
                     if full_response_content:
                         debug_print("GeminiProvider: No function calls, yielding final text response.")
+                        yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update before ending
                         return # End stream after final text
                     else:
                         debug_print("GeminiProvider: No function calls and no text content. Ending stream.")
+                        yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update before ending
                         return # End stream if nothing to yield
 
             except ClientError as e: # Use the imported ClientError
@@ -263,15 +271,23 @@ class GeminiProvider(AbstractAIProvider):
                     # For other client errors, re-raise or yield error and break
                     debug_print(f"ERROR within generate_stream (ClientError): {type(e).__name__}: {e}")
                     yield StreamedPart(type="error", content=str(e))
+                    yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update on error
                     return # End stream on unrecoverable client error
             except Exception as e:
                 # Catch any other unexpected errors
                 debug_print(f"ERROR within generate_stream (Unexpected Exception): {type(e).__name__}: {e}")
                 yield StreamedPart(type="error", content=str(e))
+                yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update on error
                 return # End stream on unexpected error
         
         debug_print(f"GeminiProvider: Max tool calls ({get_settings().max_tool_calls}) or max retries reached. Ending stream.")
         yield StreamedPart(type="error", content="Max tool calls or retries reached. Please refine your query.")
+        yield StreamedPart(type="history_update", content=new_history_entries_for_orchestrator) # Yield history update if max retries reached
+        return # End stream
+
+    async def _empty_async_generator(self):
+        """An empty async generator for cases where we need to return one but have no parts to yield."""
+        return # Changed from yield from ()
 
     def parse_chunk(self, chunk: Any) -> list[StreamedPart]:
         parts = []

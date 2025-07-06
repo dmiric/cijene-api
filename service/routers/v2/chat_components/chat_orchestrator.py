@@ -57,14 +57,19 @@ class ChatOrchestrator:
             tool_call_info = None
             
             try:
+                # generate_stream now returns a pure async generator
                 response_stream = self.ai_provider.generate_stream(ai_history)
 
                 # Process stream for text or tool calls
-                async for part in response_stream: # Iterate directly over StreamedPart objects
+                async for part in response_stream:
                     if part.type == "text":
                         self.full_ai_response_text += part.content
                     elif part.type == "tool_call":
                         tool_call_info = part.content
+                    elif part.type == "history_update": # Handle history updates from provider
+                        self.history.extend(part.content)
+                        debug_print(f"[ChatOrchestrator] Appended {len(part.content)} new AI history entries to self.history from history_update.")
+                        continue # Do not yield history_update as SSE
                     
                     yield part.to_sse()
                 
@@ -78,26 +83,12 @@ class ChatOrchestrator:
                         self.available_store_ids = ",".join(map(str, [s["id"] for s in stores if "id" in s]))
                         debug_print(f"Extracted available_store_ids: {self.available_store_ids}")
 
-                    # Add tool call and result to history for the next turn
-                    # Use genai.types.Content with FunctionCall/FunctionResponse for history
-                    ai_history.append(genai.types.Content(
-                        role="model",
-                        parts=[genai.types.FunctionCall(name=tool_call_info["name"], args=tool_call_info["args"])]
-                    ))
-                    # Ensure content is a plain dict or simple type, using json.dumps/loads for deep conversion
-                    final_content = pydantic_to_dict(tool_output_info["content"])
-                    try:
-                        final_content = json.loads(json.dumps(final_content))
-                    except (TypeError, json.JSONDecodeError) as e:
-                        debug_print(f"WARNING: Failed deep conversion of tool_output_info content: {e}. Falling back to string.")
-                        final_content = str(final_content) # Fallback if deep conversion fails
-
-                    ai_history.append(genai.types.Content(
-                        role="user",
-                        parts=[genai.types.FunctionResponse(name=tool_output_info["name"], response=final_content)]
-                    ))
-                    
+                    # We still need to yield the tool_output SSE event
                     yield StreamedPart(type="tool_output", content=tool_output_info).to_sse()
+                    
+                    # After executing the tool, we need to re-run the loop with the updated history
+                    # The history is updated in self.history, and ai_history will be re-formatted in the next loop iteration
+                    continue # Continue the loop to send updated history to model
                 else:
                     # No tool call, conversation turn is over
                     break
