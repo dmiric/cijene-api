@@ -61,43 +61,18 @@ class ChatRepository(BaseRepository):
     async def _fetchval(self, query: str, *args: Any) -> Any:
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
-
-    
-    async def save_chat_message(
-        self,
-        user_id: UUID, # Changed to UUID
-        session_id: UUID, # Changed to UUID
-        message_text: str,
-        is_user_message: bool,
-        tool_calls: Optional[dict] = None,
-        tool_outputs: Optional[dict] = None,
-        ai_response: Optional[str] = None,
-    ) -> int:
+        
+    async def save_chat_message_from_object(self, message: ChatMessage) -> None:
         """
-        Saves a chat message to the database.
+        Saves a chat message to the DB directly from a ChatMessage Pydantic object.
+        This is the new preferred method for the ChatOrchestrator.
         """
-        # Determine sender based on is_user_message
-        sender = "user" if is_user_message else "ai"
-        if tool_calls:
-            sender = "tool_call"
-        elif tool_outputs:
-            sender = "tool_output"
-
-        # Create ChatMessage object
-        message = ChatMessage(
-            id=str(uuid4()),
-            user_id=user_id,
-            session_id=session_id,
-            sender=sender,
-            message_text=message_text,
-            timestamp=datetime.now(timezone.utc),
-            tool_calls=tool_calls,
-            tool_outputs=tool_outputs,
-            ai_response=ai_response,
-        )
+        # The 'message' object is already fully populated with id, timestamp, sender, etc.
+        # We just need to insert its values into the database.
 
         async with self._atomic() as conn:
             try:
+                # The query is the same as in your other method, but we get values from the object.
                 await conn.execute(
                     """
                     INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs, ai_response)
@@ -113,15 +88,14 @@ class ChatRepository(BaseRepository):
                     json.dumps(message.tool_outputs) if message.tool_outputs else None,
                     message.ai_response,
                 )
-                self.debug_print(f"Saved chat message: {message.id}")
-                return 1
+                self.debug_print(f"Saved chat message: {message.id} (Sender: {message.sender})")
             except asyncpg.exceptions.PostgresError as e:
-                self.debug_print(f"ERROR: PostgresError saving chat message {message.id}: {e}")
-                raise # Re-raise to ensure transaction rollback
+                self.debug_print(f"ERROR: PostgresError saving chat message object {message.id}: {e}")
+                raise
             except Exception as e:
-                self.debug_print(f"ERROR: Unexpected error saving chat message {message.id}: {e}")
-                raise # Re-raise to ensure transaction rollback
-
+                self.debug_print(f"ERROR: Unexpected error saving chat message object {message.id}: {e}")
+                raise 
+        
     
     async def get_chat_messages(self, user_id: UUID, session_id: UUID, limit: int = 20) -> list[ChatMessage]:
         """

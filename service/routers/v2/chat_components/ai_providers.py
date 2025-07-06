@@ -49,30 +49,50 @@ class GeminiProvider(AbstractAIProvider):
         debug_print("GeminiProvider initialized.")
 
     def format_history(self, system_instructions: list[str], history: list[ChatMessage], user_message: str | None) -> list:
-        # This implementation is correct.
+        # This version correctly formats the history roles
         ai_history = []
         full_instructions = "\n".join(system_instructions)
         if full_instructions.strip():
             ai_history.append(genai.types.Content(role="user", parts=[genai.types.Part(text=full_instructions)]))
+            # This is a critical part of the prompt, ensuring the AI sees its own confirmation
             ai_history.append(genai.types.Content(role="model", parts=[genai.types.Part(text="Razumijem. Spreman sam pomoći.")]))
+
         for msg in history:
             parts, role = [], None
-            if msg.sender == "user": role = "user"
-            elif msg.sender in ("ai", "model"): role = "model"
-            elif msg.sender in ("tool", "tool_output"): role = "tool"
-            if role == "user":
+            sender_role = msg.sender
+
+            if sender_role == "user":
+                role = "user"
                 if msg.message_text: parts.append(genai.types.Part(text=msg.message_text))
-            elif role == "model":
+            
+            elif sender_role in ("ai", "model"):
+                role = "model"
+                # --- THIS IS THE FIX FOR BUG #1 ---
+                # A model turn can have BOTH text and tool calls. We must include both if they exist.
+                # The prompt asks the AI to summarize AFTER getting results, so it needs to be able to send text.
+                text_content = msg.message_text or msg.ai_response
+                if text_content:
+                    parts.append(genai.types.Part(text=text_content))
+                
                 if msg.tool_calls:
                     tool_calls_data = msg.tool_calls if isinstance(msg.tool_calls, list) else [msg.tool_calls]
                     for call in tool_calls_data:
-                        if isinstance(call, dict): parts.append(genai.types.Part(function_call=genai.types.FunctionCall(name=call["name"], args=to_json_primitive(call["args"]))))
-            elif role == "tool":
+                         if isinstance(call, dict) and "name" in call and "args" in call:
+                            parts.append(genai.types.Part(function_call=genai.types.FunctionCall(name=call["name"], args=to_json_primitive(call["args"]))))
+                # --- END OF FIX ---
+            
+            elif sender_role in ("tool", "tool_output"):
+                role = "tool"
                 if msg.tool_outputs:
                     tool_outputs_data = msg.tool_outputs if isinstance(msg.tool_outputs, list) else [msg.tool_outputs]
                     for output in tool_outputs_data:
-                        if isinstance(output, dict): parts.append(genai.types.Part(function_response=genai.types.FunctionResponse(name=output["name"], response=to_json_primitive(output["content"]))))
-            if parts and role: ai_history.append(genai.types.Content(parts=parts, role=role))
+                        if isinstance(output, dict) and "name" in output and "content" in output:
+                            parts.append(genai.types.Part(function_response=genai.types.FunctionResponse(name=output["name"], response=to_json_primitive(output["content"]))))
+            
+            if parts and role:
+                ai_history.append(genai.types.Content(parts=parts, role=role))
+                
+        if user_message: ai_history.append(genai.types.Content(role="user", parts=[genai.types.Part(text=user_message)]))
         return ai_history
 
     async def generate_stream(self, history: list) -> AsyncGenerator[StreamedPart, None]:

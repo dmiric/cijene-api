@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     session_id UUID NOT NULL,
     sender TEXT NOT NULL,
-    message_text TEXT NOT NULL,
+    message_text TEXT,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     tool_calls JSONB NULL,
     tool_outputs JSONB NULL

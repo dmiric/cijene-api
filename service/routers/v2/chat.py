@@ -40,46 +40,12 @@ async def event_stream_post(
     user_id = context["user_id"]
     debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}")
     
-    await db.chat.save_chat_message(
-        user_id=user_id,
-        session_id=session_id,
-        message_text=chat_request.message_text,
-        is_user_message=True
-    )
-
-    # --- KEY CHANGE: Simplified Orchestrator creation ---
-    # We no longer create the provider here. The orchestrator does it for us.
     orchestrator = ChatOrchestrator(
         user_id=user_id,
         session_id=session_id,
         db=db,
         system_instructions=context["system_instructions"]
     )
-    # --- END CHANGE ---
     
     generator = orchestrator.stream_response(chat_request.message_text)
-    return StreamingResponse(generator, media_type="text/event-stream")
-
-@router.get("/chat_v2/stream/{session_id}", response_class=StreamingResponse, status_code=status.HTTP_200_OK)
-async def event_stream_get(
-    session_id: UUID,
-    context: dict = Depends(get_chat_context)
-):
-    """
-    Continues a chat stream for an existing session. 
-    """
-    user_id = context["user_id"]
-    debug_print(f"[chat.py] Received GET request for user_id: {user_id}, session_id: {session_id}")
-    
-    # --- KEY CHANGE: Simplified Orchestrator creation ---
-    # We no longer create the provider here. The orchestrator does it for us.
-    orchestrator = ChatOrchestrator(
-        user_id=context["user_id"],
-        session_id=session_id,
-        db=db,
-        system_instructions=context["system_instructions"]
-    )
-    # --- END CHANGE ---
-
-    generator = orchestrator.stream_response(user_message_text=None)
     return StreamingResponse(generator, media_type="text/event-stream")

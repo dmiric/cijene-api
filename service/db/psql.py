@@ -238,21 +238,12 @@ class PostgresDatabase(Database):
     
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         return await self.golden_products.add_many_g_product_best_offers(g_offers)
-
     
-    async def save_chat_message(
-        self,
-        user_id: int,
-        session_id: str,
-        message_text: str,
-        is_user_message: bool,
-        tool_calls: Optional[List[dict]] = None,
-        tool_outputs: Optional[List[dict]] = None,
-        ai_response: Optional[str] = None,
-    ) -> int:
-        return await self.chat.save_chat_message(
-            user_id, session_id, message_text, is_user_message, tool_calls, tool_outputs, ai_response
-        )
+    async def save_chat_message_from_object(self, message: ChatMessage) -> None:
+        """
+        Passes a ChatMessage Pydantic object directly to the ChatRepository for saving.
+        """
+        await self.chat.save_chat_message_from_object(message)
 
     
     async def get_stores_within_radius(
