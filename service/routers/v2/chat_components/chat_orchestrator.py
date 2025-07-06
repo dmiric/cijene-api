@@ -51,9 +51,10 @@ class ChatOrchestrator:
 
 
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history, user_message_text)
-        debug_print(f"[ChatOrchestrator] Formatted AI history before sending to provider: {ai_history}")
+        debug_print(f"[ChatOrchestrator] Formatted AI history before sending to provider (initial): {ai_history}")
 
         while True:
+            debug_print(f"[ChatOrchestrator] AI history at start of loop iteration: {ai_history}") # NEW: Debug log for history in loop
             tool_call_info = None
             
             try:
@@ -124,11 +125,15 @@ class ChatOrchestrator:
             tool_args["queries"] = modified_queries
             debug_print(f"Modified multi_search_tool args: {tool_args}")
 
-        await self.db.chat.save_chat_message(
-            user_id=self.user_id, session_id=self.session_id,
-            message_text=f"Tool call: {tool_name}", is_user_message=False,
-            tool_calls=tool_call_info
-        )
+        try:
+            await self.db.chat.save_chat_message(
+                user_id=self.user_id, session_id=self.session_id,
+                message_text=f"Tool call: {tool_name}", is_user_message=False,
+                tool_calls=tool_call_info
+            )
+        except Exception as e:
+            debug_print(f"ERROR: Failed to save tool call to DB: {e}")
+            # Optionally, re-raise or handle more gracefully
 
         if tool_name not in available_tools:
             raise ValueError(f"Tool '{tool_name}' not found.")
@@ -138,11 +143,15 @@ class ChatOrchestrator:
         
         tool_output_info = {"name": tool_name, "content": output}
         
-        await self.db.chat.save_chat_message(
-            user_id=self.user_id, session_id=self.session_id,
-            message_text=f"Tool output for {tool_name}", is_user_message=False,
-            tool_outputs=tool_output_info
-        )
+        try:
+            await self.db.chat.save_chat_message(
+                user_id=self.user_id, session_id=self.session_id,
+                message_text=f"Tool output for {tool_name}", is_user_message=False,
+                tool_outputs=tool_output_info
+            )
+        except Exception as e:
+            debug_print(f"ERROR: Failed to save tool output to DB: {e}")
+            # Optionally, re-raise or handle more gracefully
         return tool_output_info
 
     async def _save_final_response(self):

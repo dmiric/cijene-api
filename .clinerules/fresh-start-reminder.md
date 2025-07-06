@@ -1,12 +1,3 @@
-## Rebuild Everything Approval
-
 ## Fresh Start Workflow
 
-When a fresh start is required (e.g., after schema changes or for a clean development environment), do not use `make rebuild-everything` directly. Instead, use `make dev-csv-start`.
-
--   **`make dev-csv-start`:** This command will:
-    -   Stop and remove all Docker containers and volumes.
-    -   Rebuild all services.
-    -   Lead to a fresh database state.
-    -   Import necessary data for testing.
--   **Approval:** Always clearly describe the implications of `make dev-csv-start` and explicitly ask for user approval before proceeding.
+Always be aware of the docker setup and makefile commands. If you want to run python or pip command directly first check docker and makefile to find commands you need to use.

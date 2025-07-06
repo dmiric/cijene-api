@@ -97,23 +97,30 @@ class ChatRepository(BaseRepository):
         )
 
         async with self._atomic() as conn:
-            await conn.execute(
-                """
-                INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs, ai_response)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                """,
-                message.id,
-                message.user_id,
-                message.session_id,
-                message.sender,
-                message.message_text,
-                message.timestamp,
-                json.dumps(message.tool_calls) if message.tool_calls else None, # Re-added json.dumps
-                json.dumps(message.tool_outputs) if message.tool_outputs else None, # Re-added json.dumps
-                message.ai_response,
-            )
-        self.debug_print(f"Saved chat message: {message.id}")
-        return 1 # Return a dummy ID for now, as the method signature expects int
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO chat_messages (id, user_id, session_id, sender, message_text, timestamp, tool_calls, tool_outputs, ai_response)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                    message.id,
+                    message.user_id,
+                    message.session_id,
+                    message.sender,
+                    message.message_text,
+                    message.timestamp,
+                    json.dumps(message.tool_calls) if message.tool_calls else None,
+                    json.dumps(message.tool_outputs) if message.tool_outputs else None,
+                    message.ai_response,
+                )
+                self.debug_print(f"Saved chat message: {message.id}")
+                return 1
+            except asyncpg.exceptions.PostgresError as e:
+                self.debug_print(f"ERROR: PostgresError saving chat message {message.id}: {e}")
+                raise # Re-raise to ensure transaction rollback
+            except Exception as e:
+                self.debug_print(f"ERROR: Unexpected error saving chat message {message.id}: {e}")
+                raise # Re-raise to ensure transaction rollback
 
     
     async def get_chat_messages(self, user_id: UUID, session_id: UUID, limit: int = 20) -> list[ChatMessage]:

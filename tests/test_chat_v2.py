@@ -187,6 +187,7 @@ async def authenticated_client(db_connection):
 
             yield authenticated_client_instance, user_id # Yield client and user_id (which is a UUID)
 
+@pytest.mark.timeout(12) # Add a 20-second timeout for the test
 @pytest.mark.asyncio
 async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UUID]):
     """
@@ -194,11 +195,14 @@ async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UU
     with 5 sub-queries as per initial_context.py.
     """
     client, user_id = authenticated_client # Unpack the client and user_id
+    client, user_id = authenticated_client # Unpack the client and user_id
     message = "limun"
+    session_id = None # Initialize session_id
 
     # The API key is handled by the authenticated_client fixture via the Authorization header.
     # user_id should be in the request body as part of ChatRequest.
 
+    # First request to get a session_id and trigger the tool call
     response = await client.post(
         "/chat_v2",
         json={"message_text": message}, # user_id is now derived from auth header
@@ -208,6 +212,7 @@ async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UU
 
     tool_call_content_found = None
     full_response_content = ""
+    end_event_received = False
 
     async for chunk in response.aiter_bytes():
         decoded_chunk = chunk.decode("utf-8")
@@ -217,18 +222,22 @@ async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UU
                     event_data = json.loads(line[len("data:"):])
                     if event_data["type"] == "tool_call": # Expecting 'tool_call' now
                         tool_call_content_found = event_data["content"]
-                        break # Exit inner loop once tool_call is found
                     elif event_data["type"] == "text":
                         full_response_content += event_data["content"]
                     elif event_data["type"] == "end":
+                        session_id = event_data.get("session_id")
+                        end_event_received = True
                         break # Exit inner loop on end event
                 except json.JSONDecodeError:
                     # Ignore malformed JSON lines
                     pass
-        if tool_call_content_found or (event_data and event_data["type"] == "end"):
-            break # Exit outer loop if tool_call found or end event received
+        if end_event_received:
+            break # Exit outer loop if end event received
 
     assert tool_call_content_found is not None, f"Expected 'tool_call' in response, but got: {full_response_content}"
+    assert end_event_received, f"Expected 'end' event in response, but did not receive it. Full response: {full_response_content}"
+    assert full_response_content, f"Expected natural language response after tool call, but got empty. Full response: {full_response_content}"
+    assert session_id is not None, "Expected session_id to be present in the 'end' event."
 
     # The tool_call_content_found is now a dictionary, not a string.
     # We need to assert its structure.
@@ -249,4 +258,38 @@ async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UU
         assert "arguments" in query_item and "limit" in query_item["arguments"]
         assert query_item["arguments"]["limit"] == 3.0 # Ensure limit is 3.0 (float)
 
-    print(f"Successfully verified multi_search_tool call for '{message}' with 5 sub-queries.")
+    print(f"Successfully verified multi_search_tool call for '{message}' with 5 sub-queries and natural language response.")
+
+    # Optional: Follow-up request to ensure no infinite loop on subsequent calls
+    # This part is more for observing behavior than a strict assertion,
+    # as the primary fix should prevent the loop in the first place.
+    print(f"Making a follow-up request with session_id: {session_id}")
+    follow_up_message = "Hvala!" # A simple thank you to continue the conversation
+    follow_up_response = await client.post(
+        "/chat_v2",
+        json={"message_text": follow_up_message, "session_id": str(session_id)},
+        timeout=30.0
+    )
+    follow_up_response.raise_for_status()
+
+    follow_up_content = ""
+    follow_up_end_event_received = False
+    async for chunk in follow_up_response.aiter_bytes():
+        decoded_chunk = chunk.decode("utf-8")
+        for line in decoded_chunk.splitlines():
+            if line.startswith("data:"):
+                try:
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data["type"] == "text":
+                        follow_up_content += event_data["content"]
+                    elif event_data["type"] == "end":
+                        follow_up_end_event_received = True
+                        break
+                except json.JSONDecodeError:
+                    pass
+        if follow_up_end_event_received:
+            break
+    
+    assert follow_up_end_event_received, "Expected 'end' event in follow-up response."
+    assert follow_up_content, "Expected natural language response in follow-up."
+    print(f"Successfully received natural language response for follow-up: {follow_up_content}")

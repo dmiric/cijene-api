@@ -1,12 +1,6 @@
 ## Brief overview
 This guideline outlines preferences and automated workflows for development tasks, including database setup, data enrichment, and Git operations.
 
-## Database Setup and Preferences
--   **PgAdmin Preferences Automation:** PgAdmin user preferences (stored in `pgadmin4.db`) are automatically managed. The `make rebuild-everything` command will:
-    1.  Copy the current `pgadmin4.db` from the running container to `./pgadmin/pgadmin4.db` on the host (to update the "golden" preferences file).
-    2.  After rebuilding containers, copy the `./pgadmin/pgadmin4.db` from the host back into the new pgAdmin container's data volume (`/var/lib/pgadmin`).
--   **Running `rebuild.ps1` on Windows:** When executing `scripts/rebuild.ps1` from the `Makefile` on Windows, ensure the command is robustly wrapped: `powershell -Command "& { pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes \"$(EXCLUDE_VOLUMES)\" }"`.
-
 ## Data Enrichment
 -   **`g_products` Variants Column Import:** When enriching `g_products` data from CSV, the `variants` column (JSONB type in DB) must be explicitly converted to a JSON string using `json.dumps()` before insertion via `asyncpg.copy_records_to_table`.
     -   **Error Handling:** `service/db/enrich.py` includes `try-except json.JSONDecodeError` for `variants` parsing to log problematic strings.
