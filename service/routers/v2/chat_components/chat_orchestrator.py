@@ -40,89 +40,95 @@ class ChatOrchestrator:
         await self.db.save_chat_message_from_object(message)
         print(f"!!! ORCHESTRATOR: Save complete for message ID: {message.id}", file=sys.stderr, flush=True)
 
-
     async def stream_response(self, user_message_text: Optional[str]) -> AsyncGenerator[str, None]:
+        # --- 1. Initial Setup ---
         if not self.history: await self._load_history()
-        
         if user_message_text and user_message_text.strip():
             user_message = ChatMessage(
-                id=uuid4(), timestamp=datetime.now(timezone.utc),
-                user_id=self.user_id, session_id=self.session_id,
-                sender="user", message_text=user_message_text
+                id=uuid4(), 
+                timestamp=datetime.now(timezone.utc), 
+                user_id=self.user_id, 
+                session_id=self.session_id, 
+                sender="user", 
+                message_text=user_message_text
             )
             await self._add_and_save_message(user_message)
         
-        while True:
-            ai_history = self.ai_provider.format_history(self.system_instructions, self.history, user_message=None)
-            tool_calls_this_turn: List[dict] = []
-            self.full_ai_response_text = ""
-            
-            try:
-                response_stream = self.ai_provider.generate_stream(ai_history)
+        yield StreamedPart(type="status", content="processing").to_sse()
 
-                async for part in response_stream:
-                    # Always yield the SSE formatted string
+        # --- 2. Make a Single API Call with Tools Enabled ---
+        ai_history = self.ai_provider.format_history(self.system_instructions, self.history)
+        
+        debug_print("[Orchestrator] Making a single API call to determine action (text or tool)...")
+        response_stream = self.ai_provider.generate_stream(ai_history, use_tools=True)
+
+        tool_calls_this_turn = []
+        try:
+            async for part in response_stream:
+                if part.type == "text":
+                    self.full_ai_response_text += part.content
                     yield part.to_sse()
-                    
-                    # Accumulate content based on type
-                    if part.type == "tool_call":
-                        tool_calls_this_turn.append(part.content)
-                    elif part.type == "text":
-                        self.full_ai_response_text += part.content
+                elif part.type == "tool_call":
+                    tool_calls_this_turn.append(part.content)
+        except Exception as e:
+            debug_print(f"Exception during initial stream: {e}")
+            yield StreamedPart(type="error", content=str(e)).to_sse()
 
-                if tool_calls_this_turn:
-                    debug_print(f"[Orchestrator] Turn ended with {len(tool_calls_this_turn)} tool calls. Executing.")
-                    
-                    model_request_message = ChatMessage(
-                        id=uuid4(), timestamp=datetime.now(timezone.utc), 
-                        user_id=self.user_id, session_id=self.session_id, 
-                        sender="model", 
-                        message_text=None,
-                        tool_calls=tool_calls_this_turn
-                    )
-                    await self._add_and_save_message(model_request_message)
+        # --- 3. Process the Result of the Single API Call ---
+        if tool_calls_this_turn:
+            # PATH A: TOOL USE - Execute the tool and we are DONE.
+            debug_print("[Orchestrator] Tool call detected. Executing tool and ending request.")
+            yield StreamedPart(type="tool_call", content=tool_calls_this_turn).to_sse()
 
-                    for tool_call_item in tool_calls_this_turn:
-                        tool_name = tool_call_item.get("name")
-                        tool_args = tool_call_item.get("args", {})
-                        
-                        tool_func = available_tools.get(tool_name)
-                        if not tool_func: continue
+            model_request_message = ChatMessage(
+                id=uuid4(), 
+                timestamp=datetime.now(timezone.utc), 
+                user_id=self.user_id, 
+                session_id=self.session_id, 
+                sender="model", 
+                message_text=None,
+                tool_calls=tool_calls_this_turn
+            )
+            await self._add_and_save_message(model_request_message)
 
-                        result = await tool_func(**tool_args)
-                        tool_output_content = {"name": tool_name, "content": to_json_primitive(result)}
-                        
-                        # Yield the tool output to the client
-                        yield StreamedPart(type="tool_output", content=tool_output_content).to_sse()
-                        
-                        tool_output_message = ChatMessage(
-                            id=uuid4(), timestamp=datetime.now(timezone.utc), 
-                            user_id=self.user_id, session_id=self.session_id, 
-                            sender="tool", 
-                            message_text=f"Tool output for {tool_name}",
-                            tool_outputs=[tool_output_content]
-                        )
-                        await self._add_and_save_message(tool_output_message)
-                    
-                    continue 
-                else:
-                    debug_print("[Orchestrator] Turn ended with final text response. Breaking loop.")
-                    break
-            except Exception as e:
-                debug_print(f"Exception in orchestrator stream: {e}")
-                # --- THIS IS THE FIX FOR BUG #2 ---
-                # Always yield the SSE formatted string, even for errors
-                yield StreamedPart(type="error", content=str(e)).to_sse()
-                # --- END OF FIX ---
-                break
+            all_queries = [q for call in tool_calls_this_turn for q in call.get("args", {}).get("queries", [])]
+            
+            tool_func = available_tools.get("multi_search_tool")
+            result_list = await tool_func(queries=all_queries[:2])
+            
+            tool_output_content = {"name": "multi_search_tool", "content": {"results": to_json_primitive(result_list)}}
+            yield StreamedPart(type="tool_output", content=tool_output_content).to_sse()
+            
+            tool_output_message = ChatMessage(
+                id=uuid4(), 
+                timestamp=datetime.now(timezone.utc), 
+                user_id=self.user_id, 
+                session_id=self.session_id, 
+                sender="tool",
+                message_text=f"Tool output for multi_search_tool",
+                tool_outputs=[tool_output_content]
+            )
+            await self._add_and_save_message(tool_output_message)
 
-        if self.full_ai_response_text:
+        elif self.full_ai_response_text:
+            # PATH B: GENERAL QUESTION - The AI already gave us the answer.
+            debug_print("[Orchestrator] Text response detected. Saving and ending request.")
+            
             ai_response_message = ChatMessage(
-                id=uuid4(), timestamp=datetime.now(timezone.utc),
-                user_id=self.user_id, session_id=self.session_id,
-                sender="ai", message_text=self.full_ai_response_text,
+                id=uuid4(), 
+                timestamp=datetime.now(timezone.utc), 
+                user_id=self.user_id, 
+                session_id=self.session_id, 
+                sender="ai", 
+                message_text=self.full_ai_response_text,
                 ai_response=self.full_ai_response_text
             )
             await self._add_and_save_message(ai_response_message)
-            
+        
+        else:
+            # PATH C: AI FREEZE - The AI gave neither text nor tool call.
+            debug_print("[Orchestrator] AI returned an empty stream. Ending request.")
+            yield StreamedPart(type="error", content="Asistent trenutno nije dostupan. Molimo pokušajte kasnije.").to_sse()
+
+        # --- 4. End the Stream ---
         yield StreamedPart(type="end", content={"session_id": str(self.session_id)}).to_sse()

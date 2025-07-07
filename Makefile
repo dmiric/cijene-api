@@ -25,6 +25,9 @@ EXCLUDE_VOLUMES ?= cijene-api-clone_crawler_data,cijene-api-clone_pgadmin_data
 # Search products
 API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 
+# Add a new variable for the query, it will be empty by default
+QUERY=limun
+
 .PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
 
 ## General Commands
@@ -325,7 +328,7 @@ test-chat-v2: ## Run pytest integration tests for the chat v2 API service
 		--env EMAIL_VERIFICATION_BASE_URL=$(EMAIL_VERIFICATION_BASE_URL) \
 		--env API_KEY=$(API_KEY) \
 		--env GOOGLE_API_KEY=$(GOOGLE_API_KEY) \
-		api pytest tests/test_chat_v2.py
+		api pytest tests/test_chat_v2.py -s --query="$(QUERY)"
 
 logs-api: ## Display full logs for the API service
 	@echo "Displaying full API logs..."

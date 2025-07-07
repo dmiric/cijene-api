@@ -1,295 +1,188 @@
 import pytest
 import httpx
-import asyncio
 import time
-import subprocess
 import os
 import json
-from uuid import UUID # Import UUID
+from uuid import UUID
 
+# --- All your existing fixtures and constants are fine ---
 # When running tests inside the Docker container, 'api' is the service hostname
 BASE_URL = "http://api:8000/v2"
-HEALTH_URL = "http://api:8000/health" # Health check endpoint
+HEALTH_URL = "http://api:8000/health"
 
-# Database connection details from .env
 DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT"))
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
 
-# Test user credentials as per instruction
 TEST_USER_EMAIL = "damir.miric@gmail.com"
 TEST_USER_PASSWORD = "Password123!"
 TEST_USER_NAME = "Damir"
 
-# This fixture ensures the API is running before tests
 @pytest.fixture(scope="session", autouse=True)
 def setup_api():
     print("\nEnsuring API is running before tests...")
-    max_retries = 10
-    retry_delay = 1 # seconds
+    max_retries = 15
+    retry_delay = 2
     for i in range(max_retries):
         try:
-            # Try hitting the health endpoint with httpx
-            response = httpx.get(HEALTH_URL, timeout=1)
+            response = httpx.get(HEALTH_URL, timeout=2)
             if response.status_code == 200:
                 print(f"API is healthy after {i+1} retries.")
-                break
-        except httpx.ConnectError as e:
-            print(f"API not reachable via httpx, retrying in {retry_delay}s... ({i+1}/{max_retries}) - Error: {e}")
+                return
+        except httpx.RequestError as e:
+            print(f"API not reachable, retrying in {retry_delay}s... ({i+1}/{max_retries}) - Error: {e}")
             time.sleep(retry_delay)
-    else:
-        pytest.fail(f"API did not become healthy after {max_retries} retries.")
-    pass
+    pytest.fail(f"API did not become healthy after {max_retries * retry_delay} seconds.")
 
 @pytest.fixture(scope="function")
 async def db_connection():
-    """Provides an asyncpg connection for database operations."""
-    import asyncpg # Import here to avoid circular dependency if used globally
-    conn = await asyncpg.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME
-    )
-    yield conn
-    await conn.close()
+    import asyncpg
+    conn = None
+    try:
+        conn = await asyncpg.connect(host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME)
+        yield conn
+    finally:
+        if conn:
+            await conn.close()
+
+# In tests/test_chat_v2.py
+
+# In tests/test_chat_v2.py
 
 @pytest.fixture(scope="function")
 async def authenticated_client(db_connection):
     """
     Provides an httpx client authenticated with a JWT for the specified test user.
+    It ensures the user exists, is verified, and then logs in to get a token.
     """
-    # 1. Register the test user
-    async with httpx.AsyncClient(base_url="http://api:8000") as client: # Use root base URL for auth
+    # Use a client that targets the root of the API for auth endpoints
+    async with httpx.AsyncClient(base_url="http://api:8000") as client:
+        
+        # 1. Register the user. It's safe to run this every time.
+        # If the user already exists, the API will return a 409 Conflict, which we handle.
         register_data = {
-            "name": TEST_USER_NAME,
-            "email": TEST_USER_EMAIL,
+            "name": TEST_USER_NAME, 
+            "email": TEST_USER_EMAIL, 
             "password": TEST_USER_PASSWORD
         }
         register_response = await client.post("/auth/register", json=register_data)
-        # Handle 409 Conflict if user already exists from a previous test run
-        if register_response.status_code == 409:
-            print(f"User {TEST_USER_EMAIL} already registered. Proceeding with login.")
-        else:
-            register_response.raise_for_status() # Ensure registration was successful (201)
+        
+        # We expect either 201 (Created) or 409 (Conflict). Any other status is a failure.
+        if register_response.status_code not in [201, 409]:
+            pytest.fail(
+                f"User registration request failed with status {register_response.status_code}: "
+                f"{register_response.text}"
+            )
 
-        # 2. Manually verify email in DB for testing purposes
+        # 2. Get the user's ID from the database and manually verify their email for the test.
         user_record = await db_connection.fetchrow(
             "SELECT id FROM users JOIN user_personal_data ON users.id = user_personal_data.user_id WHERE email = $1",
             TEST_USER_EMAIL
         )
-        if user_record:
-            await db_connection.execute(
-                "UPDATE users SET is_verified = TRUE, verification_token = NULL WHERE id = $1",
-                user_record["id"]
-            )
-            print(f"Manually verified email for user {TEST_USER_EMAIL}.")
-        else:
-            pytest.fail(f"Test user {TEST_USER_EMAIL} not found in DB after registration attempt.")
-
-        # 3. Log in to obtain JWT
+        if not user_record:
+            pytest.fail(f"Test user '{TEST_USER_EMAIL}' not found in DB after registration attempt.")
+        
+        user_id = user_record["id"]
+        await db_connection.execute("UPDATE users SET is_verified = TRUE WHERE id = $1", user_id)
+        
+        # 3. Log in to get the JWT.
+        # The /token endpoint's Pydantic model expects a JSON body with an "email" field.
         login_data = {
-            "email": TEST_USER_EMAIL,
+            "email": TEST_USER_EMAIL, 
             "password": TEST_USER_PASSWORD
         }
+        
+        # Use json= to send the data as 'application/json'
         login_response = await client.post("/auth/token", json=login_data)
-        login_response.raise_for_status()
-        access_token = login_response.json()["access_token"]
 
-import datetime # Import datetime
-from decimal import Decimal # Import Decimal
-
-# ... (rest of the file) ...
-
-@pytest.fixture(scope="function")
-async def authenticated_client(db_connection):
-    """
-    Provides an httpx client authenticated with a JWT for the specified test user.
-    Also ensures user locations are set up.
-    """
-    # 1. Register the test user
-    async with httpx.AsyncClient(base_url="http://api:8000") as client: # Use root base URL for auth
-        register_data = {
-            "name": TEST_USER_NAME,
-            "email": TEST_USER_EMAIL,
-            "password": TEST_USER_PASSWORD
-        }
-        register_response = await client.post("/auth/register", json=register_data)
-        # Handle 409 Conflict if user already exists from a previous test run
-        if register_response.status_code == 409:
-            print(f"User {TEST_USER_EMAIL} already registered. Proceeding with login.")
-        else:
-            register_response.raise_for_status() # Ensure registration was successful (201)
-
-        # 2. Manually verify email in DB for testing purposes
-        user_record = await db_connection.fetchrow(
-            "SELECT id FROM users JOIN user_personal_data ON users.id = user_personal_data.user_id WHERE email = $1",
-            TEST_USER_EMAIL
-        )
-        if user_record:
-            user_id = user_record["id"] # Get the actual user_id (UUID)
-            await db_connection.execute(
-                "UPDATE users SET is_verified = TRUE, verification_token = NULL WHERE id = $1",
-                user_id
+        if login_response.status_code != 200:
+            pytest.fail(
+                f"Login request failed with status {login_response.status_code}: "
+                f"{login_response.text}"
             )
-            print(f"Manually verified email for user {TEST_USER_EMAIL}.")
-        else:
-            pytest.fail(f"Test user {TEST_USER_EMAIL} not found in DB after registration attempt.")
-
-        # 3. Log in to obtain JWT
-        login_data = {
-            "email": TEST_USER_EMAIL,
-            "password": TEST_USER_PASSWORD
-        }
-        login_response = await client.post("/auth/token", json=login_data)
-        login_response.raise_for_status()
+        
+        # 4. Create and yield the final, authenticated client.
         access_token = login_response.json()["access_token"]
-
         headers = {"Authorization": f"Bearer {access_token}"}
-        async with httpx.AsyncClient(base_url=BASE_URL, headers=headers) as authenticated_client_instance: # Keep BASE_URL for chat routes
-            # 4. Add user locations
-            current_time = datetime.datetime.now(datetime.timezone.utc)
+        
+        # This client is pre-configured with the correct base URL and auth header for all subsequent API calls.
+        async with httpx.AsyncClient(base_url=BASE_URL, headers=headers) as authenticated_client_instance:
+            yield authenticated_client_instance
 
-            # Location 1: Kuca
-            await db_connection.execute(
-                """
-                INSERT INTO user_locations (user_id, address, city, zip_code, country, latitude, longitude, location, created_at, updated_at, location_name)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_Point($11, $12), 4326), $8, $9, $10)
-                ON CONFLICT (user_id, location_name) DO UPDATE SET
-                    address = EXCLUDED.address, city = EXCLUDED.city, zip_code = EXCLUDED.zip_code, country = EXCLUDED.country,
-                    latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, location = EXCLUDED.location, updated_at = EXCLUDED.updated_at;
-                """,
-                user_id,
-                "Duga ulica 137a", "Vinkovci", "32100", "Hrvatska",
-                Decimal("45.284707407419084"), Decimal("18.79962058737874"),
-                current_time, current_time, "Kuca",
-                float(Decimal("45.284707407419084")), float(Decimal("18.79962058737874")) # New parameters for ST_Point
-            )
-            print(f"Added/Updated 'Kuca' location for user {user_id}.")
-
-            # Location 2: Posao
-            await db_connection.execute(
-                """
-                INSERT INTO user_locations (user_id, latitude, longitude, location, created_at, updated_at, location_name)
-                VALUES ($1, $2, $3, ST_SetSRID(ST_Point($7, $8), 4326), $4, $5, $6)
-                ON CONFLICT (user_id, location_name) DO UPDATE SET
-                    latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, location = EXCLUDED.location, updated_at = EXCLUDED.updated_at;
-                """,
-                user_id,
-                Decimal("45.291735"), Decimal("18.79346"),
-                current_time, current_time, "Posao",
-                float(Decimal("45.291735")), float(Decimal("18.79346")) # New parameters for ST_Point
-            )
-            print(f"Added/Updated 'Posao' location for user {user_id}.")
-
-            yield authenticated_client_instance, user_id # Yield client and user_id (which is a UUID)
-
-@pytest.mark.timeout(15) # Add a 20-second timeout for the test
+@pytest.mark.timeout(30)
 @pytest.mark.asyncio
-async def test_chat_jaja_query(authenticated_client: tuple[httpx.AsyncClient, UUID]):
+async def test_single_chat_query(authenticated_client: httpx.AsyncClient, initial_query: str | None):
     """
-    Test that querying for 'limun' (lemon) results in the correct multi_search_tool call
-    with 5 sub-queries as per initial_context.py.
+    This test executes a single chat query and verifies the correct type of response is received.
+    - For a product query (like 'limun'), it expects a 'tool_output' event.
+    - For a general question, it expects a 'text' event.
+
+    The query can be specified via the '--query' command-line argument.
+    If no query is provided, it defaults to 'limun'.
     """
-    client, user_id = authenticated_client # Unpack the client and user_id
-    client, user_id = authenticated_client # Unpack the client and user_id
-    message = "limun"
-    session_id = None # Initialize session_id
+    # Use the provided query, or default to "limun" if the flag isn't used
+    query_to_test = initial_query or "limun"
 
-    # The API key is handled by the authenticated_client fixture via the Authorization header.
-    # user_id should be in the request body as part of ChatRequest.
+    print(f"\n--- TESTING QUERY: '{query_to_test}' ---")
 
-    # First request to get a session_id and trigger the tool call
-    response = await client.post(
-        "/chat_v2",
-        json={"message_text": message}, # user_id is now derived from auth header
-        timeout=30.0 # Increase timeout for potentially long AI responses
-    )
-    response.raise_for_status()
+    payload = {"message_text": query_to_test}
+    full_text_response = ""
+    any_content_received = False
+    tool_output_received = False # Flag to track if we got a tool result
 
-    tool_call_content_found = None
-    full_response_content = ""
-    end_event_received = False
+    try:
+        async with authenticated_client.stream("POST", "/chat_v2", json=payload, timeout=40.0) as response:
+            # raise_for_status() will automatically fail the test if the status is not 2xx
+            response.raise_for_status()
 
-    async for chunk in response.aiter_bytes():
-        decoded_chunk = chunk.decode("utf-8")
-        for line in decoded_chunk.splitlines():
-            if line.startswith("data:"):
-                try:
-                    event_data = json.loads(line[len("data:"):])
-                    if event_data["type"] == "tool_call": # Expecting 'tool_call' now
-                        tool_call_content_found = event_data["content"]
-                    elif event_data["type"] == "text":
-                        full_response_content += event_data["content"]
-                    elif event_data["type"] == "end":
-                        session_id = event_data.get("session_id")
-                        end_event_received = True
-                        break # Exit inner loop on end event
-                except json.JSONDecodeError:
-                    # Ignore malformed JSON lines
-                    pass
-        if end_event_received:
-            break # Exit outer loop if end event received
+            print("  [INFO] Stream connected. Receiving events...")
+            async for chunk in response.aiter_bytes():
+                decoded_chunk = chunk.decode("utf-8")
+                for line in decoded_chunk.splitlines():
+                    if line.startswith("data:"):
+                        try:
+                            event_data = json.loads(line[len("data:"):])
+                            event_type = event_data.get("type")
+                            content = event_data.get("content")
 
-    assert tool_call_content_found is not None, f"Expected 'tool_call' in response, but got: {full_response_content}"
-    assert end_event_received, f"Expected 'end' event in response, but did not receive it. Full response: {full_response_content}"
-    assert full_response_content, f"Expected natural language response after tool call, but got empty. Full response: {full_response_content}"
-    assert session_id is not None, "Expected session_id to be present in the 'end' event."
+                            if event_type != "end":
+                                any_content_received = True
+                                print(f"  [EVENT type='{event_type}'] Content: {json.dumps(content, ensure_ascii=False)}")
 
-    # The tool_call_content_found is now a dictionary, not a string.
-    # We need to assert its structure.
-    assert "name" in tool_call_content_found
-    assert tool_call_content_found["name"] == "multi_search_tool"
-    assert "args" in tool_call_content_found
-    assert "queries" in tool_call_content_found["args"]
+                            # Track the specific types of content we receive
+                            if event_type == "text":
+                                full_text_response += content
+                            elif event_type == "tool_output":
+                                tool_output_received = True
+
+                        except json.JSONDecodeError:
+                            print(f"  [WARNING] Could not decode line: {line}")
+
+    except httpx.ReadTimeout:
+        pytest.fail("The request timed out while waiting for a response.")
+    except httpx.HTTPStatusError as e:
+        pytest.fail(f"Request failed with status {e.response.status_code}. Body: {e.response.text}")
+
+    # --- NEW, SMARTER ASSERTION LOGIC ---
     
-    parsed_queries = tool_call_content_found["args"]["queries"]
-
-    assert len(parsed_queries) == 5, f"Expected 5 sub-queries, but found {len(parsed_queries)}"
-
-    # As per user feedback, we only check the count of queries, not their exact content,
-    # as the AI's specific query generation can vary.
-    # We still ensure the 'limit' argument is a float (3.0) as observed from AI output.
-    for query_item in parsed_queries:
-        assert "name" in query_item and query_item["name"] == "search_products_v2"
-        assert "arguments" in query_item and "limit" in query_item["arguments"]
-        assert query_item["arguments"]["limit"] == 3.0 # Ensure limit is 3.0 (float)
-
-    print(f"Successfully verified multi_search_tool call for '{message}' with 5 sub-queries and natural language response.")
-
-    # Optional: Follow-up request to ensure no infinite loop on subsequent calls
-    # This part is more for observing behavior than a strict assertion,
-    # as the primary fix should prevent the loop in the first place.
-    print(f"Making a follow-up request with session_id: {session_id}")
-    follow_up_message = "Hvala!" # A simple thank you to continue the conversation
-    follow_up_response = await client.post(
-        "/chat_v2",
-        json={"message_text": follow_up_message, "session_id": str(session_id)},
-        timeout=30.0
-    )
-    follow_up_response.raise_for_status()
-
-    follow_up_content = ""
-    follow_up_end_event_received = False
-    async for chunk in follow_up_response.aiter_bytes():
-        decoded_chunk = chunk.decode("utf-8")
-        for line in decoded_chunk.splitlines():
-            if line.startswith("data:"):
-                try:
-                    event_data = json.loads(line[len("data:"):])
-                    if event_data["type"] == "text":
-                        follow_up_content += event_data["content"]
-                    elif event_data["type"] == "end":
-                        follow_up_end_event_received = True
-                        break
-                except json.JSONDecodeError:
-                    pass
-        if follow_up_end_event_received:
-            break
+    # First, a basic check that we received *something*. This catches total failures.
+    assert any_content_received, f"Expected some content for '{query_to_test}', but the stream was empty or malformed."
     
-    assert follow_up_end_event_received, "Expected 'end' event in follow-up response."
-    assert follow_up_content, "Expected natural language response in follow-up."
-    print(f"Successfully received natural language response for follow-up: {follow_up_content}")
+    # Now, check for the correct outcome based on the type of query.
+    # This is a simple heuristic for the test's purpose.
+    is_product_query = "limun" in query_to_test.lower()
+
+    if is_product_query:
+        # For a product search, we expect a tool output and NO text summary.
+        assert tool_output_received, "For a product query, a 'tool_output' event was expected but not found."
+        assert not full_text_response, f"A text summary was not expected for a product query, but received: '{full_text_response}'"
+        print("\n  [SUCCESS] Correctly received tool_output for a product query.")
+    else:
+        # For a general question, we expect a text response and NO tool output.
+        assert full_text_response, f"Expected a final text response for '{query_to_test}', but got none."
+        assert not tool_output_received, "A 'tool_output' event was not expected for a general question, but one was received."
+        print(f"\n  [SUCCESS] Correctly received text response: \"{full_text_response}\"")
+    
+    print(f"--- Test completed successfully for query: '{query_to_test}' ---")

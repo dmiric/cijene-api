@@ -1,6 +1,6 @@
 from service.config import get_settings
 import sys
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from decimal import Decimal
 from datetime import date, datetime # Import datetime
 import asyncio # Import asyncio for concurrent execution
@@ -120,7 +120,6 @@ async def search_products_tool_v2(
         debug_print(f"search_products_tool_v2 caught exception: {e}")
         return {"error": str(e)}
 
-
 async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str):
     """
     Finds the prices for a single product at a list of specific stores.
@@ -176,8 +175,6 @@ async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str
         debug_print(f"Error in get_product_prices_by_location_tool_v2: {e}")
         return {"error": str(e)}
 
-
-
 async def get_product_details_tool_v2(product_id: int):
     """
     Retrieves the full details for a single product.
@@ -197,8 +194,6 @@ async def get_product_details_tool_v2(product_id: int):
             return {"message": f"Product with ID {product_id} not found."}
     except Exception as e:
         return {"error": str(e)}
-
-
 
 async def find_nearby_stores_tool_v2(
     lat: float,
@@ -232,79 +227,83 @@ async def find_nearby_stores_tool_v2(
         error_message = f"Database error in find_nearby_stores_tool_v2: {e}"
         return {"error": error_message}
 
-
-
-
-
-
-async def multi_search_tool(queries: List[dict]):
+async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Executes multiple product search queries concurrently and returns all results.
+    Executes multiple product search queries concurrently.
+    For each query, it returns a dictionary containing the original query object
+    and a list of found 'products' or an 'error' message.
+
     Args:
-        queries (List[dict]): A list of tool calls to execute. Each item should be a dictionary
-                              with 'name' (the tool function name) and 'arguments' (a dictionary
-                              of arguments for that tool).
+        queries (List[dict]): A list of search query objects.
+
+    Returns:
+        List[Dict[str, Any]]: A list of structured result objects.
+        Example:
+        [
+            {
+                "query": {"caption": "Općenita pretraga", "name": "search_products_v2", ...},
+                "products": [...]
+            },
+            {
+                "query": {"caption": "Svježi limun", "name": "search_products_v2", ...},
+                "error": "Search failed."
+            }
+        ]
     """
-    debug_print(f"multi_search_tool received queries: {queries}") # Added debug print
-    results = []
+    debug_print(f"multi_search_tool received queries: {queries}")
     tasks = []
 
-    for i, query_data in enumerate(queries):
+    # 1. Prepare all the asynchronous tasks
+    for query_data in queries:
         tool_name = query_data.get("name")
         tool_args = query_data.get("arguments", {})
 
         if tool_name not in available_tools:
-            results.append({f"query_{i}_error": f"Tool '{tool_name}' not found."})
+            future = asyncio.Future()
+            future.set_exception(ValueError(f"Tool '{tool_name}' not found."))
+            tasks.append(future)
             continue
 
-        # Ensure 'offset', 'store_ids', and 'sort_by' are always present for search_products_v2
         if tool_name == "search_products_v2":
-            tool_args["offset"] = tool_args.get("offset")
-            tool_args["store_ids"] = tool_args.get("store_ids")
-            # Explicitly set sort_by to its default if not provided by the model
-            if "sort_by" not in tool_args or tool_args["sort_by"] is None:
-                tool_args["sort_by"] = "relevance"
+            tool_args.setdefault("sort_by", "relevance")
 
         tool_func = available_tools[tool_name]
-        debug_print(f"multi_search_tool: Preparing to call {tool_name}")
-        debug_print(f"multi_search_tool: tool_func type: {type(tool_func)}")
-        debug_print(f"multi_search_tool: tool_args for {tool_name}: {tool_args}")
-
-        # Check if it's a coroutine function and append the coroutine object
+        
         if asyncio.iscoroutinefunction(tool_func):
             tasks.append(tool_func(**tool_args))
-            debug_print(f"multi_search_tool: Appended coroutine for {tool_name}")
         else:
-            # If it's not a coroutine function, execute it directly (if it's synchronous)
-            # or raise an error if it's expected to be async.
-            debug_print(f"multi_search_tool: WARNING: {tool_name} is not a coroutine function. Executing directly.")
-            try:
-                result = tool_func(**tool_args)
-                # If it returns a Future/Task, it's still async, so await it
-                if asyncio.isfuture(result) or asyncio.iscoroutine(result):
-                    tasks.append(result)
-                else:
-                    # Wrap synchronous result in a future to be gathered
-                    tasks.append(asyncio.Future())
-                    tasks[-1].set_result(result)
-            except Exception as e:
-                debug_print(f"multi_search_tool: Error executing sync tool {tool_name}: {e}")
-                results.append({f"query_{i}_error": str(e)})
+            future = asyncio.Future()
+            future.set_exception(TypeError(f"Tool '{tool_name}' is not an async function."))
+            tasks.append(future)
 
     if not tasks:
-        return {"results": []}
+        return []
 
-    # Execute all tasks concurrently
+    # 2. Execute all tasks concurrently
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
+    # 3. Structure the final output, combining the original query with the result
+    final_structured_results = []
     for i, res in enumerate(raw_results):
-        if isinstance(res, Exception):
-            results.append({f"query_{i}_error": str(res)})
-        else:
-            results.append({f"query_{i}_result": res})
-    
-    return {"results": results}
+        # Get the entire original query object using its index
+        original_query = queries[i]
 
+        if isinstance(res, Exception):
+            # If a task failed, create an error object
+            structured_item = {
+                "query": original_query,
+                "error": f"An error occurred: {str(res)}"
+            }
+        else:
+            # If successful, create a result object with the products
+            structured_item = {
+                "query": original_query,
+                "products": res
+            }
+        final_structured_results.append(structured_item)
+    
+    debug_print(f"multi_search_tool returning structured results: {final_structured_results}")
+    return final_structured_results
 
 async def get_seasonal_product_deals_tool_v2(
     canonical_name: str,
