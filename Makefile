@@ -250,8 +250,11 @@ test-api: ## Run pytest integration tests for the API service
 	@echo "Test Shopping Lists..."
 	$(MAKE) test-shopping-lists
 
-	@echo "Test Chat V2..."
+	@echo "Test Chat limun V2..."
 	$(MAKE) test-chat-v2
+
+	@echo "Test Chat Eifelov V2..."
+	$(MAKE) test-chat-v2 QUERY="Koliko je visok Eifelov toranj?"
 
 
 test-stores: ## Run pytest integration tests for the stores API service

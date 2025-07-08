@@ -78,7 +78,8 @@ class ChatOrchestrator:
         if tool_calls_this_turn:
             # PATH A: TOOL USE - Execute the tool and we are DONE.
             debug_print("[Orchestrator] Tool call detected. Executing tool and ending request.")
-            yield StreamedPart(type="tool_call", content=tool_calls_this_turn).to_sse()
+            # We don't send tool_calls to chat.
+            # yield StreamedPart(type="tool_call", content=tool_calls_this_turn).to_sse()
 
             model_request_message = ChatMessage(
                 id=uuid4(), 

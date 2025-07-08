@@ -1,8 +1,7 @@
 from service.config import get_settings
-import sys
 from typing import Optional, List, Any, Dict
 from decimal import Decimal
-from datetime import date, datetime # Import datetime
+from datetime import datetime # Import datetime
 import asyncio # Import asyncio for concurrent execution
 from uuid import UUID # Import UUID
 from service.utils.timing import timing_decorator, debug_print # Import the decorator and debug_print
@@ -37,13 +36,6 @@ async def search_products_tool_v2(
         sort_by (Optional[str]): How to sort the results (e.g., 'best_value_kg', 'relevance').
         store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
     """
-    # Remove internal default value assignments as they are now in the signature
-    # if limit is None:
-    #     limit = 20
-    # if offset is None:
-    #     offset = 0
-    # if sort_by is None:
-    #     sort_by = "relevance" # Default sort_by
 
     try:
         # Step 1: Perform hybrid search using db.get_g_products_hybrid_search
@@ -229,34 +221,23 @@ async def find_nearby_stores_tool_v2(
 
 async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Executes multiple product search queries concurrently.
-    For each query, it returns a dictionary containing the original query object
-    and a list of found 'products' or an 'error' message.
-
-    Args:
-        queries (List[dict]): A list of search query objects.
-
-    Returns:
-        List[Dict[str, Any]]: A list of structured result objects.
-        Example:
-        [
-            {
-                "query": {"caption": "Općenita pretraga", "name": "search_products_v2", ...},
-                "products": [...]
-            },
-            {
-                "query": {"caption": "Svježi limun", "name": "search_products_v2", ...},
-                "error": "Search failed."
-            }
-        ]
+    Executes multiple product search queries concurrently. It includes all of your
+    existing logic and adds a fix to prevent the 'caption' argument from being
+    passed to the underlying search function.
     """
     debug_print(f"multi_search_tool received queries: {queries}")
     tasks = []
 
-    # 1. Prepare all the asynchronous tasks
+    # 1. Prepare all the asynchronous tasks (This is your existing logic)
     for query_data in queries:
         tool_name = query_data.get("name")
-        tool_args = query_data.get("arguments", {})
+        # Make a copy to avoid modifying the original query data needed later
+        tool_args = query_data.get("arguments", {}).copy()
+
+        # The 'caption' is metadata, not an argument for the search function.
+        # We remove it from the arguments we will pass to the sub-tool.
+        if 'caption' in tool_args:
+            del tool_args['caption']
 
         if tool_name not in available_tools:
             future = asyncio.Future()
@@ -264,12 +245,10 @@ async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any
             tasks.append(future)
             continue
 
-        if tool_name == "search_products_v2":
-            tool_args.setdefault("sort_by", "relevance")
-
         tool_func = available_tools[tool_name]
         
         if asyncio.iscoroutinefunction(tool_func):
+            # The 'tool_args' dictionary no longer contains 'caption', so this call is safe.
             tasks.append(tool_func(**tool_args))
         else:
             future = asyncio.Future()
@@ -279,23 +258,22 @@ async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any
     if not tasks:
         return []
 
-    # 2. Execute all tasks concurrently
+    # 2. Execute all tasks concurrently (Your existing logic)
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 3. Structure the final output, combining the original query with the result
+    # 3. Structure the final output (Your existing logic)
     final_structured_results = []
     for i, res in enumerate(raw_results):
-        # Get the entire original query object using its index
+        # Get the entire original query object using its index.
+        # This still contains the caption, because we only deleted it from a copy.
         original_query = queries[i]
 
         if isinstance(res, Exception):
-            # If a task failed, create an error object
             structured_item = {
                 "query": original_query,
                 "error": f"An error occurred: {str(res)}"
             }
         else:
-            # If successful, create a result object with the products
             structured_item = {
                 "query": original_query,
                 "products": res
@@ -343,7 +321,6 @@ async def get_seasonal_product_deals_tool_v2(
     except Exception as e:
         debug_print(f"Error in get_seasonal_product_deals_tool_v2: {e}")
         return {"error": str(e)}
-
 
 from .internal_tools import get_user_locations_tool # Assuming you move the original tool logic here
 
