@@ -1,7 +1,7 @@
 import pytest
 import httpx
 import asyncio
-from uuid import UUID
+from uuid import UUID, uuid4 # Added uuid4
 import time # Import time for sleep
 import subprocess # Import subprocess
 from decimal import Decimal # Import Decimal
@@ -9,6 +9,7 @@ import random # Import random
 from typing import Optional, List # Import Optional and List
 import asyncpg # Import asyncpg
 import os # Import os to access environment variables
+from datetime import datetime, timezone # Added datetime, timezone
 
 from service.db.psql import PostgresDatabase # Import PostgresDatabase
 from service.db.repositories.golden_product_repo import GoldenProductRepository # Import GoldenProductRepository
@@ -121,7 +122,66 @@ async def authenticated_client(db_connection: asyncpg.Connection):
         else:
             pytest.fail(f"Test user {TEST_USER_EMAIL} not found in DB after registration attempt.")
 
-        # 3. Log in to obtain JWT
+        # 3. Add user locations
+        user_id = user_record["id"]
+        user_locations_data = [
+            {
+                "address": "Duga ulica 137a",
+                "city": "Vinkovci",
+                "state": "",
+                "zip_code": "32100",
+                "country": "Hrvatska",
+                "latitude": Decimal("45.284707407419084"),
+                "longitude": Decimal("18.79962058737874"),
+                "location_name": "Kuca",
+                "created_at": datetime(2025, 6, 15, 13, 13, 44, 510326, tzinfo=timezone.utc),
+                "updated_at": datetime(2025, 6, 15, 13, 13, 44, 510326, tzinfo=timezone.utc),
+            },
+            {
+                "address": "",
+                "city": "",
+                "state": "",
+                "zip_code": "",
+                "country": "",
+                "latitude": Decimal("45.291735"),
+                "longitude": Decimal("18.82"),
+                "location_name": "Posao",
+                "created_at": datetime(2025, 6, 15, 14, 11, 13, 163421, tzinfo=timezone.utc),
+                "updated_at": datetime(2025, 6, 15, 16, 35, 46, 432401, tzinfo=timezone.utc),
+            },
+        ]
+
+        for loc_data in user_locations_data:
+            lat = loc_data["latitude"]
+            lon = loc_data["longitude"]
+            
+            # Construct the PostGIS geometry string to be embedded directly into the query
+            location_geom_value = f"ST_SetSRID(ST_Point({float(lon)}, {float(lat)}), 4326)::geometry" if lat is not None and lon is not None else 'NULL'
+
+            await db_connection.execute(
+                f"""
+                INSERT INTO user_locations (
+                    user_id, address, city, state, zip_code, country,
+                    latitude, longitude, location_name, location, created_at, updated_at, deleted_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, {location_geom_value}, $10, $11, NULL)
+                ON CONFLICT (user_id, location_name) DO NOTHING;
+                """,
+                user_id,
+                loc_data["address"],
+                loc_data["city"],
+                loc_data["state"],
+                loc_data["zip_code"],
+                loc_data["country"],
+                loc_data["latitude"],
+                loc_data["longitude"],
+                loc_data["location_name"],
+                loc_data["created_at"],
+                loc_data["updated_at"],
+            )
+            print(f"Added user location: {loc_data['location_name']}")
+
+        # 4. Log in to obtain JWT
         login_data = {
             "email": TEST_USER_EMAIL,
             "password": TEST_USER_PASSWORD

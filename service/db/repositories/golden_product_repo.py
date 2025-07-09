@@ -144,7 +144,6 @@ class GoldenProductRepository(BaseRepository):
                         row_dict["embedding"] = None
                 results.append(row_dict)
             return results
-
     
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: Optional[List[int]] = None
@@ -164,6 +163,7 @@ class GoldenProductRepository(BaseRepository):
                     gs.code AS store_code,
                     gs.address AS store_address,
                     gs.city AS store_city,
+                    c.code AS chain_code, -- Added chain_code
                     gpr.price_date,
                     gpr.regular_price,
                     gpr.special_price,
@@ -174,6 +174,7 @@ class GoldenProductRepository(BaseRepository):
                 FROM g_prices gpr
                 JOIN g_products gp ON gpr.product_id = gp.id
                 JOIN stores gs ON gpr.store_id = gs.id
+                JOIN chains c ON gs.chain_id = c.id -- Joined chains table
                 WHERE gpr.product_id = $1
             """
             params = [product_id]
@@ -190,6 +191,7 @@ class GoldenProductRepository(BaseRepository):
             self.debug_print(f"get_g_product_prices_by_location: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
+        
     async def get_g_product_by_ean(self, ean: str) -> Optional[GProductWithId]:
         """
         Retrieves a single golden product by its EAN.

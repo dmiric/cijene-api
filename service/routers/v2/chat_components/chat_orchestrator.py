@@ -27,6 +27,40 @@ class ChatOrchestrator:
         self.full_ai_response_text = ""
         self.history: list[ChatMessage] = []
 
+    async def _get_user_locations_with_nearby_stores(self) -> List[dict]:
+        """
+        Retrieves user locations and appends nearby stores to each location.
+        """
+        user_locations = await self.db.users.get_user_locations_by_user_id(self.user_id)
+
+        print(f"!!! ORCHESTRATOR: User Locations: {user_locations}", file=sys.stderr, flush=True)
+        
+        enriched_locations = []
+        for loc in user_locations:
+            loc_dict = loc.copy() # Create a copy to avoid modifying the original object if it's a Pydantic model or similar
+            
+            # Convert UUIDs to strings for JSON serialization
+            if "user_id" in loc_dict and isinstance(loc_dict["user_id"], UUID):
+                loc_dict["user_id"] = str(loc_dict["user_id"])
+            if "id" in loc_dict and isinstance(loc_dict["id"], UUID): # Although id is SERIAL, good to be defensive
+                loc_dict["id"] = str(loc_dict["id"])
+
+            latitude = loc_dict.get("latitude")
+            longitude = loc_dict.get("longitude")
+
+            if latitude is not None and longitude is not None:
+                nearby_stores = await self.db.stores.get_stores_within_radius(
+                    lat=latitude,
+                    lon=longitude,
+                    radius_meters=1500 # Default to 10 km radius
+                )
+                loc_dict["nearby_stores"] = nearby_stores
+            else:
+                loc_dict["nearby_stores"] = [] # No coordinates, no nearby stores
+
+            enriched_locations.append(loc_dict)
+        return enriched_locations
+    
     async def _load_history(self):
         print("!!! ORCHESTRATOR: Loading history...", file=sys.stderr, flush=True)
         self.history = await self.db.chat.get_chat_messages(self.user_id, self.session_id)
@@ -55,6 +89,14 @@ class ChatOrchestrator:
             await self._add_and_save_message(user_message)
         
         yield StreamedPart(type="status", content="processing").to_sse()
+
+        # Add user locations with nearby stores to system instructions
+        enriched_user_locations = await self._get_user_locations_with_nearby_stores()
+        if enriched_user_locations:
+            self.system_instructions.append(
+                "Korisnikove lokacije i obližnje trgovine: " + json.dumps(enriched_user_locations) + 
+                "Koristi popis togovina za multi_search_tool."
+            )
 
         # --- 2. Make a Single API Call with Tools Enabled ---
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history)

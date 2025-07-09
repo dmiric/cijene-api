@@ -16,10 +16,7 @@ INITIAL_SYSTEM_INSTRUCTIONS = [
 
     1.  **Ako korisnik traži proizvod (npr. 'Limun', 'mlijeko'):**
         - Koristi alat `multi_search_tool` da pronađeš proizvode.
-        - Unutar poziva alata, napravi točno DVA upita (`search_products_v2`).
-        - Svaki upit mora imati `caption` (jasan naslov). Naslov je JAKO važan.
-        - Svaki upit mora imati `limit: 3`.
-        - Nakon što dobiješ rezultate, sažmi ih i prikaži korisniku.
+        - Unutar poziva alata, napravi točno PET upita (`search_products_v2`).
 
     2.  **Ako korisnik postavi bilo koje drugo pitanje (npr. o Eiffelovom tornju):**
         - Odgovori na pitanje izravno, bez korištenja alata.
