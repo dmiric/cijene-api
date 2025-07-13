@@ -456,34 +456,35 @@ async def enrich_prices(csv_path: Path) -> None:
     csv_columns = set(data[0].keys())
     expected_columns = {
         "id", "product_id", "store_id", "price_date", "regular_price",
-        "special_price", "is_on_special_offer"
+        "special_price", "price_per_kg", "price_per_l", "price_per_piece", "is_on_special_offer"
     }
     if not expected_columns.issubset(csv_columns):
-        raise ValueError("CSV file headers do not match expected columns for g_prices")
+        raise ValueError(f"CSV file headers do not match expected columns for g_prices. Expected: {expected_columns}, Got: {csv_columns}")
 
     logger.info(f"Starting g_prices enrichment from {csv_path} with {len(data)} entries")
     t0 = time()
 
     prices_to_add = []
     for row in data:
+        def safe_decimal(value_str):
+            if value_str and value_str.lower() != "null":
+                try:
+                    return Decimal(value_str)
+                except InvalidOperation:
+                    logger.warning(f"Invalid Decimal value: '{value_str}'. Setting to None.")
+                    return None
+            return None
+
         prices_to_add.append(
             GPrice(
                 product_id=int(row["product_id"]),
                 store_id=int(row["store_id"]),
                 price_date=datetime.fromisoformat(row["price_date"]).date(),
-                regular_price=(
-                    Decimal(row["regular_price"])
-                    if row["regular_price"] and row["regular_price"].lower() != "null"
-                    else None
-                ),
-                special_price=(
-                    Decimal(row["special_price"])
-                    if row["special_price"] and row["special_price"].lower() != "null"
-                    else None
-                ),
-                price_per_kg=None,
-                price_per_l=None,
-                price_per_piece=None,
+                regular_price=safe_decimal(row["regular_price"]),
+                special_price=safe_decimal(row["special_price"]),
+                price_per_kg=safe_decimal(row["price_per_kg"]),
+                price_per_l=safe_decimal(row["price_per_l"]),
+                price_per_piece=safe_decimal(row["price_per_piece"]),
                 is_on_special_offer=row["is_on_special_offer"].lower() == "true",
             )
         )

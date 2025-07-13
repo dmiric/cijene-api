@@ -28,7 +28,7 @@ API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 # Add a new variable for the query, it will be empty by default
 QUERY=limun
 
-.PHONY: help crawl-sample rebuild rebuild-api import-data add-user search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
+.PHONY: help crawl-sample rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
 
 ## General Commands
 help: ## Display this help message
@@ -146,14 +146,14 @@ crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
 	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/db/import.py /app/output/$(DATE)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/output/$(DATE)
 
 normalize-data: ## Run the AI normalizer to process raw product data into golden records
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/normalizer.py
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type stores ./enrichment/stores.csv
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type products ./enrichment/products.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type products ./enrichment/products.csv
 
 
 ## Database Commands
@@ -219,14 +219,10 @@ enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/fi
 	@if [ -z "$(CSV_FILE)" ]; then echo "Error: CSV_FILE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
 	@if [ -z "$(TYPE)" ]; then echo "Error: TYPE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
 	$(eval USER_LOCATIONS_ARG=$(if $(USER_LOCATIONS_CSV_FILE),--user-locations-csv-file $(USER_LOCATIONS_CSV_FILE),))
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/enrich.py --type $(TYPE) $(CSV_FILE) $(USER_LOCATIONS_ARG)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type $(TYPE) $(CSV_FILE) $(USER_LOCATIONS_ARG)
 
 
 ## API & User Commands
-add-user: ## Add a new user with a generated API key. Usage: make add-user USERNAME=your_username
-	@if [ -z "$(USERNAME)" ]; then echo "Error: USERNAME is required. Usage: make add-user USERNAME=your_username"; exit 1; fi
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/add_user.py $(USERNAME)
-
 migrate-db: ## Apply database migrations
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/migrate.py
 

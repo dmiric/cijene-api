@@ -95,7 +95,7 @@ class ChatOrchestrator:
         if enriched_user_locations:
             self.system_instructions.append(
                 "Korisnikove lokacije i obližnje trgovine: " + json.dumps(enriched_user_locations) + 
-                "Koristi popis togovina za multi_search_tool."
+                "Koristi popis trgovina za multi_search_tool."
             )
 
         # --- 2. Make a Single API Call with Tools Enabled ---

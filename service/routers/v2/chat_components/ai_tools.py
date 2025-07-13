@@ -21,152 +21,46 @@ db = get_settings().get_db()
 # --- Tool Functions ---
 async def search_products_tool_v2(
     q: str,
-    limit: Optional[int] = 20, # Set default here
-    offset: Optional[int] = 0, # Set default here
-    *, # All subsequent arguments must be keyword-only
-    sort_by: Optional[str] = "relevance", # Set default here
-    store_ids: Optional[str] = None, # Set default here
+    limit: Optional[int] = 20,
+    offset: Optional[int] = 0,
+    *,
+    sort_by: Optional[str] = "relevance",
+    store_ids: Optional[str] = None,
 ):
     """
-    Search for products by name using hybrid search (vector + keyword) and optionally filter by stores.
-    Args:
-        q (str): The user's natural language query.
-        limit (Optional[int]): Maximum number of results to return.
-        offset (Optional[int]): Number of results to skip.
-        sort_by (Optional[str]): How to sort the results (e.g., 'best_value_kg', 'relevance').
-        store_ids (Optional[str]): Comma-separated list of store IDs to filter products by availability.
+    Search for products by name and optionally filter by stores.
+    FIXED: Now returns products even if they have no price in the specified stores,
+    providing a better user experience.
     """
-
     try:
-        # Step 1: Perform hybrid search using db.get_g_products_hybrid_search
-        products = await db.get_g_products_hybrid_search(
-            query=q,
-            limit=limit,
-            offset=offset,
-            sort_by=sort_by,
-        )
-
-        if not products:
-            debug_print("search_products_tool_v2 returning empty products list.")
-            return {"products": []}
-
-        # Filter products to include only AI-relevant fields
-        filtered_products = filter_product_fields(products, PRODUCT_AI_SEARCH_FIELDS)
-
-        # Step 2: If store_ids are provided, filter products by their availability in those stores
         if store_ids:
             parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
-            filtered_products_with_prices = []
-            
-            for product_dict in filtered_products: # Use filtered_products here
-                product_id = product_dict.get("id")
-                base_unit_type = product_dict.get("base_unit_type") # Get base_unit_type
-                if product_id is None or base_unit_type is None:
-                    continue
+            if not parsed_store_ids:
+                 return {"products": []}
 
-                # Fetch prices for this product in the specified stores from g_prices
-                prices_in_stores_raw = await db.get_g_product_prices_by_location(
-                    product_id=product_id,
-                    store_ids=parsed_store_ids,
-                )
-
-                prices_in_stores_formatted = []
-                for price_entry in prices_in_stores_raw:
-                    # Determine the correct unit_price based on base_unit_type
-                    unit_price_value = None
-                    if base_unit_type == 'WEIGHT':
-                        unit_price_value = price_entry.get('price_per_kg')
-                    elif base_unit_type == 'VOLUME':
-                        unit_price_value = price_entry.get('price_per_l')
-                    elif base_unit_type == 'COUNT':
-                        unit_price_value = price_entry.get('price_per_piece')
-                    
-                    prices_in_stores_formatted.append({
-                        "chain_code": price_entry.get("chain_code"),
-                        "product_id": price_entry.get("product_id"),
-                        "store_id": price_entry.get("store_id"),
-                        "store_name": price_entry.get("store_code"), # Use store_code as store_name
-                        "store_address": price_entry.get("store_address"),
-                        "store_city": price_entry.get("store_city"),
-                        "price_date": price_entry.get("price_date").isoformat() if price_entry.get("price_date") else None,
-                        "regular_price": price_entry.get("regular_price"),
-                        "special_price": price_entry.get("special_price"),
-                        "unit_price": unit_price_value,
-                        "best_price_30": None, # Not available in g_prices directly
-                        "anchor_price": None, # Not available in g_prices directly
-                        "is_on_special_offer": price_entry.get("is_on_special_offer")
-                    })
-                
-                if prices_in_stores_formatted:
-                    product_dict["prices_in_stores"] = prices_in_stores_formatted
-                    filtered_products_with_prices.append(product_dict)
+            # This call is working and returning products.
+            # Each product has a `prices_in_stores` key which might be an empty list [].
+            products_with_prices = await db.get_g_products_hybrid_search_with_prices(
+                query=q,
+                store_ids=parsed_store_ids,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_by,
+            )
             
-            debug_print(f"search_products_tool_v2 returning with store_ids: {len(filtered_products_with_prices)} products.")
-            return pydantic_to_dict({"products": filtered_products_with_prices})
-        
-        # If no store_ids, return filtered products directly
-        debug_print(f"search_products_tool_v2 returning without store_ids: {len(filtered_products)} products.")
-        return pydantic_to_dict({"products": filtered_products})
+            # This function filters for AI-relevant fields. This is correct.
+            filtered_products = filter_product_fields(products_with_prices, PRODUCT_AI_SEARCH_FIELDS)
+
+            debug_print(f"search_products_tool_v2 returning with store_ids: {len(filtered_products)} products.")
+            return pydantic_to_dict({"products": filtered_products})
 
     except Exception as e:
+        # Add traceback for better debugging if it happens again
+        import traceback
+        traceback.print_exc()
         debug_print(f"search_products_tool_v2 caught exception: {e}")
         return {"error": str(e)}
-
-async def get_product_prices_by_location_tool_v2(product_id: int, store_ids: str):
-    """
-    Finds the prices for a single product at a list of specific stores.
-    Args:
-        product_id (int): The ID of the product.
-        store_ids (str): A comma-separated list of store IDs, e.g., 101,105,230.
-    """
-    debug_print(f"Tool Call: get_product_prices_by_location_tool_v2(product_id={product_id}, store_ids={store_ids})")
-    try:
-        parsed_store_ids = [int(s.strip()) for s in store_ids.split(',') if s.strip()]
-        
-        # Fetch g_product's base_unit_type to determine which unit price to return
-        # This requires fetching product details first
-        product_details = await db.get_g_product_details(product_id)
-        if not product_details:
-            return {"prices": []} # Product not found
-
-        base_unit_type = product_details.get("base_unit_type")
-        if base_unit_type is None:
-            return {"prices": []} # Cannot determine unit type
-
-        # Use db.get_g_product_prices_by_location
-        prices_in_stores_raw = await db.get_g_product_prices_by_location(
-            product_id=product_id,
-            store_ids=parsed_store_ids,
-        )
-
-        prices_in_stores_formatted = []
-        for price_entry in prices_in_stores_raw:
-            unit_price_value = None
-            if base_unit_type == 'WEIGHT':
-                unit_price_value = price_entry.get('price_per_kg')
-            elif base_unit_type == 'VOLUME':
-                unit_price_value = price_entry.get('price_per_l')
-            elif base_unit_type == 'COUNT':
-                unit_price_value = price_entry.get('price_per_piece')
-            
-            prices_in_stores_formatted.append({
-                "chain_code": price_entry.get("chain_code"),
-                "product_id": price_entry.get("product_id"),
-                "store_id": price_entry.get("store_id"),
-                "price_date": price_entry.get("price_date").isoformat() if price_entry.get("price_date") else None,
-                "regular_price": price_entry.get("regular_price"),
-                "special_price": price_entry.get("special_price"),
-                "unit_price": unit_price_value,
-                "best_price_30": None, # Not available in g_prices directly
-                "anchor_price": None, # Not available in g_prices directly
-                "is_on_special_offer": price_entry.get("is_on_special_offer")
-            })
-        
-        return pydantic_to_dict({"prices": prices_in_stores_formatted})
-    except Exception as e:
-        debug_print(f"Error in get_product_prices_by_location_tool_v2: {e}")
-        return {"error": str(e)}
-
+    
 async def get_product_details_tool_v2(product_id: int):
     """
     Retrieves the full details for a single product.
@@ -361,11 +255,10 @@ async def find_nearby_stores_for_user_tool(user_id: str, radius_meters: Optional
 
 # Map tool names to their Python functions
 available_tools = {
+    "multi_search_tool": multi_search_tool,
     "search_products_v2": search_products_tool_v2,
-    "get_product_prices_by_location_v2": get_product_prices_by_location_tool_v2,
     "get_product_details_v2": get_product_details_tool_v2,
     "find_nearby_stores_v2": find_nearby_stores_tool_v2,
-    "multi_search_tool": multi_search_tool,
     "get_seasonal_product_deals_v2": get_seasonal_product_deals_tool_v2, # Add the new seasonal deals tool
     "find_nearby_stores_for_user": find_nearby_stores_for_user_tool, # Add the new composite tool
 }

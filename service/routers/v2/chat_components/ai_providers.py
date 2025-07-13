@@ -131,7 +131,7 @@ class GeminiProvider(AbstractAIProvider):
         Parses a raw chunk from the API and converts its parts into StreamedPart objects.
         This version correctly handles BOTH text and function_call parts.
         """
-        print(f"!!! PROVIDER: Parsing chunk from API.", file=sys.stderr, flush=True)
+        print(f"!!! PROVIDER: Parsing chunk: {chunk} from API.", file=sys.stderr, flush=True)
         parts = []
         if not hasattr(chunk, 'candidates') or not chunk.candidates:
             return parts

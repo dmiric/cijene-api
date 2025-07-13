@@ -7,13 +7,13 @@ import smtplib
 import ssl
 from typing import Optional # Import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
 from service.config import get_settings
-from service.db.models import User, UserPersonalData, Token, UserRegisterRequest, UserLoginRequest, PasswordResetRequest, PasswordResetConfirm # Import new models
+from service.db.models import User, UserPersonalData, Token, UserRegisterRequest, UserLoginRequest, PasswordResetRequest, PasswordResetConfirm, ChangePasswordRequest # Import new models
 
 logger = logging.getLogger(__name__)
 
@@ -194,22 +194,33 @@ async def login_for_access_token(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_access_token(
+    request: Request, # Add Request as a dependency
     refresh_token: str = Depends(HTTPBearer(auto_error=False)), # Use HTTPBearer for refresh token
 ):
     """
     Refresh access token using a valid refresh token.
     """
+    logger.debug(f"Incoming Authorization header: {request.headers.get('Authorization')}")
     if not refresh_token or not refresh_token.credentials:
+        logger.debug("Refresh token missing from request.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token missing",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    logger.debug(f"Received refresh token credentials: {refresh_token.credentials}")
     # Retrieve refresh token from DB
     db_refresh_token = await db.users.get_refresh_token(refresh_token.credentials)
     
-    if not db_refresh_token or db_refresh_token["expires_at"].replace(tzinfo=None) < datetime.utcnow():
+    current_utc = datetime.utcnow()
+    if db_refresh_token:
+        logger.debug(f"DB refresh token found. Expires at: {db_refresh_token['expires_at']}, Current UTC: {current_utc}")
+    else:
+        logger.debug("DB refresh token not found.")
+
+    if not db_refresh_token or db_refresh_token["expires_at"].replace(tzinfo=None) < current_utc:
+        logger.debug("Refresh token invalid or expired based on DB check.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -221,6 +232,7 @@ async def refresh_access_token(
     # Fetch the user object
     user, _ = await db.users.get_user_by_id(user_id)
     if user is None or not user.is_active or user.deleted_at is not None:
+        logger.debug(f"User associated with refresh token not found, inactive, or deleted. User ID: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -228,6 +240,7 @@ async def refresh_access_token(
         )
 
     # Delete old refresh token from DB
+    logger.debug(f"Deleting old refresh token: {refresh_token.credentials}")
     await db.users.delete_refresh_token(refresh_token.credentials)
 
     # Create new access token
@@ -344,7 +357,6 @@ async def reset_password(
 
     return {"message": "Password reset successfully!"}
 
-
 async def verify_authentication(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> UserPersonalData: # Return UserPersonalData
@@ -391,3 +403,39 @@ async def verify_authentication(
 
 # Dependency for protecting routes
 RequireAuth = Depends(verify_authentication)
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: UserPersonalData = RequireAuth,
+):
+    """
+    Allows a logged-in user to change their password.
+    Requires current password for verification.
+    """
+    user, _ = await db.users.get_user_by_id(current_user.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    # Verify current password
+    if not verify_password(request.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect current password.",
+        )
+
+    # Hash the new password
+    new_hashed_password = get_password_hash(request.new_password)
+
+    # Update the password in the database
+    updated = await db.users.update_user_password(user.id, new_hashed_password)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password.",
+        )
+
+    return {"message": "Password changed successfully!"}

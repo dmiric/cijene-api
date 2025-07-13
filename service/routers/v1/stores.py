@@ -6,10 +6,10 @@ from typing import Any, Optional
 
 from service.config import get_settings
 from service.db.models import Store, StoreWithId, ChainWithId, User
-from service.routers.auth import RequireAuth
+from service.routers.auth import verify_authentication # Import verify_authentication directly
 from fastapi import Depends
 
-router = APIRouter(tags=["Stores"], dependencies=[RequireAuth])
+router = APIRouter(tags=["Stores"], dependencies=[Depends(verify_authentication)]) # Use Depends(verify_authentication)
 db = get_settings().get_db()
 
 def debug_print(*args, **kwargs):

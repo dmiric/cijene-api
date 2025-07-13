@@ -27,12 +27,6 @@ PRODUCT_FULL_FIELDS = [
     "base_unit_type", "created_at", "updated_at"
 ]
 
-# Fields for AI product search results (excluding sensitive/large fields like embedding)
-PRODUCT_AI_SEARCH_FIELDS = [
-    "id", "ean", "canonical_name", "brand", "category",
-    "base_unit_type", "variants", "text_for_embedding", "keywords", "is_generic_product",
-    "seasonal_start_month", "seasonal_end_month"
-]
 
 # Fields for AI product details (excluding embedding)
 PRODUCT_AI_DETAILS_FIELDS = [
@@ -50,6 +44,14 @@ PRODUCT_PRICE_AI_FIELDS = [
 # Fields necessary for database search and ranking operations
 PRODUCT_DB_SEARCH_FIELDS = [
     "id", "ean", "canonical_name", "brand", "category",
-    "base_unit_type", "variants", "text_for_embedding", "keywords", "rank",
+    "base_unit_type", "variants", "text_for_embedding", "keywords",
     "best_unit_price_per_kg", "best_unit_price_per_l", "best_unit_price_per_piece"
+]
+
+# Fields for AI product search results (excluding sensitive/large fields like embedding)
+PRODUCT_AI_SEARCH_FIELDS = [
+    "id", "ean", "canonical_name", "brand", "category",
+    "base_unit_type", "variants", "text_for_embedding", "keywords", "is_generic_product",
+    "seasonal_start_month", "seasonal_end_month", 
+    "prices_in_stores"
 ]

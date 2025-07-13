@@ -261,11 +261,21 @@ class PostgresDatabase(Database):
     async def get_g_products_hybrid_search(
         self,
         query: str,
-        limit: int = 20,
+        limit: int = 3,
         offset: int = 0,
         sort_by: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by)
+    
+    async def get_g_products_hybrid_search_with_prices(
+        self,
+        query: str,
+        store_ids: List[int],
+        limit: int = 3,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await self.golden_products.get_g_products_hybrid_search_with_prices(query, store_ids, limit, offset, sort_by)
 
     async def get_g_stores_nearby(
         self,

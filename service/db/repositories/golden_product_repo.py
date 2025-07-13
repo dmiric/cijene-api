@@ -53,98 +53,126 @@ class GoldenProductRepository(BaseRepository):
     async def _fetchval(self, query: str, *args: Any) -> Any:
         async with self._get_conn() as conn:
             return await conn.fetchval(query, *args)
-
-    async def get_g_products_hybrid_search(
+    # used by search_products_tool_v2 to search products w/o prices
+    async def get_g_products_hybrid_search_with_prices(
         self,
         query: str,
+        store_ids: List[int],
         limit: int = 20,
         offset: int = 0,
         sort_by: Optional[str] = None,
-    ) -> list[dict[str, Any]]: # Return list of dicts for flexibility
+    ) -> list[dict[str, Any]]:
         """
-        Performs hybrid search (vector + keyword) on g_products, fuses results with RRF,
-        and applies sorting based on g_product_best_offers.
+        Performs a hybrid search and fetches prices.
+        FINAL VERSION 2.0:
+        1. When sorting by price, ONLY returns products that both have a price
+        AND match the corresponding base_unit_type (e.g., 'WEIGHT' for 'best_value_kg').
+        2. Correctly populates the 'unit_price' field.
         """
-        self.debug_print(f"get_g_products_hybrid_search: query={query}, sort_by={sort_by}")
+        if not store_ids:
+            raise ValueError("store_ids cannot be empty for this function.")
 
-        fields_to_select = list(PRODUCT_DB_SEARCH_FIELDS) # Start with all DB search fields
+        self.debug_print(f"get_g_products_hybrid_search_with_prices: query={query}, store_ids={store_ids}, sort_by={sort_by}")
 
-        # Ensure 'rank' is selected if sorting by relevance (default or explicit)
-        if (sort_by is None or sort_by == 'relevance') and 'rank' not in fields_to_select:
-            fields_to_select.append('rank')
-
-        # Basic validation for fields (can be more robust)
-        valid_fields = set(PRODUCT_DB_SEARCH_FIELDS + ["embedding"]) # Add embedding as it's a DB field
-        if not all(f in valid_fields for f in fields_to_select):
-            raise ValueError("Invalid field requested for product search.")
-
-        # Construct SELECT clause dynamically
-        select_parts = []
-        for field in fields_to_select:
-            if field == "rank":
-                select_parts.append("ts_rank_cd(to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS rank")
-            elif field.startswith("best_unit_price_"):
-                select_parts.append(f"gpbo.{field}")
-            else:
-                select_parts.append(f"gp.{field}") # Direct mapping for other fields
-
-        select_clause = ", ".join(select_parts)
-
-        where_conditions = []
         params = [query]
         param_counter = 2
 
-        # Initial FTS condition
-        where_conditions.append(f"to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)")
+        # --- Intelligent Sorting and Filtering Logic ---
+        sort_by_column = "relevance_score"
+        sort_by_direction = "DESC"
+        filter_condition = "TRUE" # Default: no filtering
 
-        from_clause = "FROM g_products gp"
-        join_clause = ""
-        
-        # Add join for best offers if sorting by value or selecting best offer fields
-        if sort_by and sort_by.startswith('best_value_') or any(f.startswith('best_unit_price_') for f in fields_to_select):
-            join_clause = "LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id"
-
-        order_by_clause = " ORDER BY rank DESC" # Default for relevance
-        if sort_by:
+        if sort_by and sort_by.startswith("best_value_"):
+            sort_by_column = "best_price_metric"
+            sort_by_direction = "ASC NULLS LAST"
+            
+            # This is the key change: we tie the filter to the product's base unit type
             if sort_by == 'best_value_kg':
-                order_by_clause = " ORDER BY gpbo.best_unit_price_per_kg ASC NULLS LAST"
+                filter_condition = "base_unit_type = 'WEIGHT' AND best_price_metric IS NOT NULL"
             elif sort_by == 'best_value_l':
-                order_by_clause = " ORDER BY gpbo.best_unit_price_per_l ASC NULLS LAST"
+                filter_condition = "base_unit_type = 'VOLUME' AND best_price_metric IS NOT NULL"
             elif sort_by == 'best_value_piece':
-                order_by_clause = " ORDER BY gpbo.best_unit_price_per_piece ASC NULLS LAST"
-            elif sort_by == 'relevance':
-                order_by_clause = " ORDER BY rank DESC"
+                filter_condition = "base_unit_type = 'COUNT' AND best_price_metric IS NOT NULL"
 
         final_query = f"""
-            SELECT {select_clause}
-            {from_clause}
-            {join_clause}
-            WHERE {' AND '.join(where_conditions)}
-            {order_by_clause}
-            LIMIT ${param_counter} OFFSET ${param_counter + 1}
+            WITH products_with_metrics AS (
+                -- Step 1: Find all products matching the text search and calculate their
+                -- metrics. We must include base_unit_type here for the next step.
+                SELECT
+                    gp.id,
+                    gp.base_unit_type,
+                    ts_rank_cd(to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')), websearch_to_tsquery('hr', $1)) AS relevance_score,
+                    MIN(
+                        CASE
+                            WHEN gp.base_unit_type = 'WEIGHT' THEN gpr.price_per_kg
+                            WHEN gp.base_unit_type = 'VOLUME' THEN gpr.price_per_l
+                            WHEN gp.base_unit_type = 'COUNT' THEN gpr.price_per_piece
+                            ELSE NULL
+                        END
+                    ) AS best_price_metric
+                FROM g_products gp
+                LEFT JOIN g_prices gpr ON gp.id = gpr.product_id AND gpr.store_id = ANY(${param_counter + 2})
+                WHERE to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)
+                GROUP BY gp.id, gp.base_unit_type
+            ),
+            sorted_product_ids AS (
+                -- Step 2: Apply the new, intelligent filter.
+                SELECT id
+                FROM products_with_metrics
+                WHERE {filter_condition}
+                ORDER BY {sort_by_column} {sort_by_direction}, relevance_score DESC
+                LIMIT ${param_counter} OFFSET ${param_counter + 1}
+            )
+            -- Step 3: Fetch the full data for only the final, filtered, sorted, and limited set of product IDs.
+            SELECT
+                gp.*,
+                (
+                    SELECT jsonb_agg(prices.price_data)
+                    FROM (
+                        SELECT
+                            jsonb_build_object(
+                                'chain_code', (SELECT c.code FROM chains c JOIN stores s ON c.id = s.chain_id WHERE s.id = gpr.store_id),
+                                'product_id', gpr.product_id,
+                                'store_id', gpr.store_id,
+                                'store_name', (SELECT s.code FROM stores s WHERE s.id = gpr.store_id),
+                                'store_address', (SELECT s.address FROM stores s WHERE s.id = gpr.store_id),
+                                'store_city', (SELECT s.city FROM stores s WHERE s.id = gpr.store_id),
+                                'price_date', gpr.price_date,
+                                'regular_price', gpr.regular_price,
+                                'special_price', gpr.special_price,
+                                'unit_price',
+                                    CASE (SELECT p.base_unit_type FROM g_products p WHERE p.id = gpr.product_id)
+                                        WHEN 'WEIGHT' THEN gpr.price_per_kg
+                                        WHEN 'VOLUME' THEN gpr.price_per_l
+                                        WHEN 'COUNT' THEN gpr.price_per_piece
+                                        ELSE NULL
+                                    END,
+                                'best_price_30', NULL, 'anchor_price', NULL, 'is_on_special_offer', gpr.is_on_special_offer
+                            ) as price_data
+                        FROM g_prices gpr
+                        WHERE gpr.product_id = gp.id AND gpr.store_id = ANY(${param_counter + 2})
+                    ) AS prices
+                ) AS prices_in_stores
+            FROM g_products gp
+            WHERE gp.id IN (SELECT id FROM sorted_product_ids)
+            ORDER BY (
+                SELECT {sort_by_column} FROM products_with_metrics WHERE products_with_metrics.id = gp.id
+            ) {sort_by_direction},
+            (
+                SELECT relevance_score FROM products_with_metrics WHERE products_with_metrics.id = gp.id
+            ) DESC
         """
-        params.extend([limit, offset])
-
+        params.extend([limit, offset, store_ids])
+        
         async with self._get_conn() as conn:
-            self.debug_print(f"get_g_products_hybrid_search: Executing Query!")
-            self.debug_print(f"get_g_products_hybrid_search: With Params: {params}")
-            rows = await conn.fetch(final_query, *params, timeout=45.0) # Increase timeout for the query
-            self.debug_print(f"get_g_products_hybrid_search: Rows fetched: {len(rows)}")
-            
-            # Return as list of dictionaries for flexibility
-            results = []
-            for row in rows:
-                row_dict = dict(row)
-                # Manually convert embedding string to list of floats if it's a string
-                if "embedding" in row_dict and isinstance(row_dict["embedding"], str):
-                    try:
-                        row_dict["embedding"] = json.loads(row_dict["embedding"])
-                    except json.JSONDecodeError:
-                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
-                        row_dict["embedding"] = None
-                results.append(row_dict)
+            rows = await conn.fetch(final_query, *params, timeout=45.0)
+            results = [dict(row) for row in rows]
+            for r in results:
+                if r.get('prices_in_stores') is None:
+                    r['prices_in_stores'] = []
             return results
     
+    #this is being used to search products without stores
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: Optional[List[int]] = None
     ) -> list[dict[str, Any]]:
@@ -287,7 +315,6 @@ class GoldenProductRepository(BaseRepository):
                 return row_dict
             return None
 
-    
     async def get_g_stores_nearby(
         self,
         lat: float,
@@ -325,7 +352,6 @@ class GoldenProductRepository(BaseRepository):
 
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
-
     
     async def add_many_g_products(self, g_products: List[GProduct]) -> int:
         """
@@ -367,7 +393,6 @@ class GoldenProductRepository(BaseRepository):
             )
             self.debug_print(f"add_many_g_products: Inserted {result} rows.")
             return result
-
     
     async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
         """
@@ -401,7 +426,6 @@ class GoldenProductRepository(BaseRepository):
             )
             self.debug_print(f"add_many_g_prices: Inserted {result} rows.")
             return result
-
     
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         """

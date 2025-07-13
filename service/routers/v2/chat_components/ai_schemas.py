@@ -2,12 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 import datetime
-from decimal import Decimal
-from datetime import date
-from dataclasses import asdict, fields, is_dataclass
 from google import genai
-from .ai_models import gemini_client
-from .ai_tools import available_tools
+
 
 # --- Pydantic Models ---
 class ChatRequest(BaseModel):
@@ -49,10 +45,9 @@ gemini_tools = [
                     "limit": {"type": "integer", "description": "Maximum number of results to return. Should ALWAYS be 3"},
                     "offset": {"type": "integer", "description": "Number of results to skip."},
                     "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'best_value_l', 'best_value_piece', 'relevance')."},
-                    "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
-                    "caption": {"type": "string", "description": "Caption for this search in Croatian. (e.g., 'Najjeftiniji limun', 'Najpopularniji proizvodi od limuna', 'Sviježi limun')"}
+                    "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."}
                 },
-                "required": ["q","store_ids","caption","limit"],
+                "required": ["q","store_ids","limit"],
             },
         }
     ]),
@@ -121,8 +116,9 @@ gemini_tools = [
                                         "offset": {"type": "integer", "description": "Number of results to skip."},
                                         "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'relevance')."},
                                         "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
+                                        "caption": {"type": "string", "description": "Caption for this search in Croatian. (e.g., 'Najjeftiniji limun', 'Najpopularniji proizvodi od limuna', 'Sviježi limun')"}
                                     },
-                                    "required": ["q"],
+                                    "required": ["q", "caption", "limit", "store_ids"],
                                 },
                             },
                             "required": ["name", "arguments"],

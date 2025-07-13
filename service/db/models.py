@@ -39,6 +39,9 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserPersonalData: # New dataclass for personal data

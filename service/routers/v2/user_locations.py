@@ -1,3 +1,5 @@
+import logging # Import logging
+import dataclasses # Import dataclasses
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Optional
 from uuid import UUID
@@ -8,6 +10,8 @@ from service.config import get_settings
 from service.db.models import UserLocation, UserPersonalData
 from service.routers.auth import RequireAuth
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__) # Initialize logger
 
 router = APIRouter(tags=["User Locations V2"])
 db = get_settings().get_db()
@@ -51,18 +55,22 @@ class UserLocationUpdateRequest(BaseModel):
 @router.post("/user_locations", response_model=UserLocationResponse, status_code=status.HTTP_201_CREATED)
 async def add_user_location(
     location_data: UserLocationCreateRequest,
-    current_user_personal_data: UserPersonalData = RequireAuth # Removed Depends()
+    current_user_personal_data: UserPersonalData = RequireAuth
 ):
     """
     Add a new location for the authenticated user.
     """
+    logger.debug(f"Attempting to add user location for user_id: {current_user_personal_data.user_id}")
+    logger.debug(f"Incoming location_data: {location_data.dict(exclude_unset=True)}")
     try:
         new_location = await db.users.add_user_location(
             user_id=current_user_personal_data.user_id,
             location_data=location_data.dict(exclude_unset=True)
         )
-        return UserLocationResponse(**new_location.__dict__)
+        logger.debug(f"Successfully added new location: {new_location}")
+        return UserLocationResponse(**dataclasses.asdict(new_location)) # Corrected: Use dataclasses.asdict()
     except Exception as e:
+        logger.error(f"Error adding user location for user_id {current_user_personal_data.user_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Error adding user location: {e}")
 
 @router.get("/user_locations", response_model=List[UserLocationResponse])
@@ -72,7 +80,7 @@ async def get_user_locations(current_user_personal_data: UserPersonalData = Requ
     """
     try:
         locations = await db.users.get_user_locations_by_user_id(current_user_personal_data.user_id)
-        return [UserLocationResponse(**loc.__dict__) for loc in locations]
+        return [UserLocationResponse(**loc) for loc in locations]
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error retrieving user locations: {e}")
 
@@ -88,7 +96,7 @@ async def get_user_location_by_id(
         location = await db.users.get_user_location_by_id(current_user_personal_data.user_id, location_id)
         if not location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User location not found.")
-        return UserLocationResponse(**location.__dict__)
+        return UserLocationResponse(**dataclasses.asdict(location)) # Corrected: Use dataclasses.asdict()
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -116,7 +124,7 @@ async def update_user_location(
         updated_location = await db.users.get_user_location_by_id(current_user_personal_data.user_id, location_id)
         if not updated_location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Updated location could not be retrieved.")
-        return UserLocationResponse(**updated_location.__dict__)
+        return UserLocationResponse(**dataclasses.asdict(updated_location)) # Corrected: Use dataclasses.asdict()
     except HTTPException as e:
         raise e
     except Exception as e:
