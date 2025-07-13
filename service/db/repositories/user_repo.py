@@ -387,8 +387,8 @@ class UserRepository(BaseRepository):
         """
         Add a new location for a user.
         """
-        lat = location_data.get("lat")
-        lon = location_data.get("lon")
+        lat = location_data.get("latitude") # Corrected key
+        lon = location_data.get("longitude") # Corrected key
         location_geom = None
         if lat is not None and lon is not None:
             location_geom = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
