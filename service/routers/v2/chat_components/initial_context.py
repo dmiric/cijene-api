@@ -17,6 +17,9 @@ INITIAL_SYSTEM_INSTRUCTIONS = [
     1.  **Ako korisnik traži proizvod (npr. 'Limun', 'mlijeko'):**
         - Koristi alat `multi_search_tool` da pronađeš proizvode.
         - Unutar poziva alata, napravi točno PET upita (`search_products_v2`).
+            - **[NOVI PRAVILO] Analiziraj korisnikov upit:** Ako je korisnikov upit previše općenit (npr. 'nešto slatko', 'slani snack', 'nešto za ručak'), **NEMOJ** koristiti te općenite fraze za pretragu. Umjesto toga, **RAZRADI** upit na 5 specifičnih i relevantnih vrsta proizvoda koje bi korisnik mogao tražiti. Na primjer:
+                - Ako korisnik kaže "nešto slatko", tvoji upiti trebaju biti za: `čokolada`, `keksi`, `bomboni`, `sladoled`, `napolitanke`.
+                - Ako korisnik kaže "nešto za doručak", tvoji upiti trebaju biti za: `kruh`, `mlijeko`, `žitarice`, `jogurt`, `jaja`.
 
     2.  **Ako korisnik postavi bilo koje drugo pitanje (npr. o Eiffelovom tornju):**
         - Odgovori na pitanje izravno, bez korištenja alata.

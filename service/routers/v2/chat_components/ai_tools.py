@@ -19,6 +19,70 @@ from .ai_helpers import pydantic_to_dict, filter_product_fields # A new helper f
 db = get_settings().get_db()
 
 # --- Tool Functions ---
+async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Executes multiple product search queries concurrently. It includes all of your
+    existing logic and adds a fix to prevent the 'caption' argument from being
+    passed to the underlying search function.
+    """
+    debug_print(f"multi_search_tool received queries: {queries}")
+    tasks = []
+
+    # 1. Prepare all the asynchronous tasks (This is your existing logic)
+    for query_data in queries:
+        tool_name = query_data.get("name")
+        # Make a copy to avoid modifying the original query data needed later
+        tool_args = query_data.get("arguments", {}).copy()
+
+        # The 'caption' is metadata, not an argument for the search function.
+        # We remove it from the arguments we will pass to the sub-tool.
+        if 'caption' in tool_args:
+            del tool_args['caption']
+
+        if tool_name not in available_tools:
+            future = asyncio.Future()
+            future.set_exception(ValueError(f"Tool '{tool_name}' not found."))
+            tasks.append(future)
+            continue
+
+        tool_func = available_tools[tool_name]
+        
+        if asyncio.iscoroutinefunction(tool_func):
+            # The 'tool_args' dictionary no longer contains 'caption', so this call is safe.
+            tasks.append(tool_func(**tool_args))
+        else:
+            future = asyncio.Future()
+            future.set_exception(TypeError(f"Tool '{tool_name}' is not an async function."))
+            tasks.append(future)
+
+    if not tasks:
+        return []
+
+    # 2. Execute all tasks concurrently (Your existing logic)
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 3. Structure the final output (Your existing logic)
+    final_structured_results = []
+    for i, res in enumerate(raw_results):
+        # Get the entire original query object using its index.
+        # This still contains the caption, because we only deleted it from a copy.
+        original_query = queries[i]
+
+        if isinstance(res, Exception):
+            structured_item = {
+                "query": original_query,
+                "error": f"An error occurred: {str(res)}"
+            }
+        else:
+            structured_item = {
+                "query": original_query,
+                "products": res
+            }
+        final_structured_results.append(structured_item)
+    
+    debug_print(f"multi_search_tool returning structured results: {final_structured_results}")
+    return final_structured_results
+
 async def search_products_tool_v2(
     q: str,
     limit: Optional[int] = 20,
@@ -112,70 +176,6 @@ async def find_nearby_stores_tool_v2(
     except Exception as e:
         error_message = f"Database error in find_nearby_stores_tool_v2: {e}"
         return {"error": error_message}
-
-async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Executes multiple product search queries concurrently. It includes all of your
-    existing logic and adds a fix to prevent the 'caption' argument from being
-    passed to the underlying search function.
-    """
-    debug_print(f"multi_search_tool received queries: {queries}")
-    tasks = []
-
-    # 1. Prepare all the asynchronous tasks (This is your existing logic)
-    for query_data in queries:
-        tool_name = query_data.get("name")
-        # Make a copy to avoid modifying the original query data needed later
-        tool_args = query_data.get("arguments", {}).copy()
-
-        # The 'caption' is metadata, not an argument for the search function.
-        # We remove it from the arguments we will pass to the sub-tool.
-        if 'caption' in tool_args:
-            del tool_args['caption']
-
-        if tool_name not in available_tools:
-            future = asyncio.Future()
-            future.set_exception(ValueError(f"Tool '{tool_name}' not found."))
-            tasks.append(future)
-            continue
-
-        tool_func = available_tools[tool_name]
-        
-        if asyncio.iscoroutinefunction(tool_func):
-            # The 'tool_args' dictionary no longer contains 'caption', so this call is safe.
-            tasks.append(tool_func(**tool_args))
-        else:
-            future = asyncio.Future()
-            future.set_exception(TypeError(f"Tool '{tool_name}' is not an async function."))
-            tasks.append(future)
-
-    if not tasks:
-        return []
-
-    # 2. Execute all tasks concurrently (Your existing logic)
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # 3. Structure the final output (Your existing logic)
-    final_structured_results = []
-    for i, res in enumerate(raw_results):
-        # Get the entire original query object using its index.
-        # This still contains the caption, because we only deleted it from a copy.
-        original_query = queries[i]
-
-        if isinstance(res, Exception):
-            structured_item = {
-                "query": original_query,
-                "error": f"An error occurred: {str(res)}"
-            }
-        else:
-            structured_item = {
-                "query": original_query,
-                "products": res
-            }
-        final_structured_results.append(structured_item)
-    
-    debug_print(f"multi_search_tool returning structured results: {final_structured_results}")
-    return final_structured_results
 
 async def get_seasonal_product_deals_tool_v2(
     canonical_name: str,

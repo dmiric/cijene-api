@@ -261,6 +261,8 @@ class StoreRepository(BaseRepository):
         for field in fields_to_select:
             if field == "chain_code":
                 select_parts.append("c.code AS chain_code")
+            elif field == "name": # Alias s.code as name
+                select_parts.append("s.code AS name")
             else:
                 select_parts.append(f"s.{field}") # Direct mapping for other fields
         

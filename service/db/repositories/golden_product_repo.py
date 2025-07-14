@@ -80,19 +80,17 @@ class GoldenProductRepository(BaseRepository):
         # --- Intelligent Sorting and Filtering Logic ---
         sort_by_column = "relevance_score"
         sort_by_direction = "DESC"
-        filter_condition = "TRUE" # Default: no filtering
+        filter_condition = "TRUE" # Default: no additional filtering
 
         if sort_by and sort_by.startswith("best_value_"):
             sort_by_column = "best_price_metric"
             sort_by_direction = "ASC NULLS LAST"
-            
-            # This is the key change: we tie the filter to the product's base unit type
             if sort_by == 'best_value_kg':
-                filter_condition = "base_unit_type = 'WEIGHT' AND best_price_metric IS NOT NULL"
+                filter_condition = "base_unit_type = 'WEIGHT'"
             elif sort_by == 'best_value_l':
-                filter_condition = "base_unit_type = 'VOLUME' AND best_price_metric IS NOT NULL"
+                filter_condition = "base_unit_type = 'VOLUME'"
             elif sort_by == 'best_value_piece':
-                filter_condition = "base_unit_type = 'COUNT' AND best_price_metric IS NOT NULL"
+                filter_condition = "base_unit_type = 'COUNT'"
 
         final_query = f"""
             WITH products_with_metrics AS (
@@ -111,7 +109,7 @@ class GoldenProductRepository(BaseRepository):
                         END
                     ) AS best_price_metric
                 FROM g_products gp
-                LEFT JOIN g_prices gpr ON gp.id = gpr.product_id AND gpr.store_id = ANY(${param_counter + 2})
+                INNER JOIN g_prices gpr ON gp.id = gpr.product_id AND gpr.store_id = ANY(${param_counter + 2})
                 WHERE to_tsvector('hr', gp.canonical_name || ' ' || array_to_string(gp.keywords, ' ')) @@ websearch_to_tsquery('hr', $1)
                 GROUP BY gp.id, gp.base_unit_type
             ),
@@ -131,12 +129,8 @@ class GoldenProductRepository(BaseRepository):
                     FROM (
                         SELECT
                             jsonb_build_object(
-                                'chain_code', (SELECT c.code FROM chains c JOIN stores s ON c.id = s.chain_id WHERE s.id = gpr.store_id),
                                 'product_id', gpr.product_id,
                                 'store_id', gpr.store_id,
-                                'store_name', (SELECT s.code FROM stores s WHERE s.id = gpr.store_id),
-                                'store_address', (SELECT s.address FROM stores s WHERE s.id = gpr.store_id),
-                                'store_city', (SELECT s.city FROM stores s WHERE s.id = gpr.store_id),
                                 'price_date', gpr.price_date,
                                 'regular_price', gpr.regular_price,
                                 'special_price', gpr.special_price,
@@ -315,44 +309,7 @@ class GoldenProductRepository(BaseRepository):
                 return row_dict
             return None
 
-    async def get_g_stores_nearby(
-        self,
-        lat: float,
-        lon: float,
-        radius_meters: int,
-        chain_code: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
-        """
-        Performs PostGIS geospatial query on g_stores.location, ordered by distance.
-        """
-        self.debug_print(f"get_g_stores_nearby: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}")
-        async with self._get_conn() as conn:
-            center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
-            query = f"""
-                SELECT
-                    gs.id,
-                    gs.name,
-                    gs.address,
-                    gs.city,
-                    gs.zipcode,
-                    gs.latitude,
-                    gs.longitude,
-                    gs.chain_code,
-                    ST_Distance(gs.location::geography, {center_point}::geography) AS distance_meters
-                FROM g_stores gs
-                WHERE ST_DWithin(gs.location::geography, {center_point}::geography, $1)
-            """
-            params = [radius_meters]
-
-            if chain_code:
-                query += " AND gs.chain_code ILIKE $2"
-                params.append(f"%{chain_code}%")
-
-            query += f" ORDER BY ST_Distance(gs.location, {center_point})"
-
-            rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
-    
+ 
     async def add_many_g_products(self, g_products: List[GProduct]) -> int:
         """
         Adds multiple golden products to the g_products table.

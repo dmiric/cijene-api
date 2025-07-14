@@ -15,7 +15,7 @@ USER_LOCATION_AI_FIELDS = [
 # --- Stores ---
 # Fields for AI store information
 STORE_AI_FIELDS = [
-    "id", "code", "type", "address", "city", "zipcode", "lat", "lon", "chain_code"
+    "id", "name", "code", "type", "address", "city", "zipcode", "lat", "lon", "chain_code"
 ]
 
 # --- Products ---

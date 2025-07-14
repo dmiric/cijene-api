@@ -7,6 +7,7 @@ import sys
 from service.config import get_settings
 from service.routers.auth import RequireAuth
 from fastapi import Depends
+from service.db.field_configs import STORE_AI_FIELDS # Import STORE_AI_FIELDS
 
 router = APIRouter(tags=["Stores V2"], dependencies=[RequireAuth])
 db = get_settings().get_db()
@@ -47,11 +48,12 @@ async def find_nearby_stores_v2(
     Finds stores within a specified radius of a geographic point.
     Returns a list of store objects, ordered by distance from the user.
     """
-    stores_data = await db.get_g_stores_nearby(
+    stores_data = await db.stores.get_stores_within_radius(
         lat=lat,
         lon=lon,
         radius_meters=radius_meters,
         chain_code=chain_code,
+        fields=STORE_AI_FIELDS # Explicitly request all AI fields for stores
     )
     
     return ListNearbyStoresResponseV2(stores=[NearbyStoreResponseV2(**s) for s in stores_data])

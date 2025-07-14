@@ -36,12 +36,49 @@ class ChatResponse(BaseModel):
 gemini_tools = [
     genai.types.Tool(function_declarations=[
         {
+            "name": "multi_search_tool",
+            "description": "Executes multiple product search queries concurrently and returns all results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "The name of the tool function to call."},
+                                "arguments": {
+                                    "type": "object",
+                                    "description": "The arguments to pass to the tool. Must match the schema of the target tool.",
+                                    "properties": {
+                                        "q": {"type": "string", "description": "The user's natural language query."},
+                                        "limit": {"type": "integer", "description": "Maximum number of results to return."},
+                                        "offset": {"type": "integer", "description": "Number of results to skip."},
+                                        "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'relevance')."},
+                                        "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
+                                        "caption": {"type": "string", "description": "Caption for this search in Croatian. (e.g., 'Najjeftiniji limun', 'Najpopularniji proizvodi od limuna', 'Sviježi limun')"}
+                                    },
+                                    "required": ["q", "caption", "limit", "store_ids"],
+                                },
+                            },
+                            "required": ["name", "arguments"],
+                        },
+                        "description": "A list of tool calls to execute. Each item should be a dictionary with 'name' (the tool function name) and 'arguments' (a dictionary of arguments for that tool).",
+                    }
+                },
+                "required": ["queries"],
+            },
+        }
+    ]),
+    
+    genai.types.Tool(function_declarations=[
+        {
             "name": "search_products_v2",
             "description": "Search for products by name using hybrid search (vector + keyword) and advanced sorting.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "q": {"type": "string", "description": "The user's natural language query."},
+                    "q": {"type": "string", "description": "A specific, concrete product category or item to search for. For example: 'milk chocolate', 'whole wheat bread', 'sparkling water'. **Must NOT be a vague query like 'something sweet' or 'a snack'.**"},
                     "limit": {"type": "integer", "description": "Maximum number of results to return. Should ALWAYS be 3"},
                     "offset": {"type": "integer", "description": "Number of results to skip."},
                     "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'best_value_l', 'best_value_piece', 'relevance')."},
@@ -91,42 +128,6 @@ gemini_tools = [
                     "chain_code": {"type": "string", "description": "Optional: Filter by a specific chain."},
                 },
                 "required": ["lat", "lon"],
-            },
-        }
-    ]),
-    genai.types.Tool(function_declarations=[
-        {
-            "name": "multi_search_tool",
-            "description": "Executes multiple product search queries concurrently and returns all results.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "queries": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "The name of the tool function to call."},
-                                "arguments": {
-                                    "type": "object",
-                                    "description": "The arguments to pass to the tool. Must match the schema of the target tool.",
-                                    "properties": {
-                                        "q": {"type": "string", "description": "The user's natural language query."},
-                                        "limit": {"type": "integer", "description": "Maximum number of results to return."},
-                                        "offset": {"type": "integer", "description": "Number of results to skip."},
-                                        "sort_by": {"type": "string", "description": "How to sort the results (e.g., 'best_value_kg', 'relevance')."},
-                                        "store_ids": {"type": "string", "description": "Comma-separated list of store IDs to filter products by availability."},
-                                        "caption": {"type": "string", "description": "Caption for this search in Croatian. (e.g., 'Najjeftiniji limun', 'Najpopularniji proizvodi od limuna', 'Sviježi limun')"}
-                                    },
-                                    "required": ["q", "caption", "limit", "store_ids"],
-                                },
-                            },
-                            "required": ["name", "arguments"],
-                        },
-                        "description": "A list of tool calls to execute. Each item should be a dictionary with 'name' (the tool function name) and 'arguments' (a dictionary of arguments for that tool).",
-                    }
-                },
-                "required": ["queries"],
             },
         }
     ]),

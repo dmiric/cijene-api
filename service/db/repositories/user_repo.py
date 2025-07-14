@@ -7,13 +7,10 @@ from typing import (
     Any,
     Optional,
 )
-import os
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 import sys
-import json
-import pgvector.asyncpg
 from service.utils.timing import timing_decorator # Import the decorator
 
 from service.db.base import BaseRepository

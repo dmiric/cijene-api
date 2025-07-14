@@ -137,9 +137,15 @@ class ChatOrchestrator:
             all_queries = [q for call in tool_calls_this_turn for q in call.get("args", {}).get("queries", [])]
             
             tool_func = available_tools.get("multi_search_tool")
-            result_list = await tool_func(queries=all_queries[:2])
+            raw_result_list = await tool_func(queries=all_queries)
             
-            tool_output_content = {"name": "multi_search_tool", "content": {"results": to_json_primitive(result_list)}}
+            # Filter out groups that have no products
+            filtered_result_list = [
+                item for item in raw_result_list 
+                if item.get('products') and item['products'].get('products') and len(item['products']['products']) > 0
+            ]
+
+            tool_output_content = {"name": "multi_search_tool", "content": {"results": to_json_primitive(filtered_result_list)}}
             yield StreamedPart(type="tool_output", content=tool_output_content).to_sse()
             
             tool_output_message = ChatMessage(

@@ -1,11 +1,9 @@
 from decimal import Decimal
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 import sys
-from typing import Any, Optional
 
 from service.config import get_settings
-from service.db.models import Store, StoreWithId, ChainWithId, User
 from service.routers.auth import verify_authentication # Import verify_authentication directly
 from fastapi import Depends
 
@@ -15,19 +13,16 @@ db = get_settings().get_db()
 def debug_print(*args, **kwargs):
     print("[DEBUG stores]", *args, file=sys.stderr, **kwargs)
 
-
 class ListChainsResponse(BaseModel):
     """List chains response schema."""
 
     chains: list[str] = Field(..., description="List of retail chain codes.")
-
 
 @router.get("/chains/", summary="List retail chains")
 async def list_chains() -> ListChainsResponse:
     """List all available chains."""
     chains = await db.list_chains()
     return ListChainsResponse(chains=[chain.code for chain in chains])
-
 
 class StoreResponse(BaseModel):
     """Store response schema."""
@@ -45,14 +40,12 @@ class StoreResponse(BaseModel):
     lon: Decimal | None = Field(..., description="Longitude coordinate of the store.")
     phone: str | None = Field(..., description="Phone number of the store.")
 
-
 class ListStoresResponse(BaseModel):
     """List stores response schema."""
 
     stores: list[StoreResponse] = Field(
         ..., description="List stores for the specified chain."
     )
-
 
 @router.get(
     "/{chain_code}/stores/",
@@ -85,7 +78,6 @@ async def list_stores(chain_code: str) -> ListStoresResponse:
             for store in stores
         ]
     )
-
 
 @router.get("/stores/", summary="Search stores")
 async def search_stores(
@@ -167,62 +159,3 @@ async def search_stores(
             for store in stores
         ]
     )
-
-
-class NearbyStoreResponse(BaseModel):
-    """Response schema for a single nearby store."""
-    id: int = Field(..., description="Unique ID of the store.")
-    chain_code: str = Field(..., description="Code of the retail chain.")
-    code: str = Field(..., description="Unique code of the store.")
-    type: str | None = Field(None, description="Type of the store.")
-    address: str | None = Field(None, description="Physical address of the store.")
-    city: str | None = Field(None, description="City where the store is located.")
-    zipcode: str | None = Field(None, description="Postal code of the store location.")
-    lat: Decimal | None = Field(None, description="Latitude of the store.")
-    lon: Decimal | None = Field(None, description="Longitude of the store.")
-    distance_meters: float | None = Field(None, description="Distance from the query point in meters.")
-
-
-class ListNearbyStoresResponse(BaseModel):
-    """List nearby stores response schema."""
-    stores: list[NearbyStoreResponse] = Field(
-        ..., description="List of stores within the specified radius, ordered by distance."
-    )
-
-
-@router.get("/stores/nearby/", summary="Find stores within a given radius")
-async def list_nearby_stores(
-    lat: Decimal = Query(..., description="Latitude of the center point."),
-    lon: Decimal = Query(..., description="Longitude of the center point."),
-    radius_meters: int = Query(..., description="Radius in meters to search within."),
-    chain_code: str | None = Query(None, description="Optional: Filter by chain code."),
-) -> ListNearbyStoresResponse:
-    """
-    Finds and lists stores within a specified radius of a given lat/lon.
-    Results are ordered by distance from the center point.
-    """
-    stores_data = await db.get_stores_within_radius(
-        lat=lat,
-        lon=lon,
-        radius_meters=radius_meters,
-        chain_code=chain_code,
-    )
-
-    response_stores = []
-    for store_data in stores_data:
-        response_stores.append(
-            NearbyStoreResponse(
-                id=store_data["id"],
-                chain_code=store_data["chain_code"],
-                code=store_data["code"],
-                type=store_data["type"],
-                address=store_data["address"],
-                city=store_data["city"],
-                zipcode=store_data["zipcode"],
-                lat=store_data["lat"],
-                lon=store_data["lon"],
-                distance_meters=store_data["distance_meters"],
-            )
-        )
-
-    return ListNearbyStoresResponse(stores=response_stores)

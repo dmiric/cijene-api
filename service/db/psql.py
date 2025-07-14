@@ -1,22 +1,18 @@
 from contextlib import asynccontextmanager
 import asyncpg
 from typing import (
-    AsyncGenerator,
-    AsyncIterator,
     List,
     Any,
     Optional,
 )
-import os
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
-import sys
-import json
+
 import pgvector.asyncpg
 from service.utils.timing import timing_decorator # Import the decorator
 
-from .base import Database, BaseRepository # Added BaseRepository
+from .base import Database
 from .models import (
     Chain,
     ChainStats,
@@ -276,15 +272,6 @@ class PostgresDatabase(Database):
         sort_by: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_products_hybrid_search_with_prices(query, store_ids, limit, offset, sort_by)
-
-    async def get_g_stores_nearby(
-        self,
-        lat: float,
-        lon: float,
-        radius_meters: int,
-        chain_code: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
-        return await self.golden_products.get_g_stores_nearby(lat, lon, radius_meters, chain_code)
 
     async def get_g_product_prices_by_location(
         self, product_id: int, store_ids: list[int]
