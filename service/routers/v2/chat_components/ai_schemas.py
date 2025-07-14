@@ -6,9 +6,15 @@ from google import genai
 
 
 # --- Pydantic Models ---
+class LocationInfo(BaseModel):
+    locationId: Optional[UUID] = Field(None, description="Optional: UUID of the nearby location if found.")
+    latitude: float = Field(..., description="Latitude of the user's location.")
+    longitude: float = Field(..., description="Longitude of the user's location.")
+
 class ChatRequest(BaseModel):
     session_id: Optional[UUID] = Field(None, description="Optional: UUID of the chat session to continue. If not provided, a new session will be started.")
     message_text: str = Field(..., description="The user's message.")
+    location_info: Optional[LocationInfo] = Field(None, description="Optional: Information about the user's location.")
 
 class ChatMessageResponse(BaseModel):
     id: UUID

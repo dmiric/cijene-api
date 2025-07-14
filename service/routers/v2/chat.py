@@ -44,7 +44,8 @@ async def event_stream_post(
         user_id=user_id,
         session_id=session_id,
         db=db,
-        system_instructions=context["system_instructions"]
+        system_instructions=context["system_instructions"],
+        location_info=chat_request.location_info
     )
     
     generator = orchestrator.stream_response(chat_request.message_text)

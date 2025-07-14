@@ -15,36 +15,52 @@ from service.db.models import ChatMessage
 from service.utils.timing import debug_print
 
 
+from .ai_schemas import LocationInfo # Add this import
+
 class ChatOrchestrator:
-    def __init__(self, user_id: UUID, session_id: UUID, db: Database, system_instructions: list[str]):
+    def __init__(self, user_id: UUID, session_id: UUID, db: Database, system_instructions: list[str], location_info: Optional[LocationInfo] = None):
         self.user_id = user_id
         self.session_id = session_id
         self.db = db
         self.system_instructions = system_instructions
+        self.location_info = location_info # Store location_info
         self.ai_provider: AbstractAIProvider = get_ai_provider(
             db=self.db, user_id=self.user_id, session_id=self.session_id
         )
         self.full_ai_response_text = ""
         self.history: list[ChatMessage] = []
 
-    async def _get_user_locations_with_nearby_stores(self) -> List[dict]:
+    async def _get_location_context_with_nearby_stores(self) -> List[dict]:
         """
-        Retrieves user locations and appends nearby stores to each location.
+        Retrieves location context (either from chat request or user's saved locations)
+        and appends nearby stores to each location.
         """
-        user_locations = await self.db.users.get_user_locations_by_user_id(self.user_id)
+        locations_to_process = []
 
-        print(f"!!! ORCHESTRATOR: User Locations: {user_locations}", file=sys.stderr, flush=True)
-        
+        if self.location_info:
+            # Prioritize location_info from the current chat request
+            loc_dict = {
+                "latitude": self.location_info.latitude,
+                "longitude": self.location_info.longitude,
+                "id": str(self.location_info.locationId) if self.location_info.locationId else None,
+                "is_current_location": True # Mark this as the current location from the request
+            }
+            locations_to_process.append(loc_dict)
+            print(f"!!! ORCHESTRATOR: Using location from chat request: {loc_dict}", file=sys.stderr, flush=True)
+        else:
+            # Fallback to user's saved locations
+            user_locations = await self.db.users.get_user_locations_by_user_id(self.user_id)
+            print(f"!!! ORCHESTRATOR: User Locations: {user_locations}", file=sys.stderr, flush=True)
+            for loc in user_locations:
+                loc_dict = loc.copy()
+                if "user_id" in loc_dict and isinstance(loc_dict["user_id"], UUID):
+                    loc_dict["user_id"] = str(loc_dict["user_id"])
+                if "id" in loc_dict and isinstance(loc_dict["id"], UUID):
+                    loc_dict["id"] = str(loc_dict["id"])
+                locations_to_process.append(loc_dict)
+
         enriched_locations = []
-        for loc in user_locations:
-            loc_dict = loc.copy() # Create a copy to avoid modifying the original object if it's a Pydantic model or similar
-            
-            # Convert UUIDs to strings for JSON serialization
-            if "user_id" in loc_dict and isinstance(loc_dict["user_id"], UUID):
-                loc_dict["user_id"] = str(loc_dict["user_id"])
-            if "id" in loc_dict and isinstance(loc_dict["id"], UUID): # Although id is SERIAL, good to be defensive
-                loc_dict["id"] = str(loc_dict["id"])
-
+        for loc_dict in locations_to_process:
             latitude = loc_dict.get("latitude")
             longitude = loc_dict.get("longitude")
 
@@ -52,11 +68,11 @@ class ChatOrchestrator:
                 nearby_stores = await self.db.stores.get_stores_within_radius(
                     lat=latitude,
                     lon=longitude,
-                    radius_meters=1500 # Default to 10 km radius
+                    radius_meters=1500 # Default to 1.5 km radius
                 )
                 loc_dict["nearby_stores"] = nearby_stores
             else:
-                loc_dict["nearby_stores"] = [] # No coordinates, no nearby stores
+                loc_dict["nearby_stores"] = []
 
             enriched_locations.append(loc_dict)
         return enriched_locations
@@ -90,13 +106,26 @@ class ChatOrchestrator:
         
         yield StreamedPart(type="status", content="processing").to_sse()
 
-        # Add user locations with nearby stores to system instructions
-        enriched_user_locations = await self._get_user_locations_with_nearby_stores()
-        if enriched_user_locations:
+        # Add location context (from chat request or user's saved locations) with nearby stores to system instructions
+        location_context = await self._get_location_context_with_nearby_stores()
+        if location_context:
             self.system_instructions.append(
-                "Korisnikove lokacije i obližnje trgovine: " + json.dumps(enriched_user_locations) + 
+                "Dostupne lokacije i obližnje trgovine: " + json.dumps(location_context) + 
                 "Koristi popis trgovina za multi_search_tool."
             )
+        
+        # The location_info is already handled by _get_location_context_with_nearby_stores,
+        # so we remove the separate handling here to avoid duplication.
+        # if self.location_info:
+        #     location_data = {
+        #         "latitude": self.location_info.latitude,
+        #         "longitude": self.location_info.longitude,
+        #         "locationId": str(self.location_info.locationId) if self.location_info.locationId else None
+        #     }
+        #     self.system_instructions.append(
+        #         "Trenutna lokacija korisnika: " + json.dumps(location_data) +
+        #         "Koristi ovu lokaciju za pretragu obližnjih trgovina ako je potrebno."
+        #     )
 
         # --- 2. Make a Single API Call with Tools Enabled ---
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history)
