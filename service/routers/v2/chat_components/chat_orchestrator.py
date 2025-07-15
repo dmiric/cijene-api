@@ -42,7 +42,7 @@ class ChatOrchestrator:
             loc_dict = {
                 "latitude": self.location_info.latitude,
                 "longitude": self.location_info.longitude,
-                "id": str(self.location_info.locationId) if self.location_info.locationId else None,
+                "id": self.location_info.locationId if self.location_info.locationId else None, # Changed to int
                 "is_current_location": True # Mark this as the current location from the request
             }
             locations_to_process.append(loc_dict)

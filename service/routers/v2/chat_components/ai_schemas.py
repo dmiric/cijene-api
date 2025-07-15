@@ -7,7 +7,7 @@ from google import genai
 
 # --- Pydantic Models ---
 class LocationInfo(BaseModel):
-    locationId: Optional[UUID] = Field(None, description="Optional: UUID of the nearby location if found.")
+    locationId: Optional[int] = Field(None, description="Optional: ID of the nearby location if found.")
     latitude: float = Field(..., description="Latitude of the user's location.")
     longitude: float = Field(..., description="Longitude of the user's location.")
 
