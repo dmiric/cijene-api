@@ -10,7 +10,8 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from service.routers.v1 import router as v1_router
+from service.routers.v1.stores import router as stores_router # Direct import
+from service.routers.v1.crawler import router as crawler_router # Direct import
 from service.routers.v2.products import router as v2_products_router
 from service.routers.v2.stores import router as v2_stores_router
 from service.routers.v2.chat import router as v2_chat_router
@@ -65,7 +66,8 @@ app.add_middleware(
 )
 
 # Include versioned routers
-app.include_router(v1_router, prefix="/v1")
+app.include_router(stores_router, prefix="/v1")
+app.include_router(crawler_router, prefix="/v1") # Directly include crawler router
 app.include_router(v2_products_router, prefix="/v2")
 app.include_router(v2_stores_router, prefix="/v2")
 app.include_router(v2_chat_router, prefix="/v2")

@@ -51,6 +51,7 @@ services:
       - db
     volumes:
       - crawler_data:/app/output
+      - .:/app # Mount the entire project directory
     command: [ "tail", "-f", "/dev/null" ]
 
   pgadmin:

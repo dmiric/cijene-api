@@ -12,6 +12,7 @@ WORKDIR /app
 
 # Set PYTHONPATH to include the application directory and the service directory
 ENV PYTHONPATH=/app:/app/service
+ENV PYTHONUNBUFFERED=1
 
 # Copy requirements.txt for dependency installation
 COPY requirements.txt ./

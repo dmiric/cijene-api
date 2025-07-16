@@ -5,6 +5,7 @@ export POSTGRES_PASSWORD
 export POSTGRES_DB
 export SSH_USER
 export SSH_IP
+export PYTHONUNBUFFERED
 
 # A helper variable to detect the OS
 ifeq ($(OS),Windows_NT)
@@ -145,8 +146,11 @@ crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output 
 	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
 
 crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
+	@mkdir -p ./output/$(DATE)
 	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py > logs/crawler_console.log 2>&1
-	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
+	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE)/. ./output/$(DATE)/
+	@echo "Unzipping individual chain archives..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then powershell -Command "Get-ChildItem -Path './output/$(DATE)' -Filter '*.zip' | ForEach-Object { $$file = $$_; $$folderName = $$file.BaseName; $$destinationPath = Join-Path -Path './output/$(DATE)' -ChildPath $$folderName; New-Item -ItemType Directory -Force -Path $$destinationPath | Out-Null; Expand-Archive -Path $$file.FullName -DestinationPath $$destinationPath -Force; Write-Host \"Unzipped $$($$file.Name) to $$($$destinationPath)\" }"; else find ./output/$(DATE) -name "*.zip" -exec sh -c 'unzip -o "$$1" -d "$${1%.*}"' _ {} \; fi
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/output/$(DATE)
@@ -254,6 +258,9 @@ test-api: ## Run pytest integration tests for the API service
 	@echo "Test auth..."
 	$(MAKE) test-auth
 
+	@echo "Test Crawler"
+	$(MAKE) test-crawler
+
 	@echo "Test stores..."
 	$(MAKE) test-stores
 
@@ -266,6 +273,16 @@ test-api: ## Run pytest integration tests for the API service
 	@echo "Test Chat Eifelov V2..."
 	$(MAKE) test-chat-v2 QUERY="Koliko je visok Eifelov toranj?"
 
+test-crawler: ## Run pytest integration tests for the crawler API service
+	@echo "Running crawler API integration tests..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm \
+		--env DEBUG=1 \
+		--env DB_HOST=db \
+		--env DB_PORT=5432 \
+		--env POSTGRES_USER=$(POSTGRES_USER) \
+		--env POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env POSTGRES_DB=$(POSTGRES_DB) \
+		api pytest tests/test_crawler.py
 
 test-stores: ## Run pytest integration tests for the stores API service
 	@echo "Running stores API integration tests..."

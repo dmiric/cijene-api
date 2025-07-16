@@ -1,19 +1,26 @@
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID # Import UUID type
-from enum import Enum # Import Enum
+from uuid import UUID
+from enum import Enum
 
-from pydantic import BaseModel, Field # Added for ProductSearchItemV2
-from dataclasses import dataclass, fields # Keep dataclass for other models
+from pydantic import BaseModel, Field
+from dataclasses import dataclass, fields
+
+
+class CrawlStatus(Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    STARTED = "started"
+    SKIPPED = "skipped"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class User:
-    id: UUID # Changed to UUID
+    id: UUID
     is_active: bool
     created_at: datetime
-    deleted_at: Optional[datetime] = None # Added for soft delete
+    deleted_at: Optional[datetime] = None
     hashed_password: str
     is_verified: bool = False
     verification_token: Optional[UUID] = None
@@ -44,8 +51,8 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class UserPersonalData: # New dataclass for personal data
-    user_id: UUID # References User.id
+class UserPersonalData:
+    user_id: UUID
     name: str
     email: str
     api_key: str
@@ -55,9 +62,9 @@ class UserPersonalData: # New dataclass for personal data
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ChatMessage:
-    id: UUID # Changed to UUID
-    user_id: UUID # Changed to UUID
-    session_id: UUID # Changed to UUID
+    id: UUID
+    user_id: UUID
+    session_id: UUID
     sender: str
     message_text: str
     timestamp: datetime
@@ -68,8 +75,8 @@ class ChatMessage:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserPreference:
-    id: UUID # Changed to UUID
-    user_id: UUID # Changed to UUID
+    id: UUID
+    user_id: UUID
     preference_key: str
     preference_value: str
     created_at: datetime
@@ -79,7 +86,7 @@ class UserPreference:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserLocation:
     id: int
-    user_id: UUID # Changed to UUID
+    user_id: UUID
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -90,11 +97,12 @@ class UserLocation:
     location_name: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    deleted_at: Optional[datetime] = None # Added for soft delete
+    deleted_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Chain:
+    id: Optional[int] = None
     code: str
 
 
@@ -114,6 +122,7 @@ class ChainStats:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Store:
+    id: int
     chain_id: int
     code: str
     type: Optional[str] = None
@@ -132,6 +141,7 @@ class StoreWithId(Store):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Product:
+    id: int
     ean: str
     brand: Optional[str] = None
     name: Optional[str] = None
@@ -149,6 +159,7 @@ class ProductWithId(Product):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ChainProduct:
+    id: int
     chain_id: int
     product_id: int
     code: str
@@ -167,8 +178,9 @@ class ChainProductWithId(ChainProduct):
     id: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Price:
+    id: int
     chain_product_id: int
     store_id: int
     price_date: date
@@ -179,7 +191,7 @@ class Price:
     anchor_price: Optional[Decimal] = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StorePrice:
     chain: str
     ean: str
@@ -195,18 +207,19 @@ class StorePrice:
 # New G_ models for v2
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProduct:
+    id: int
     ean: str
     canonical_name: str
     brand: Optional[str] = None
     category: str
-    base_unit_type: str # This should ideally be an Enum, but using str for simplicity based on SQL schema
-    variants: Optional[List[dict]] = None # JSONB type in DB, expecting list of dicts
+    base_unit_type: str
+    variants: Optional[List[dict]] = None
     text_for_embedding: Optional[str] = None
-    keywords: Optional[List[str]] = None # TEXT[] type in DB
-    is_generic_product: bool = False # Added for generic product identification
+    keywords: Optional[List[str]] = None
+    is_generic_product: bool = False
     seasonal_start_month: Optional[int] = None
     seasonal_end_month: Optional[int] = None
-    embedding: Optional[List[float]] = None # VECTOR(768) type in DB
+    embedding: Optional[List[float]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -216,6 +229,7 @@ class GProductWithId(GProduct):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GPrice:
+    id: int
     product_id: int
     store_id: int
     price_date: date
@@ -232,30 +246,29 @@ class GPriceWithId(GPrice):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProductBestOffer:
+    id: int
     product_id: int
     best_unit_price_per_kg: Optional[Decimal] = None
     best_unit_price_per_l: Optional[Decimal] = None
     best_unit_price_per_piece: Optional[Decimal] = None
-    lowest_price_in_season: Optional[Decimal] = None # New field for seasonal lowest price
+    lowest_price_in_season: Optional[Decimal] = None
     best_price_store_id: Optional[int] = None
     best_price_found_at: Optional[datetime] = None
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProductBestOfferWithId(GProductBestOffer):
-    # This model doesn't have an 'id' in the DB, but for consistency with other WithId models
-    # and if we ever add a primary key to g_product_best_offers, it's good to have.
-    # For now, product_id acts as the primary key.
-    pass
+    id: int
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GStore:
+    id: int
     name: str
     address: Optional[str] = None
     city: Optional[str] = None
     zipcode: Optional[str] = None
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
-    chain_code: Optional[str] = None # Assuming chain_code is directly in g_stores
+    chain_code: Optional[str] = None
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GStoreWithId(GStore):
@@ -286,13 +299,13 @@ class ShoppingListItem(BaseModel):
     shopping_list_id: int
     g_product_id: int
     product_name: Optional[str] = None
-    ean: Optional[str] = None # From GProduct
-    brand: Optional[str] = None # From GProduct
-    category: Optional[str] = None # From GProduct
-    variants: Optional[List[dict]] = None # From GProduct (JSONB), expecting list of dicts
+    ean: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    variants: Optional[List[dict]] = None
     is_generic_product: Optional[bool] = None
-    seasonal_start_month: Optional[int] = None # From GProduct
-    seasonal_end_month: Optional[int] = None # From GProduct
+    seasonal_start_month: Optional[int] = None
+    seasonal_end_month: Optional[int] = None
     chain_code: Optional[str] = None
     quantity: Decimal
     base_unit_type: str
@@ -329,6 +342,20 @@ class ShoppingListItem(BaseModel):
     store_lon: Optional[Decimal] = None
     store_phone: Optional[str] = None
     chain_code: Optional[str] = None
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CrawlRun:
+    id: int
+    chain_name: str
+    crawl_date: date
+    status: CrawlStatus
+    error_message: Optional[str] = None
+    n_stores: int = 0
+    n_products: int = 0
+    n_prices: int = 0
+    elapsed_time: float = 0.0
+    timestamp: datetime
+
 
 class ProductSearchItemV2(BaseModel):
     id: int

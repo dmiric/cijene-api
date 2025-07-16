@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime
 import logging
 import sys
+import asyncio # Import asyncio
 from pathlib import Path
 
 from crawler.crawl import crawl, get_chains
@@ -18,34 +19,34 @@ def parse_date(date_str):
         raise argparse.ArgumentTypeError("Date must be in YYYY-MM-DD format")
 
 
-def setup_logging(log_level):
-    """Configure logging for the crawler package."""
-    level_map = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warning": logging.WARNING,
-        "error": logging.ERROR,
-        "critical": logging.CRITICAL,
-    }
+def setup_logging(log_level_str: str):
+    """
+    Configure logging.
+    Sets a high-level default for all loggers, then sets a specific,
+    more verbose level for the 'crawler' package logger.
+    """
+    # 1. Map the string level to a logging level constant
+    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
 
-    level = level_map.get(log_level.lower(), logging.WARNING)
+    # 2. Set a high-level default configuration for the root logger.
+    #    This will catch messages from all libraries. We set it to WARNING
+    #    to silence noisy INFO/DEBUG messages from third-party libs.
     logging.basicConfig(
-        level=level,
-        format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
-        stream=sys.stderr,
+        level=logging.WARNING, # Default level for ALL loggers
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        stream=sys.stdout, # Explicitly set stream to stdout
     )
 
-    # Only enable logs from the crawler package
-    for handler in logging.root.handlers:
-        handler.addFilter(lambda record: record.name.startswith("crawler"))
-
-    # Set other loggers to a higher level to suppress their messages
-    for logger_name in logging.root.manager.loggerDict:
-        if not logger_name.startswith("crawler"):
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
+    # 3. Get the top-level logger for YOUR application and set its
+    #    level to the desired verbosity.
+    #    This will allow 'crawler' and all its sub-loggers (e.g., crawler.crawl)
+    #    to show DEBUG/INFO messages.
+    crawler_logger = logging.getLogger("crawler")
+    crawler_logger.setLevel(log_level)
 
 
-def main():
+async def main(): # Made async
     parser = argparse.ArgumentParser(
         description="Crawl retail chains for product pricing data",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -70,9 +71,16 @@ def main():
     parser.add_argument(
         "-v",
         "--verbose",
-        choices=["debug", "info", "warning", "error", "critical"],
-        default="warning",
+        choices=["debug", "info", "warning", "error", "critical"], # Keep choices
+        default="info", # Change default to debug
         help="Set verbosity level (default: warning)",
+    )
+    parser.add_argument(
+        "-w",
+        "--workers",
+        type=int,
+        default=4, # Default to 4 workers
+        help="Number of parallel workers for crawling (default: 4)",
     )
 
     args = parser.parse_args()
@@ -110,8 +118,8 @@ def main():
         date_txt = args.date.strftime("%Y-%m-%d") if args.date else "today"
         print(f"Fetching price data from {chains_txt} for {date_txt} ...", flush=True)
 
-        # Call crawl with the hardcoded root path
-        zip_path = crawl(output_root_path, crawl_date, chains_to_crawl)
+        # Call async crawl with the hardcoded root path and num_workers
+        zip_path = await crawl(output_root_path, crawl_date, args.workers, chains_to_crawl) # Call async crawl
         print(f"{zip_path}") # Print only the path to stdout for make to capture
         return 0
     except Exception as e:
@@ -120,4 +128,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main())) # Run main as async

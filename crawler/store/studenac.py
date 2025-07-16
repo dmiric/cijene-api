@@ -1,10 +1,12 @@
 import datetime
 import logging
+import os # Import os for os.cpu_count()
 from pathlib import Path
 import re
 import subprocess
 from tempfile import TemporaryDirectory
 from typing import Generator, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed # Import for parallel processing
 
 from lxml import etree  # type: ignore
 
@@ -151,11 +153,20 @@ class StudenacCrawler(BaseCrawler):
         stores = []
         zip_url = f"{self.BASE_URL}/cjenici/PROIZVODI-{date:%Y-%m-%d}.zip"
 
-        for filename, content in self.get_zip_contents(zip_url, ".xml"):
-            logger.debug(f"Processing file: {filename}")
-            store = self.parse_xml(content)
-            if store:
-                stores.append(store)
+        # Use ThreadPoolExecutor for parallel XML parsing
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as executor:
+            futures = []
+            for filename, content in self.get_zip_contents(zip_url, ".xml"):
+                logger.debug(f"Submitting parsing for file: {filename}")
+                futures.append(executor.submit(self.parse_xml, content))
+
+            for future in as_completed(futures):
+                try:
+                    store = future.result()
+                    if store:
+                        stores.append(store)
+                except Exception as exc:
+                    logger.error(f"XML parsing generated an exception: {exc}", exc_info=True)
 
         return stores
 
