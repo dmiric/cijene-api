@@ -113,11 +113,11 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=1000,
                         help="Number of product IDs to cover per worker batch.")
     parser.add_argument("--max-products-to-do", type=int,
-                        help="Maximum number of products to process. Defaults to num_workers * batch_size * 10.")
+                        help="Maximum number of products to process. Defaults to 100.")
     args = parser.parse_args()
 
     # Calculate default max_products_to_do if not provided
     if args.max_products_to_do is None:
-        args.max_products_to_do = args.num_workers * args.batch_size * 10
+        args.max_products_to_do = 100
 
     orchestrate_golden_records(args.normalizer_type, args.embedder_type, args.num_workers, args.batch_size, args.max_products_to_do)

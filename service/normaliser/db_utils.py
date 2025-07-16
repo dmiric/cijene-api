@@ -95,10 +95,10 @@ def create_golden_record(
     try:
         insert_query = """
             INSERT INTO g_products (
-                ean, canonical_name, brand, category, base_unit_type,
+                ean, canonical_name, brand, category, base_unit_type, variants,
                 text_for_embedding, keywords, is_generic_product,
                 seasonal_start_month, seasonal_end_month, embedding
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (ean) DO NOTHING
             RETURNING id
         """
@@ -108,6 +108,7 @@ def create_golden_record(
             normalized_data['brand'],
             normalized_data['category'],
             normalized_data['base_unit_type'],
+            json.dumps(normalized_data['variants']), # Pass variants as a JSON string
             normalized_data['text_for_embedding'],
             normalized_data['keywords'],
             normalized_data['is_generic_product'],
