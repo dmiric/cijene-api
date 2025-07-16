@@ -14,7 +14,7 @@ load_dotenv()
 
 def get_min_max_product_ids() -> Optional[tuple[int, int]]:
     """
-    Retrieves the minimum and maximum IDs from the products table.
+    Retrieves the minimum and maximum IDs from the g_products table.
     """
     conn: Optional[PgConnection] = None
     try:
@@ -22,7 +22,7 @@ def get_min_max_product_ids() -> Optional[tuple[int, int]]:
         cur = conn.cursor()
         cur.execute("""
             SELECT MIN(id), MAX(id)
-            FROM products;
+            FROM g_products;
         """)
         min_id, max_id = cur.fetchone()
         if min_id is None or max_id is None:

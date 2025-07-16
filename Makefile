@@ -165,7 +165,7 @@ update-best-offers: ## Orchestrate best offer updates. Usage: make update-best-o
 get-embedding: ## Process products missing embeddings from g_products table
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/normaliser/embedding_service.py
 
-enrich-data: ## Enrich store and product data from enrichment CSVs
+enrich-data: ## Enrich store and product data from enrichment CSV
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type stores ./enrichment/stores.csv
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type products ./enrichment/products.csv
 
