@@ -1,5 +1,5 @@
 # Use a slim Python image as the base
-FROM python:3.10-slim-buster
+FROM python:3.12-slim-bookworm
 
 # Install system dependencies in a single, efficient step
 # This prevents issues with stale package lists from Docker's cache
