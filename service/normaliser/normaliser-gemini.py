@@ -4,29 +4,41 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
+import argparse
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
+# Import database utility functions
+from .db_utils import (
+    get_db_connection,
+    calculate_unit_prices,
+    create_golden_record,
+    update_best_offer,
+    mark_chain_products_as_processed
+)
+
+# Import EAN filter list
+from .ean_filters import EAN_FILTER_LIST
+
+# Import embedding service
+from .embedding_service import get_embedding
 
 # Load environment variables
 load_dotenv()
 
 # Configure Google Gemini API
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # The model for text generation with specific config
 generation_config = {"response_mime_type": "application/json"}
-gemini_text_model = genai.GenerativeModel(
+gemini_text_model = client.generative_models.GenerativeModel(
     os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
     generation_config=generation_config
 )
-
-def get_db_connection() -> PgConnection:
-    """Establishes and returns a database connection."""
-    conn = psycopg2.connect(os.getenv("DB_DSN"))
-    return conn
 
 def get_ai_normalization_prompt() -> str:
     """
@@ -125,394 +137,18 @@ def normalize_product_with_ai(
             print(f"Gemini API error response text: {e.response.text}")
         return None
 
-def get_embedding(text: str) -> Optional[List[float]]:
-    """Generates a vector embedding for the given text."""
-    try:
-        print(f"Attempting to generate embedding for text: '{text}'") # New debug print
-        response = genai.embed_content(
-            model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001"),
-            content=text,
-            task_type="RETRIEVAL_DOCUMENT",
-            output_dimensionality=768 # Keeping this as per our database schema
-        )
-        # Safely access usage_metadata if it exists
-        if 'usage_metadata' in response and response['usage_metadata']:
-            total_tokens = response['usage_metadata']['total_token_count']
-            print(f"Gemini Embedding Model Usage: Total Tokens={total_tokens}")
-        print(f"Successfully generated embedding for text: '{text[:50]}...'") # New debug print
-        return response['embedding'] # Access embedding directly from the dictionary
-    except Exception as e:
-        print(f"Error generating embedding for text '{text}': {e}") # Enhanced error print
-        # Optionally, print more details if available from the API response
-        if hasattr(e, 'response') and hasattr(e.response, 'text'):
-            print(f"Embedding API error response text: {e.response.text}")
-        return None
-
-def calculate_unit_prices(
-    price: Decimal,
-    base_unit_type: str,
-    variants: List[Dict[str, Any]]
-) -> Dict[str, Optional[Decimal]]:
+def process_products_by_id_range(start_id: int, limit: int) -> None:
     """
-    Calculates price_per_kg, price_per_l, and price_per_piece based on the product's
-    base unit type and variants. This version is corrected to be robust and foolproof.
-    """
-    price_per_kg = None
-    price_per_l = None
-    price_per_piece = None
-
-    if not variants or price is None:
-        return {"price_per_kg": None, "price_per_l": None, "price_per_piece": None}
-
-    # Use the first variant as the basis for calculation
-    main_variant = variants[0]
-    unit = main_variant.get("unit", "").lower()
-    value = main_variant.get("value")
-    piece_count = main_variant.get("piece_count")
-
-    # Safely convert variant values to Decimal, handling potential errors
-    try:
-        if value is not None:
-            value = Decimal(str(value))
-        if piece_count is not None:
-            piece_count = Decimal(str(piece_count))
-    except Exception as e:
-        print(f"Error converting variant values to Decimal: {e}. Variant: {main_variant}")
-        return {"price_per_kg": None, "price_per_l": None, "price_per_piece": None}
-
-    # Prevent division by zero errors
-    if (value is None or value <= 0) and (piece_count is None or piece_count <= 0):
-        return {"price_per_kg": None, "price_per_l": None, "price_per_piece": None}
-
-    # --- Corrected and Explicit Logic ---
-    if base_unit_type == 'WEIGHT':
-        if value is not None and value > 0:
-            if unit == 'g':
-                price_per_kg = (price / value) * 1000
-            elif unit == 'kg':
-                price_per_kg = price / value
-    
-    elif base_unit_type == 'VOLUME':
-        if value is not None and value > 0:
-            if unit == 'ml':
-                price_per_l = (price / value) * 1000
-            elif unit == 'l':
-                price_per_l = price / value
-            
-    elif base_unit_type == 'COUNT':
-        # Prioritize piece_count if it exists (e.g., for 4x100g packs)
-        if piece_count is not None and piece_count > 0:
-            price_per_piece = price / piece_count
-        # Fallback to value if unit is 'kom'
-        elif unit == 'kom' and value is not None and value > 0:
-            price_per_piece = price / value
-
-    return {
-        "price_per_kg": price_per_kg,
-        "price_per_l": price_per_l,
-        "price_per_piece": price_per_piece,
-    }
-
-
-def create_golden_record(
-    cur: PgCursor,
-    ean: str,
-    normalized_data: Dict[str, Any],
-    embedding: List[float]
-) -> Optional[int]:
-    """Inserts a new golden record into g_products and returns its ID."""
-    try:
-        cur.execute("""
-            INSERT INTO g_products (
-                ean, canonical_name, brand, category, base_unit_type,
-                variants, text_for_embedding, keywords, is_generic_product,
-                seasonal_start_month, seasonal_end_month, embedding
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (
-            ean,
-            normalized_data['canonical_name'],
-            normalized_data['brand'],
-            normalized_data['category'],
-            normalized_data['base_unit_type'],
-            json.dumps(normalized_data['variants']), # Store JSONB
-            normalized_data['text_for_embedding'],
-            normalized_data['keywords'],
-            normalized_data['is_generic_product'],
-            normalized_data.get('seasonal_start_month'), # Use .get() for optional fields
-            normalized_data.get('seasonal_end_month'),   # Use .get() for optional fields
-            embedding
-        ))
-        return cur.fetchone()['id']
-    except Exception as e:
-        print(f"Error creating golden record for EAN {ean}: {e}")
-        return None
-
-def update_best_offer(
-    cur: PgCursor,
-    g_product_id: int,
-    base_unit_type: str,
-    price_entry: Dict[str, Any],
-    current_unit_price: Decimal,
-    seasonal_start_month: Optional[int],
-    seasonal_end_month: Optional[int]
-) -> None:
-    """
-    Updates g_product_best_offers if the new unit price is better,
-    and updates lowest_price_in_season if applicable.
-    """
-    update_column = None
-    if base_unit_type == 'WEIGHT':
-        update_column = 'best_unit_price_per_kg'
-    elif base_unit_type == 'VOLUME':
-        update_column = 'best_unit_price_per_l'
-    elif base_unit_type == 'COUNT':
-        update_column = 'best_unit_price_per_piece'
-
-    current_month = datetime.now().month
-    is_in_season = False
-    if seasonal_start_month and seasonal_end_month:
-        if seasonal_start_month <= seasonal_end_month:
-            is_in_season = seasonal_start_month <= current_month <= seasonal_end_month
-        else: # Season spans across year end (e.g., Nov-Feb)
-            is_in_season = current_month >= seasonal_start_month or current_month <= seasonal_end_month
-
-    lowest_price_in_season_update = ""
-    lowest_price_in_season_param = None
-
-    if is_in_season and current_unit_price is not None:
-        # Fetch current lowest_price_in_season from DB to compare
-        cur.execute("""
-            SELECT lowest_price_in_season FROM g_product_best_offers WHERE product_id = %s
-        """, (g_product_id,))
-        existing_lowest_in_season = cur.fetchone()
-        
-        if existing_lowest_in_season and existing_lowest_in_season['lowest_price_in_season'] is not None:
-            if current_unit_price < existing_lowest_in_season['lowest_price_in_season']:
-                lowest_price_in_season_update = ", lowest_price_in_season = EXCLUDED.lowest_price_in_season"
-                lowest_price_in_season_param = current_unit_price
-        else:
-            # If no existing lowest_price_in_season or it's NULL, set it to current price
-            lowest_price_in_season_update = ", lowest_price_in_season = EXCLUDED.lowest_price_in_season"
-            lowest_price_in_season_param = current_unit_price
-
-    try:
-        # Construct the INSERT/UPDATE query dynamically
-        query_columns = ["product_id", update_column, "best_price_store_id", "best_price_found_at"]
-        query_values = ["%s", "%s", "%s", "NOW()"]
-        query_excluded_sets = [
-            f"{update_column} = EXCLUDED.{update_column}",
-            "best_price_store_id = EXCLUDED.best_price_store_id",
-            "best_price_found_at = NOW()"
-        ]
-        query_where_clause = f"EXCLUDED.{update_column} < COALESCE(g_product_best_offers.{update_column}, 'Infinity')"
-        
-        params = [g_product_id, current_unit_price, price_entry['store_id']]
-
-        if lowest_price_in_season_param is not None:
-            query_columns.append("lowest_price_in_season")
-            query_values.append("%s")
-            query_excluded_sets.append("lowest_price_in_season = EXCLUDED.lowest_price_in_season")
-            params.append(lowest_price_in_season_param)
-            # Add condition for lowest_price_in_season update
-            query_where_clause += f" OR (EXCLUDED.lowest_price_in_season < COALESCE(g_product_best_offers.lowest_price_in_season, 'Infinity'))"
-
-
-        final_query = f"""
-            INSERT INTO g_product_best_offers ({', '.join(query_columns)})
-            VALUES ({', '.join(query_values)})
-            ON CONFLICT (product_id) DO UPDATE SET
-                {', '.join(query_excluded_sets)}
-            WHERE
-                {query_where_clause};
-        """
-        
-        cur.execute(final_query, tuple(params))
-        print(f"Updated best offer for product {g_product_id} ({update_column}: {current_unit_price}, lowest_in_season: {lowest_price_in_season_param})")
-    except Exception as e:
-        print(f"Error updating best offer for product {g_product_id}: {e}")
-
-def mark_chain_products_as_processed(cur: PgCursor, chain_product_ids: List[int]) -> None:
-    """Marks a list of chain_products as processed."""
-    try:
-        cur.execute("""
-            UPDATE chain_products
-            SET is_processed = TRUE
-            WHERE id = ANY(%s)
-        """, (chain_product_ids,))
-    except Exception as e:
-        print(f"Error marking chain_products as processed: {e}")
-
-def process_unprocessed_data() -> None:
-    """
-    Processes unprocessed product data from chain_products, normalizes it with AI,
-    generates embeddings, and loads it into golden record tables.
+    Processes a batch of product data from chain_products based on product_id range,
+    normalizes it with AI, generates embeddings, and loads it into golden record tables.
     """
     conn: Optional[PgConnection] = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # 1. Extract: Query unprocessed data grouped by EAN
-        # Define the list of EANs to filter by
-        # 3850104259616 frutty products begin here
-        ean_filter_list = [
-            "3850104227530",
-            "3850104244827",
-            "3850104073656",
-            "3850104210259",
-            "3850104075759",
-            "3850104230066",
-            "3850103000820",
-            "3850104020087",
-            "3850104075513",
-            "3850104075537",
-            "3850102230044",
-            "3850104053221",
-            "3850104008597",
-            "3850104004964",
-            "3850102311439",
-            "3850102320011",
-            "3850102521449",
-            "3850104008054",
-            "3850104003189",
-            "3850102326150",
-            "3850104048999",
-            "3850102507979",
-            "3850102127252",
-            "3850102011254",
-            "3850103002312",
-            "3850104019784",
-            "3830001714715",
-            "3850102125821",
-            "3838471013109",
-            "3838471032476",
-            "3838977014051",
-            "3838600253345",
-            "3830001712667",
-            "3850102314126",
-            "3830001716016",
-            "3850102117970",
-            "3850102111152",
-            "3850104003837",
-            "3850104003134",
-            "3850102320073",
-            "3838600024945",
-            "3850102326143",
-            "38500022",
-            "3850104023484",
-            "38500039",
-            "3850102001606",
-            "3838471021272",
-            "3830001714692",
-            "3838471032537",
-            "3850104259616", 
-            "3859894042248",
-            "3859888163362",
-            "20489212",
-            "spar:377365",
-            "4337185381690",
-            "4062300278530",
-            "3859892735715",
-            "20539399",
-            "8019033020017",
-            "4335619104570",
-            "spar:34490",
-            "3858881580343",
-            "8602300204687",
-            "3850108036978",
-            "3609200006972",
-            "8001090621764",
-            "4337185613722",
-            "8002734100171",
-            "8076809580670",
-            "spar:10729",
-            "4337185382536",
-            "3870128039322",
-            "8002734100300",
-            "8057013880060",
-            "5310005005098",
-            "3856021219788",
-            "3859893697067",
-            "3858889331091",
-            "spar:40605",
-            "3856021219498",
-            "spar:207316",
-            "8436588101099",
-            "3858893252313",
-            "3850151244870",
-            "3838606881313",
-            "4740098090496",
-            "9062300132387",
-            "9100000905884",
-            "4335619167803",
-            "3856020262617",
-            "3859894055453",
-            "9100000633893",
-            "lidl:0080220",
-            "4011800584511",
-            "8001300501206",
-            "3858881735330",
-            "3608580705161",
-            "4062300269842",
-            "spar:370087",
-            "3859889267847",
-            "20449568",
-            "2832750000000",
-            "4063367108518",
-            "3858890973006",
-            "3856028500674",
-            "5310005001489",
-            "4062300278585",
-            "9062300140672",
-            "9100000810577",
-            "3856024805964",
-            "4056489877332",
-            "9100000734811",
-            "3859889287043",
-            "3858893252412",
-            "5997536134314",
-            "5310005001496",
-            "4056489676669",
-            "9006900013981",
-            "4056489006947",
-            "3859892735708",
-            "4335619260832",
-            "3859893822865",
-            "3858890265538",
-            "5310005005104",
-            "3859889287128",
-            "9000100656832",
-            "3858889897733",
-            "4015400795193",
-            "20538224",
-            "9062300132455",
-            "3856021206184",
-            "9100000764986",
-            "3871059000504",
-            "3830069179846",
-            "spar:149154",
-            "3609200010474",
-            "2831948000000",
-            "3870128003019",
-            "3858881249257",
-            "3858888530211",
-            "8004030271418",
-            "4335619058750",
-            "3858893252443",
-            "4062300278547",
-            "3830036310906",
-            "5999571051878",
-            "4063367379093",
-            "20287559",
-            "3800048200038",
-            "9008700215862",
-            "3858893252412",
-            "lidl:0081272",
-            "lidl:0082615",
-            "lidl:0082225",
-            "lidl:0080040"
-            ]
+        # 1. Extract: Query unprocessed data grouped by EAN within the product_id range
+        # This ensures that all chain_products for a given product.ean are processed together
         cur.execute("""
             SELECT
                 p.ean,
@@ -527,12 +163,19 @@ def process_unprocessed_data() -> None:
                 products p ON cp.product_id = p.id
             WHERE
                 cp.is_processed = FALSE
-                AND p.ean = ANY(%s) -- Add the EAN filter here
+                AND p.id >= %s AND p.id < %s + %s
             GROUP BY
                 p.ean
-            LIMIT %s;
-        """, (ean_filter_list, int(os.getenv("NORMALIZER_BATCH_LIMIT")),))
+            ORDER BY
+                p.ean;
+        """, (start_id, start_id, limit)) # Use start_id + limit for the upper bound
         unprocessed_eans = cur.fetchall()
+
+        if not unprocessed_eans:
+            print(f"No unprocessed products found for product_id range {start_id} to {start_id + limit - 1}. Exiting.")
+            return
+
+        print(f"Processing {len(unprocessed_eans)} EANs for product_id range {start_id} to {start_id + limit - 1}...")
 
         for record in unprocessed_eans:
             ean = record['ean']
@@ -682,6 +325,11 @@ def process_unprocessed_data() -> None:
             conn.close()
 
 if __name__ == "__main__":
-    print("Starting AI Normalizer Service...")
-    process_unprocessed_data()
-    print("AI Normalizer Service finished.")
+    parser = argparse.ArgumentParser(description="Process a batch of products for normalization.")
+    parser.add_argument("--start-id", type=int, required=True, help="Starting ID for the batch of products.")
+    parser.add_argument("--limit", type=int, required=True, help="Number of products to process in this batch.")
+    args = parser.parse_args()
+
+    print(f"Starting Gemini Normalizer Service for batch (start_id={args.start_id}, limit={args.limit})...")
+    process_products_by_id_range(args.start_id, args.limit)
+    print("Gemini Normalizer Service finished.")

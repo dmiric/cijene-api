@@ -103,13 +103,16 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db
 
-	@echo "Checking for existing crawled data..."
-	@if [ ! -f "./output/$(DATE).zip" ]; then \
-		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-		$(MAKE) crawl-sample; \
-	else \
-		echo "Existing zip found: ./output/$(DATE).zip"; \
-	fi
+# 	@echo "Checking for existing crawled data..."
+# 	@if [ ! -f "./output/$(DATE).zip" ]; then \
+# 		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
+# 		$(MAKE) crawl-sample; \
+# 	else \
+# 		echo "Existing zip found: ./output/$(DATE).zip"; \
+# 	fi
+
+	@echo "Crawl all data"
+	$(MAKE) crawl-all
 
 	@echo "Importing data..."
 	$(MAKE) import-data
@@ -117,11 +120,11 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 	@echo "Enriching data..."
 	$(MAKE) enrich-data
 
-	@echo "Normalizing data..."
-	$(MAKE) normalize-data
+#	@echo "Normalizing data..."
+#	$(MAKE) normalize-data-grok
 
-	@echo "Geocoding stores..."
-	$(MAKE) geocode-stores
+#	@echo "Geocoding stores..."
+#	$(MAKE) geocode-stores
 
 	@echo "Enriching users and user locations from backups..."
 	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=all-user-data USER_LOCATIONS_CSV_FILE=./backups/user_locations.csv
@@ -148,8 +151,19 @@ crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/output/$(DATE)
 
-normalize-data: ## Run the AI normalizer to process raw product data into golden records
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/normalizer.py
+normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
+	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
+	@if [ -z "$(EMBEDDER_TYPE)" ]; then echo "Error: EMBEDDER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+
+calculate-prices: ## Orchestrate price calculation. Usage: make calculate-prices [NUM_WORKERS=N] [BATCH_SIZE=M]
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+
+update-best-offers: ## Orchestrate best offer updates. Usage: make update-best-offers [NUM_WORKERS=N] [BATCH_SIZE=M]
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+
+get-embedding: ## Process products missing embeddings from g_products table
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/normaliser/embedding_service.py
 
 enrich-data: ## Enrich store and product data from enrichment CSVs
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type stores ./enrichment/stores.csv

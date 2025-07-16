@@ -8,7 +8,7 @@ from zipfile import ZipFile
 import datetime
 from bs4 import BeautifulSoup
 import re
-from re import Pattern # Keep Pattern if it's used elsewhere, otherwise remove
+from re import Pattern
 import unicodedata
 
 import httpx
