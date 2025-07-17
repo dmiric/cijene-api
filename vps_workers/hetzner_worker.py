@@ -115,6 +115,8 @@ def main():
             user_data=user_data_script,
             start_after_create=True
         )
+        print(f"Type of server_create_result: {type(server_create_result)}")
+        print(f"Content of server_create_result: {server_create_result}")
         server = server_create_result.server # Refresh server object
 
         print(f"Server {SERVER_NAME} created. Waiting for it to become active...")
