@@ -22,7 +22,7 @@ LOCATION = "fsn1" # e.g., "nbg1", "hel1". Note: Hetzner Cloud API typically uses
 FLOATING_IP_ADDRESS = os.getenv("FLOATING_IP_ADDRESS") # The fixed public IP address to assign to the VPS
 SERVER_IP = os.getenv("SERVER_IP") # The IP address of the master database server
 PROJECT_DIR_ON_VPS = "/root/cijene-api-clone" # Where your project will be cloned on the VPS
-MAKE_COMMAND = "make crawl CHAIN=roto,trgovina-krk,lorenco,boso" # The command to run on the VPS
+MAKE_COMMAND = "make crawl CHAIN=roto,trgovina-krk,lorenco,boso && make import-data" # The command to run on the VPS
 # MASTER_DATABASE_URL is no longer needed as DB_DSN in .env will be updated directly
 
 # --- Hetzner Cloud Client ---
