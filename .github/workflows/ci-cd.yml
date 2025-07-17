@@ -54,4 +54,5 @@ jobs:
           git pull origin main # Pull the latest code from the main branch
           docker compose pull
           docker compose up -d --remove-orphans
+          make migrate-db # Apply database migrations
           docker image prune -f # Clean up old images
