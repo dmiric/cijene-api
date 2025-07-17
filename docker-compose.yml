@@ -59,7 +59,7 @@ services:
     env_file:
       - ./.env
     environment:
-      # --- ADD THESE TWO LINES ---
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       # This disables the "Set Master Password" prompt on first launch.
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
       # This disables the user login screen entirely.
