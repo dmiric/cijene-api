@@ -59,7 +59,12 @@ services:
     env_file:
       - ./.env
     environment:
-      PGADMIN_CONFIG_SERVER_MODE: "False" # Allow access from non-standard hosts/proxies
+      # --- ADD THESE TWO LINES ---
+      # This disables the "Set Master Password" prompt on first launch.
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      # This disables the user login screen entirely.
+      PGADMIN_CONFIG_AUTHENTICATION_SOURCES: "[]"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
     depends_on:
       - db
     ports:

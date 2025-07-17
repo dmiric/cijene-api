@@ -85,7 +85,7 @@ def main():
 
         # 1. Get SSH Key ID
         # Assuming your SSH key is named 'price-mice-deploy-key' in Hetzner Cloud
-        ssh_key_id = get_ssh_key_id("price-mice-deploy-key") # Replace with your actual SSH key name
+        ssh_key_id = get_ssh_key_id("pricemice-worker-key") # Replace with your actual SSH key name
 
         # 2. Define user_data for initial VPS setup
         # This script will run on the VPS upon first boot
