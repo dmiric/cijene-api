@@ -106,9 +106,14 @@ def main():
 
         # 3. Provision a VPS
         print(f"Creating server {SERVER_NAME}...")
+        # Get the ServerType object
+        server_type_obj = client.server_types.get_by_name(SERVER_TYPE)
+        if not server_type_obj:
+            raise Exception(f"Server type '{SERVER_TYPE}' not found in Hetzner Cloud.")
+
         server_create_result = client.servers.create(
             name=SERVER_NAME,
-            server_type=SERVER_TYPE,
+            server_type=server_type_obj, # Pass the ServerType object
             image=IMAGE_NAME,
             location=LOCATION,
             ssh_keys=[ssh_key_id],
