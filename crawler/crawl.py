@@ -12,7 +12,7 @@ import shutil
 
 from service.db.models import CrawlStatus
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
+API_BASE_URL = os.getenv("BASE_URL", "http://api:8000")
 
 @dataclass
 class CrawlResult:
