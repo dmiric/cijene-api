@@ -110,12 +110,22 @@ def main():
         server_type_obj = client.server_types.get_by_name(SERVER_TYPE)
         if not server_type_obj:
             raise Exception(f"Server type '{SERVER_TYPE}' not found in Hetzner Cloud.")
+        
+        # Get the Image object
+        image_obj = client.images.get_by_name(IMAGE_NAME)
+        if not image_obj:
+            raise Exception(f"Image '{IMAGE_NAME}' not found in Hetzner Cloud.")
+
+        # Get the Location object
+        location_obj = client.locations.get_by_name(LOCATION)
+        if not location_obj:
+            raise Exception(f"Location '{LOCATION}' not found in Hetzner Cloud.")
 
         server_create_result = client.servers.create(
             name=SERVER_NAME,
             server_type=server_type_obj, # Pass the ServerType object
-            image=IMAGE_NAME,
-            location=LOCATION,
+            image=image_obj, # Pass the Image object
+            location=location_obj, # Pass the Location object
             ssh_keys=[ssh_key_id],
             user_data=user_data_script,
             start_after_create=True
