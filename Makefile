@@ -29,7 +29,7 @@ API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 # Add a new variable for the query, it will be empty by default
 QUERY=limun
 
-.PHONY: help crawl-sample rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
+.PHONY: help crawl rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
 
 ## General Commands
 help: ## Display this help message
@@ -39,7 +39,7 @@ help: ## Display this help message
 ## For development use make dev-fresh-start
 ## make rebuild-everything
 ## make migrate-db
-## make crawl-all
+## make crawl
 ## make import-data
 ## make enrich-data
 ## make geocode-stores
@@ -107,13 +107,13 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 # 	@echo "Checking for existing crawled data..."
 # 	@if [ ! -f "./output/$(DATE).zip" ]; then \
 # 		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-# 		$(MAKE) crawl-sample; \
+# 		$(MAKE) crawl --chain boso,eurospin,lidl,kaufland; \
 # 	else \
 # 		echo "Existing zip found: ./output/$(DATE).zip"; \
 # 	fi
 
-	@echo "Crawl all data"
-	$(MAKE) crawl-all
+	@echo "Crawl data"
+	$(MAKE) crawl
 
 	@echo "Importing data..."
 	$(MAKE) import-data
@@ -141,19 +141,12 @@ docker-prune: ## Stop all containers and perform a deep clean of the Docker syst
 	@echo "Docker system prune complete."
 
 ## Crawling, importing and enriching Commands
-crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output to logs/crawler_console.log
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain boso,eurospin,lidl,kaufland > logs/crawler_console.log 2>&1
-	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
-
-crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
+crawl: ## Crawl data for specified chains (or all if none specified) and save console output to logs/crawler_console.log. Usage: make crawl [CHAIN=lidl,kaufland]
 	@mkdir -p ./output/$(DATE)
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py > logs/crawler_console.log 2>&1
-	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE)/. ./output/$(DATE)/
-	@echo "Unzipping individual chain archives..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then powershell -Command "Get-ChildItem -Path './output/$(DATE)' -Filter '*.zip' | ForEach-Object { $$file = $$_; $$folderName = $$file.BaseName; $$destinationPath = Join-Path -Path './output/$(DATE)' -ChildPath $$folderName; New-Item -ItemType Directory -Force -Path $$destinationPath | Out-Null; Expand-Archive -Path $$file.FullName -DestinationPath $$destinationPath -Force; Write-Host \"Unzipped $$($$file.Name) to $$($$destinationPath)\" }"; else find ./output/$(DATE) -name "*.zip" -exec sh -c 'unzip -o "$$1" -d "$${1%.*}"' _ {} \; fi
+	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),) > logs/crawler_console.log 2>&1
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/output/$(DATE)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE)
 
 normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
 	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi

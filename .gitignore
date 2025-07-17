@@ -24,3 +24,4 @@ logs/
 prod.json
 search-prod.json
 backups/
+crawler_output/

@@ -139,24 +139,19 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
     crawler_class = CRAWLERS.get(chain)
     if not crawler_class:
         logger.error(f"Unknown retail chain: {chain}")
-        return CrawlResult(), None
+        raise ValueError(f"Unknown retail chain: {chain}") # Propagate error
 
     crawler = crawler_class()
     logger.info(f"[{chain}] Starting get_all_products for {date:%Y-%m-%d}")
     t0 = time()
-    try:
-        stores = crawler.get_all_products(date)
-    except Exception as err:
-        logger.error(
-            f"[{chain}] Error crawling for {date:%Y-%m-%d}: {err}", exc_info=True
-        )
-        return CrawlResult(), None
+    
+    stores = crawler.get_all_products(date) # Allow exceptions to propagate
 
     logger.info(f"[{chain}] Finished get_all_products for {date:%Y-%m-%d}")
 
     if not stores:
-        logger.error(f"No stores imported for {chain} on {date}")
-        return CrawlResult(), None
+        # Explicitly raise an error if no stores/products were retrieved
+        raise ValueError(f"No stores or products retrieved for {chain} on {date}")
 
     save_chain(temp_chain_path, stores)
     t1 = time()
@@ -183,7 +178,7 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
         return crawl_result, zip_file_path
     except Exception as e:
         logger.error(f"Failed to create zip archive for {chain}: {e}", exc_info=True)
-        return crawl_result, None
+        raise # Re-raise the exception to be caught by the executor
 
 
 async def crawl(
@@ -207,12 +202,17 @@ async def crawl(
     if date is None:
         date = datetime.date.today()
 
+    logger.debug(f"Crawl date being used: {date:%Y-%m-%d}")
+
     # Fetch previous crawl statuses
     successful_runs = await get_crawl_runs_from_api(date, CrawlStatus.SUCCESS)
     failed_or_started_runs = await get_crawl_runs_from_api(date, [CrawlStatus.FAILED, CrawlStatus.STARTED])
 
     successful_chains = {run["chain_name"] for run in successful_runs}
     failed_or_started_chains = {run["chain_name"] for run in failed_or_started_runs}
+
+    logger.debug(f"Successful chains for {date:%Y-%m-%d}: {successful_chains}")
+    logger.debug(f"Failed or started chains for {date:%Y-%m-%d}: {failed_or_started_chains}")
 
     all_available_chains = get_chains()
     
@@ -227,19 +227,11 @@ async def crawl(
 
     if not chains_to_process:
         logger.info(f"All requested chains for {date:%Y-%m-%d} are already successful or no chains to process.")
-        if chains:
-            for chain in chains:
-                if chain in successful_chains:
-                    await report_crawl_status(
-                        chain_name=chain,
-                        crawl_date=date,
-                        status=CrawlStatus.SKIPPED,
-                        error_message="Already successfully crawled.",
-                    )
         return []
 
     logger.info(f"Chains to process for {date:%Y-%m-%d}: {', '.join(chains_to_process)}")
-    chains = chains_to_process
+    # The 'chains' variable here should now refer to the filtered list for processing
+    # No need to reassign 'chains = chains_to_process' as it's used below.
 
     temp_base_path = root / "temp_crawls" / date.strftime("%Y-%m-%d")
     os.makedirs(temp_base_path, exist_ok=True)
@@ -253,7 +245,7 @@ async def crawl(
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         future_to_chain = {}
-        for chain in chains:
+        for chain in chains_to_process: # Changed from 'chains' to 'chains_to_process'
             logger.info(f"Submitting crawl for {chain} on {date:%Y-%m-%d}")
             await report_crawl_status(
                 chain_name=chain,

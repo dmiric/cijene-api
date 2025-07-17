@@ -15,6 +15,13 @@ class CrawlStatus(Enum):
     SKIPPED = "skipped"
 
 
+class ImportStatus(Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    STARTED = "started"
+    SKIPPED = "skipped"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class User:
     id: UUID
@@ -85,7 +92,7 @@ class UserPreference:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserLocation:
-    id: int
+    id: Optional[int] = None
     user_id: UUID
     address: Optional[str] = None
     city: Optional[str] = None
@@ -122,7 +129,7 @@ class ChainStats:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Store:
-    id: int
+    id: Optional[int] = None
     chain_id: int
     code: str
     type: Optional[str] = None
@@ -141,7 +148,7 @@ class StoreWithId(Store):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Product:
-    id: int
+    id: Optional[int] = None
     ean: str
     brand: Optional[str] = None
     name: Optional[str] = None
@@ -159,7 +166,7 @@ class ProductWithId(Product):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ChainProduct:
-    id: int
+    id: Optional[int] = None
     chain_id: int
     product_id: int
     code: str
@@ -180,7 +187,7 @@ class ChainProductWithId(ChainProduct):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Price:
-    id: int
+    id: Optional[int] = None
     chain_product_id: int
     store_id: int
     price_date: date
@@ -207,7 +214,7 @@ class StorePrice:
 # New G_ models for v2
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProduct:
-    id: int
+    id: Optional[int] = None
     ean: str
     canonical_name: str
     brand: Optional[str] = None
@@ -229,7 +236,7 @@ class GProductWithId(GProduct):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GPrice:
-    id: int
+    id: Optional[int] = None
     product_id: int
     store_id: int
     price_date: date
@@ -246,7 +253,7 @@ class GPriceWithId(GPrice):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProductBestOffer:
-    id: int
+    id: Optional[int] = None
     product_id: int
     best_unit_price_per_kg: Optional[Decimal] = None
     best_unit_price_per_l: Optional[Decimal] = None
@@ -261,7 +268,7 @@ class GProductBestOfferWithId(GProductBestOffer):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GStore:
-    id: int
+    id: Optional[int] = None
     name: str
     address: Optional[str] = None
     city: Optional[str] = None
@@ -345,7 +352,7 @@ class ShoppingListItem(BaseModel):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CrawlRun:
-    id: int
+    id: Optional[int] = None
     chain_name: str
     crawl_date: date
     status: CrawlStatus
@@ -355,6 +362,22 @@ class CrawlRun:
     n_prices: int = 0
     elapsed_time: float = 0.0
     timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ImportRun:
+    id: Optional[int] = None
+    crawl_run_id: Optional[int] = None
+    chain_name: str
+    import_date: date
+    status: ImportStatus
+    error_message: Optional[str] = None
+    n_stores: int = 0
+    n_products: int = 0
+    n_prices: int = 0
+    elapsed_time: float = 0.0
+    timestamp: datetime
+    unzipped_path: Optional[str] = None
 
 
 class ProductSearchItemV2(BaseModel):

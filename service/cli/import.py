@@ -7,12 +7,13 @@ from csv import DictReader
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+import shutil # Import shutil for directory removal
 from tempfile import TemporaryDirectory
 from time import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from service.config import get_settings
-from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation # Added User, UserLocation, SearchKeyword
+from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
 
 logger = logging.getLogger("importer")
 
@@ -198,6 +199,7 @@ async def process_prices(
 
     # Create price objects
     prices_to_create = []
+    seen_prices = set() # To track unique price entries
 
     logger.debug(f"Found {len(prices_data)} price entries, preparing to import")
 
@@ -213,7 +215,11 @@ async def process_prices(
         return dval
 
     for price_row in prices_data:
-        store_id = store_map[price_row["store_id"]]
+        store_id = store_map.get(price_row["store_id"])
+        if store_id is None:
+            logger.warning(f"Skipping price for unknown store {price_row['store_id']}")
+            continue
+
         product_id = chain_product_map.get(price_row["product_id"])
         if product_id is None:
             # Price for a product that wasn't added, perhaps because the
@@ -222,6 +228,13 @@ async def process_prices(
                 f"Skipping price for unknown product {price_row['product_id']}"
             )
             continue
+
+        # Create a unique key for the price entry
+        price_key = (product_id, store_id, price_date)
+        if price_key in seen_prices:
+            logger.warning(f"Skipping duplicate price entry for {price_key}")
+            continue
+        seen_prices.add(price_key)
 
         prices_to_create.append(
             Price(
@@ -236,7 +249,7 @@ async def process_prices(
             )
         )
 
-    logger.debug(f"Importing {len(prices_to_create)} prices")
+    logger.debug(f"Importing {len(prices_to_create)} unique prices")
     n_inserted = await db.add_many_prices(prices_to_create)
     return n_inserted
 
@@ -245,7 +258,9 @@ async def process_chain(
     price_date: date,
     chain_dir: Path,
     barcodes: dict[str, int],
-) -> None:
+    chain_name: str, # Added chain_name here
+    import_run_id: Optional[int] = None,
+) -> dict[str, Any]:
     """
     Process a single retail chain and import its data.
 
@@ -259,24 +274,28 @@ async def process_chain(
         price_date: The date for which the prices are valid.
         chain_dir: Path to the directory containing the chain's CSV files.
         barcodes: Dictionary mapping EAN codes to global product IDs.
+        chain_name: The actual name of the chain (e.g., "boso", "roto").
+        import_run_id: Optional ID of the associated import run.
 
+    Returns:
+        A dictionary containing import statistics for the chain.
     """
-    code = chain_dir.name
+    code = chain_name # Use the passed chain_name here
 
     stores_path = chain_dir / "stores.csv"
     if not stores_path.exists():
         logger.warning(f"No stores.csv found for chain {code}")
-        return
+        return {}
 
     products_path = chain_dir / "products.csv"
     if not products_path.exists():
         logger.warning(f"No products.csv found for chain {code}")
-        return
+        return {}
 
     prices_path = chain_dir / "prices.csv"
     if not prices_path.exists():
         logger.warning(f"No prices.csv found for chain {code}")
-        return
+        return {}
 
     logger.debug(f"Processing chain: {code}")
 
@@ -295,63 +314,97 @@ async def process_chain(
     )
 
     logger.info(f"Imported {n_new_prices} new prices for {code}")
+    return {
+        "n_stores": len(store_map),
+        "n_products": len(chain_product_map),
+        "n_prices": n_new_prices,
+    }
 
 
-async def import_archive(path: Path):
-    """Import data from all chain directories in the given zip archive."""
-    try:
-        price_date = datetime.strptime(path.stem, "%Y-%m-%d")
-    except ValueError:
-        logger.error(f"`{path.stem}` is not a valid date in YYYY-MM-DD format")
-        return
-
-    with TemporaryDirectory() as temp_dir:  # type: ignore
-        logger.debug(f"Extracting archive {path} to {temp_dir}")
-        with zipfile.ZipFile(path, "r") as zip_ref:
-            zip_ref.extractall(temp_dir)
-        await _import(Path(temp_dir), price_date)
-
-
-async def import_directory(path: Path) -> None:
-    """Import data from all chain directories in the given directory."""
-    if not path.is_dir():
-        logger.error(f"`{path}` does not exist or is not a directory")
-        return
-
-    try:
-        price_date = datetime.strptime(path.name, "%Y-%m-%d")
-    except ValueError:
-        logger.error(
-            f"Directory `{path.name}` is not a valid date in YYYY-MM-DD format"
-        )
-        return
-
-    await _import(path, price_date)
-
-
-async def _import(path: Path, price_date: datetime) -> None:
-    chain_dirs = [d.resolve() for d in path.iterdir() if d.is_dir()]
-    if not chain_dirs:
-        logger.warning(f"No chain directories found in {path}")
-        return
-
-    logger.debug(f"Importing {len(chain_dirs)} chains from {path}")
-
+async def _import_single_chain_data(
+    chain_name: str,
+    chain_data_path: Path, # This is the directory containing stores.csv, products.csv, prices.csv
+    price_date: datetime,
+    crawl_run_id: Optional[int] = None,
+    unzipped_path: Optional[str] = None, # This is the path to the original zip file
+) -> None:
+    """
+    Imports data for a single chain and logs the import run.
+    """
     t0 = time()
+    total_stores = 0
+    total_products = 0
+    total_prices = 0
+    error_message: Optional[str] = None
+    status = ImportStatus.STARTED
 
-    barcodes = await db.get_product_barcodes()
-    for chain_dir in chain_dirs:
-        await process_chain(price_date, chain_dir, barcodes)
+    # Check if this chain and date combination has already been successfully imported
+    existing_import_run = await db.import_runs.get_import_run_by_chain_and_date(
+        chain_name=chain_name, import_date=price_date.date()
+    )
 
-    logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
-    await db.compute_chain_prices(price_date)
+    if existing_import_run and existing_import_run.status == ImportStatus.SUCCESS:
+        logger.info(
+            f"Skipping import for chain {chain_name} on {price_date.date()} as it was already successfully imported (ID: {existing_import_run.id})."
+        )
+        # If the unzipped directory exists and was created by this process, delete it.
+        if chain_data_path.is_dir() and chain_data_path.name == chain_name:
+            try:
+                shutil.rmtree(chain_data_path)
+                logger.debug(f"Successfully deleted unzipped directory: {chain_data_path}")
+            except OSError as e:
+                logger.error(f"Error deleting unzipped directory {chain_data_path}: {e}")
+        return # Skip the rest of the import process for this chain
 
-    logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
-    await db.compute_chain_stats(price_date)
+    # If not already successfully imported, proceed with adding/updating the import run record
+    import_run_id = await db.import_runs.add_import_run(
+        chain_name=chain_name,
+        import_date=price_date.date(),
+        crawl_run_id=crawl_run_id,
+        unzipped_path=unzipped_path,
+    )
 
-    t1 = time()
-    dt = int(t1 - t0)
-    logger.info(f"Imported {len(chain_dirs)} chains in {dt} seconds")
+    try:
+        barcodes = await db.get_product_barcodes()
+        # Pass chain_data_path directly to process_chain
+        chain_stats = await process_chain(price_date, chain_data_path, barcodes, chain_name, import_run_id)
+        total_stores += chain_stats.get("n_stores", 0)
+        total_products += chain_stats.get("n_products", 0)
+        total_prices += chain_stats.get("n_prices", 0)
+
+        logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
+        await db.compute_chain_prices(price_date)
+
+        logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
+        await db.compute_chain_stats(price_date)
+        status = ImportStatus.SUCCESS
+
+    except Exception as e:
+        logger.error(f"Error during import for chain {chain_name}: {e}", exc_info=True)
+        status = ImportStatus.FAILED
+        error_message = str(e)
+    finally:
+        t1 = time()
+        elapsed_time = t1 - t0
+        await db.import_runs.update_import_run_status(
+            import_run_id=import_run_id,
+            status=status,
+            error_message=error_message,
+            n_stores=total_stores,
+            n_products=total_products,
+            n_prices=total_prices,
+            elapsed_time=elapsed_time,
+        )
+        logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
+        # Delete the unzipped directory if it was created by this import process
+        # The unzipped_path here is the original zip file path, not the directory.
+        # We need to delete the `chain_data_path` which is the unzipped directory.
+        if chain_data_path.is_dir() and chain_data_path.name == chain_name: # Ensure it's an unzipped directory, not the original source
+            try:
+                shutil.rmtree(chain_data_path)
+                logger.debug(f"Successfully deleted unzipped directory: {chain_data_path}")
+            except OSError as e:
+                logger.error(f"Error deleting unzipped directory {chain_data_path}: {e}")
 
 
 async def main():
@@ -378,7 +431,7 @@ async def main():
         "paths",
         type=Path,
         help="One or more directories or zip archives containing price data",
-        nargs="+",
+        nargs="*", # Changed to * to allow no paths for automatic import
     )
     parser.add_argument(
         "-d",
@@ -396,15 +449,101 @@ async def main():
     await db.connect()
 
     try:
-        # await db.create_tables() # Removed this line
+        if args.paths:
+            for path_arg in args.paths:
+                if path_arg.is_dir():
+                    # If it's a directory like YYYY-MM-DD, process all chains within it
+                    price_date_str = path_arg.name
+                    try:
+                        price_date = datetime.strptime(price_date_str, "%Y-%m-%d")
+                    except ValueError:
+                        logger.error(f"Directory `{price_date_str}` is not a valid date in YYYY-MM-DD format")
+                        continue
+                    
+                    # Iterate through zip files within the date directory
+                    zip_files = [f.resolve() for f in path_arg.iterdir() if f.suffix.lower() == ".zip"]
+                    if not zip_files:
+                        logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
+                        # Fallback to looking for subdirectories if no zips found
+                        chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
+                        if not chain_dirs:
+                            logger.warning(f"No chain directories found in {path_arg}")
+                            continue
+                        for chain_dir in chain_dirs:
+                            await _import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None)
+                        continue # Skip to next path_arg after processing subdirectories
 
-        for path in args.paths:
-            if path.is_dir():
-                await import_directory(path)
-            elif path.suffix.lower() == ".zip":
-                await import_archive(path)
-            else:
-                logger.error(f"Path `{path}` is neither a directory nor a zip archive.")
+                    for zip_file in zip_files:
+                        chain_name_from_zip = zip_file.stem # e.g., "boso" from "boso.zip"
+                        # Define the target directory for unzipping
+                        unzip_target_dir = zip_file.parent / chain_name_from_zip
+                        unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+
+                        logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
+                        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                            zip_ref.extractall(unzip_target_dir)
+                        
+                        # The extracted content should be directly the CSVs, not another subdirectory
+                        await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file))
+                elif path_arg.suffix.lower() == ".zip":
+                    # If it's a single zip file (e.g., boso.zip), extract and process
+                    price_date_str = path_arg.stem # This might be "boso" or "2025-07-17"
+                    chain_name_from_zip = path_arg.stem # Use stem as chain name for single zip
+                    try:
+                        # Try to parse date from stem, if it's a date-named zip
+                        price_date = datetime.strptime(price_date_str, "%Y-%m-%d")
+                    except ValueError:
+                        # If not a date-named zip, use today's date or infer from context if possible
+                        # For now, default to today if not explicitly a date-named zip
+                        price_date = datetime.now() 
+                        logger.warning(f"Could not infer date from zip name `{price_date_str}`. Using current date for import.")
+
+                    # Define the target directory for unzipping
+                    unzip_target_dir = path_arg.parent / chain_name_from_zip
+                    unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+
+                    logger.debug(f"Extracting archive {path_arg} to {unzip_target_dir}")
+                    with zipfile.ZipFile(path_arg, "r") as zip_ref:
+                        zip_ref.extractall(unzip_target_dir)
+                    
+                    # The extracted content should be directly the CSVs, not another subdirectory
+                    await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(path_arg))
+                else:
+                    logger.error(f"Path `{path_arg}` is neither a directory nor a zip archive.")
+        else:
+            logger.info("No paths provided, checking for successful crawl runs to import...")
+            successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
+            if not successful_crawl_runs:
+                logger.info("No new successful crawl runs found to import.")
+                return
+
+            for crawl_run in successful_crawl_runs:
+                crawl_run_id = crawl_run["id"]
+                chain_name = crawl_run["chain_name"]
+                crawl_date = crawl_run["crawl_date"]
+                
+                # Construct the expected path for the crawled data (which is a zip file)
+                date_str = crawl_date.strftime("%Y-%m-%d")
+                chain_zip_path = Path(f"/app/crawler_output/{date_str}/{chain_name}.zip")
+
+                logger.info(f"Attempting to import data for chain '{chain_name}' from crawl run ID {crawl_run_id} from zip: {chain_zip_path}")
+                
+                if not chain_zip_path.is_file():
+                    logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
+                    # Optionally, update import_run status to skipped or failed here if we want to log this
+                    continue
+
+                # Define the target directory for unzipping
+                unzip_target_dir = chain_zip_path.parent / chain_zip_path.stem
+                unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+
+                logger.debug(f"Extracting archive {chain_zip_path} to {unzip_target_dir}")
+                with zipfile.ZipFile(chain_zip_path, "r") as zip_ref:
+                    zip_ref.extractall(unzip_target_dir)
+                
+                # The extracted content should be directly the CSVs, not another subdirectory
+                # So, the chain_dir_path for process_chain will be the temp_dir itself
+                await _import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path))
     finally:
         await db.close()
 

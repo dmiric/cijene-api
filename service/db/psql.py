@@ -42,6 +42,7 @@ from .repositories.stats_repo import StatsRepository
 from .repositories.golden_product_repo import GoldenProductRepository
 from service.db.repositories.shopping_list_repo import ShoppingListRepository # New import
 from service.db.repositories.shopping_list_item_repo import ShoppingListItemRepository # New import
+from service.db.repositories.import_run_repo import ImportRunRepository # New import
 
 
 class PostgresDatabase(Database):
@@ -67,6 +68,7 @@ class PostgresDatabase(Database):
         self.golden_products = GoldenProductRepository()
         self.shopping_lists = ShoppingListRepository() # New instance
         self.shopping_list_items = ShoppingListItemRepository() # New instance
+        self.import_runs = ImportRunRepository(self.pool) # New instance, pass pool here
 
 
     async def connect(self) -> None:
@@ -86,6 +88,7 @@ class PostgresDatabase(Database):
         await self.golden_products.connect(self.pool)
         await self.shopping_lists.connect(self.pool)  # Connect new repos
         await self.shopping_list_items.connect(self.pool)  # Connect new repos
+        await self.import_runs.connect(self.pool) # Connect new repos
 
     async def _init_connection(self, conn):
         # Register the 'vector' type for asyncpg using pgvector's utility
