@@ -62,10 +62,6 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-      # This disables the "Set Master Password" prompt on first launch.
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-      # This disables the user login screen entirely.
-      PGADMIN_CONFIG_AUTHENTICATION_SOURCES: "[]"
       PGADMIN_CONFIG_SERVER_MODE: "False"
     depends_on:
       - db
