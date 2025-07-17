@@ -142,7 +142,7 @@ docker-prune: ## Stop all containers and perform a deep clean of the Docker syst
 
 ## Crawling, importing and enriching Commands
 crawl-sample: ## Run a sample crawl for Lidl and Konzum and save console output to logs/crawler_console.log
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain spar,lidl,kaufland > logs/crawler_console.log 2>&1
+	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py --chain boso,eurospin,lidl,kaufland > logs/crawler_console.log 2>&1
 	docker cp $$(docker compose ps -q crawler):/app/output/$(DATE).zip ./output/$(DATE).zip
 
 crawl-all: ## Crawl all data and save console output to logs/crawler_console.log
