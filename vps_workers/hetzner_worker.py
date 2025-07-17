@@ -17,7 +17,7 @@ HCLOUD_TOKEN = os.getenv("HCLOUD_TOKEN")
 SSH_KEY_PATH = os.getenv("SSH_KEY_PATH") # Path to your SSH private key on the machine running this script
 SERVER_NAME = "cijene-ingestion-worker"
 SERVER_TYPE = "cpx31"
-IMAGE_NAME = "ubuntu-22.04"
+IMAGE_NAME = "docker-ce" # Using Hetzner's pre-installed Docker CE image
 LOCATION = "fsn1" # e.g., "nbg1", "hel1". Note: Hetzner Cloud API typically uses broader locations like 'fsn1', not specific data centers like 'fsn1-dc14' for server creation.
 FLOATING_IP_ADDRESS = os.getenv("FLOATING_IP_ADDRESS") # The fixed public IP address to assign to the VPS
 SERVER_IP = os.getenv("SERVER_IP") # The IP address of the master database server
@@ -95,11 +95,8 @@ def main():
           - git
           - make
           - python3-pip
-          - docker.io
-          - docker-compose
         runcmd:
           - [ sh, -c, "git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}" ]
-          - [ sh, -c, "cd {PROJECT_DIR_ON_VPS} && make setup-docker" ] # Assuming you have a make target for docker setup
         write_files:
           - path: {PROJECT_DIR_ON_VPS}/.env # Create .env file on VPS
             permissions: '0644'

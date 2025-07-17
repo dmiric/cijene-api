@@ -148,6 +148,18 @@ crawl: ## Crawl data for specified chains (or all if none specified) and save co
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE)
 
+## Hetzner VPS Worker Commands
+run-hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
+	@echo "Building hetzner-worker-image..."
+	docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker .
+	@echo "Running hetzner_worker.py in Docker container..."
+	docker run --rm \
+		--name hetzner-worker-container \
+		-v "$(CURDIR)/.env:/app/.env:ro" \
+		-v "$(SSH_KEY_PATH):/app/ssh_key:ro" \
+		-e SSH_KEY_PATH=/app/ssh_key \
+		hetzner-worker-image
+
 normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
 	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
 	@if [ -z "$(EMBEDDER_TYPE)" ]; then echo "Error: EMBEDDER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
