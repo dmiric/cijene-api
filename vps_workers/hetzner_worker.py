@@ -178,8 +178,13 @@ def main():
         ssh_client.close()
         print("SSH connection closed.")
 
+    except hcloud.APIException as e:
+        print(f"Hetzner Cloud API Error: Code={e.code}, Message={e.message}, Details={e.details}")
+        sys.exit(1)
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An unexpected error occurred: {e}")
+        import traceback
+        traceback.print_exc() # Print full traceback
         sys.exit(1)
     finally:
         # 7. De-provision the VPS and detach Floating IP (always try to clean up)
