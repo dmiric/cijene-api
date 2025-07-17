@@ -115,7 +115,7 @@ def main():
             user_data=user_data_script,
             start_after_create=True
         )
-        server = client.servers.get_by_id(server_create_result.id) # Refresh server object
+        server = server_create_result.server # Refresh server object
 
         print(f"Server {SERVER_NAME} created. Waiting for it to become active...")
         while server.status != "running":
