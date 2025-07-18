@@ -20,7 +20,7 @@ INSERT INTO chains (code, active) VALUES
 ('studenac', TRUE),
 ('tommy', TRUE),
 ('trgocentar', TRUE),
-('trgovina_krk', TRUE),
+('trgovina-krk', TRUE),
 ('vrutak', TRUE),
 ('zabac', TRUE)
 ON CONFLICT (code) DO NOTHING;

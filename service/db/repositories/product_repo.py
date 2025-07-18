@@ -114,7 +114,7 @@ class ProductRepository(BaseRepository):
 
     async def list_chains(self) -> list[ChainWithId]:
         async with self._get_conn() as conn:
-            rows = await conn.fetch("SELECT id, code FROM chains")
+            rows = await conn.fetch("SELECT id, code, active FROM chains")
             return [ChainWithId(**row) for row in rows]  # type: ignore
 
     async def add_ean(self, ean: str) -> int:
