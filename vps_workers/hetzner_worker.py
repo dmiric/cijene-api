@@ -24,7 +24,7 @@ WORKER_PRIMARY_IP = os.getenv("WORKER_PRIMARY_IP")
 SERVER_IP = os.getenv("SERVER_IP")
 PROJECT_DIR_ON_VPS = "/opt/cijene-api"
 JOB_COMMANDS = [
-    "make rebuild-everything",
+    "make build-worker",
     "make crawl CHAIN=roto,trgovina-krk,lorenco,boso",
     "make import-data",
 ]
