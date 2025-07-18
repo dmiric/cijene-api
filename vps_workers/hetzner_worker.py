@@ -145,10 +145,10 @@ def main():
         print(f"Type of primary_ips: {type(primary_ips)}")
         print(f"Content of primary_ips: {primary_ips}")
 
-        if not primary_ips:
+        if not primary_ips.primary_ips: # Check the actual list within the PageResults object
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in Hetzner Cloud. Aborting.")
         
-        primary_ip_obj = primary_ips[0] # Get the first (and should be only) matching Primary IP
+        primary_ip_obj = primary_ips.primary_ips[0] # Get the first (and should be only) matching Primary IP from the list
         print(f"Type of primary_ip_obj: {type(primary_ip_obj)}")
         print(f"Content of primary_ip_obj: {primary_ip_obj}")
 
