@@ -68,7 +68,7 @@ class PostgresDatabase(Database):
         self.golden_products = GoldenProductRepository()
         self.shopping_lists = ShoppingListRepository() # New instance
         self.shopping_list_items = ShoppingListItemRepository() # New instance
-        self.import_runs = ImportRunRepository(self.pool) # New instance, pass pool here
+        self.import_runs = ImportRunRepository() # New instance, pass pool here
 
 
     async def connect(self) -> None:

@@ -7,8 +7,8 @@ from service.db.models import ImportRun, ImportStatus, CrawlStatus
 
 
 class ImportRunRepository:
-    def __init__(self, pool: Optional[Pool] = None):
-        self.pool = pool
+    def __init__(self):
+        self.pool = None
 
     async def connect(self, pool: Pool) -> None:
         self.pool = pool
