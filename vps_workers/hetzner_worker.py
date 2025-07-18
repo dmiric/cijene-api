@@ -83,7 +83,6 @@ def main():
                     break
             local_env_content = "\n".join(lines)
 
-        # 1. Get SSH Key ID
         # 1. Get SSH Key Object
         # Assuming your SSH key is named 'price-mice-deploy-key' in Hetzner Cloud
         ssh_key_obj = get_ssh_key_id("pricemice-worker-key") # Get the SSHKey object
