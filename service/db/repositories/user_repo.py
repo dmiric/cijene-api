@@ -123,7 +123,7 @@ class UserRepository(BaseRepository):
             return None, None
 
     
-    async def add_user(self, name: str, email: str) -> tuple[User, UserPersonalData]: # Return both User and UserPersonalData
+    async def add_user(self, name: str, email: str, api_key: Optional[str] = None) -> tuple[User, UserPersonalData]: # Return both User and UserPersonalData
         """
         Add a new user with a randomly generated API key and personal data.
 
@@ -135,7 +135,6 @@ class UserRepository(BaseRepository):
             A tuple containing the created User and UserPersonalData objects.
         """
         new_user_uuid = uuid4()
-        api_key = str(uuid4())
         created_at = datetime.now()
         is_active = True
 
@@ -164,7 +163,7 @@ class UserRepository(BaseRepository):
                 new_user_uuid,
                 name,
                 email,
-                api_key,
+                None, # Explicitly insert NULL for api_key
                 datetime.now(),
             )
             if personal_data_record is None:
@@ -172,12 +171,11 @@ class UserRepository(BaseRepository):
 
             return User(**user_record), UserPersonalData(**personal_data_record) # type: ignore
 
-    async def add_user_with_password(self, name: str, email: str, hashed_password: str, verification_token: UUID) -> tuple[User, UserPersonalData]:
+    async def add_user_with_password(self, name: str, email: str, hashed_password: str, verification_token: UUID, api_key: Optional[str] = None) -> tuple[User, UserPersonalData]:
         """
         Add a new user with a hashed password, verification token, and personal data.
         """
         new_user_uuid = uuid4()
-        api_key = str(uuid4()) # Still generate an API key for existing API key auth
         created_at = datetime.now()
         is_active = True # User is active but not yet email verified
 
@@ -207,7 +205,7 @@ class UserRepository(BaseRepository):
                 new_user_uuid,
                 name,
                 email,
-                api_key,
+                None, # Explicitly insert NULL for api_key
                 datetime.now(),
             )
             if personal_data_record is None:
@@ -588,11 +586,21 @@ class UserRepository(BaseRepository):
             self.debug_print(f"add_many_users: Inserted {users_inserted} user core records.")
 
             # Insert into 'user_personal_data' table
-            personal_data_inserted = await conn.copy_records_to_table(
-                'user_personal_data',
-                records=personal_data_records,
-                columns=['user_id', 'name', 'email', 'api_key', 'last_login', 'updated_at']
-            )
+            # Dynamically adjust columns based on whether api_key is None
+            if all(u[5] is None for u in users_data): # If all api_keys are None
+                personal_data_records_no_api_key = [(u[0], u[3], u[4], u[6], u[7]) for u in users_data] # user_id, name, email, last_login, updated_at
+                personal_data_columns = ['user_id', 'name', 'email', 'last_login', 'updated_at']
+                personal_data_inserted = await conn.copy_records_to_table(
+                    'user_personal_data',
+                    records=personal_data_records_no_api_key,
+                    columns=personal_data_columns
+                )
+            else:
+                personal_data_inserted = await conn.copy_records_to_table(
+                    'user_personal_data',
+                    records=personal_data_records,
+                    columns=['user_id', 'name', 'email', 'api_key', 'last_login', 'updated_at']
+                )
             self.debug_print(f"add_many_users: Inserted {personal_data_inserted} user personal data records.")
             return users_inserted # Return count of core user records inserted
 

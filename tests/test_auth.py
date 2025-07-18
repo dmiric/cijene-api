@@ -102,13 +102,15 @@ async def get_user_from_db(db_conn: asyncpg.Connection, email: str):
         """
         SELECT
             u.id, u.hashed_password, u.is_verified, u.verification_token,
-            upd.email
+            upd.email, upd.api_key
         FROM users u
         JOIN user_personal_data upd ON u.id = upd.user_id
         WHERE upd.email = $1
         """,
         email
     )
+    if row is None:
+        print(f"DEBUG: get_user_from_db: No user found for email {email}")
     return row
 
 @pytest.mark.asyncio
@@ -123,11 +125,21 @@ async def test_user_registration(unauthenticated_client: httpx.AsyncClient, clea
     assert response.status_code == 201
     assert response.json()["message"] == "User registered successfully. Please check your email for verification."
 
+    # Add a small delay to ensure transaction is committed
+    await asyncio.sleep(0.5) # Increased delay
+
     # Verify user exists in DB and is not verified
     user_record = await get_user_from_db(db_connection, register_data["email"])
     assert user_record is not None
     assert user_record["is_verified"] is False
     assert user_record["verification_token"] is not None
+    
+    # Verify api_key is None by default
+    personal_data_record = await db_connection.fetchrow(
+        "SELECT api_key FROM user_personal_data WHERE user_id = $1",
+        user_record["id"]
+    )
+    assert personal_data_record["api_key"] is None
 
 @pytest.mark.asyncio
 async def test_user_registration_duplicate_email(unauthenticated_client: httpx.AsyncClient, cleanup_users_fixture):
@@ -153,6 +165,7 @@ async def test_user_login_success(unauthenticated_client: httpx.AsyncClient, cle
         "password": "LoginPassword123!"
     }
     await unauthenticated_client.post("/auth/register", json=register_data)
+    await asyncio.sleep(0.5) # Increased delay
 
     # Manually verify email in DB for testing purposes
     user_record = await get_user_from_db(db_connection, register_data["email"])
@@ -232,6 +245,7 @@ async def test_token_refresh_success(unauthenticated_client: httpx.AsyncClient, 
         "password": "RefreshPassword123!"
     }
     await unauthenticated_client.post("/auth/register", json=register_data)
+    await asyncio.sleep(0.5) # Increased delay
 
     user_record = await get_user_from_db(db_connection, register_data["email"])
     await db_connection.execute(
@@ -287,6 +301,7 @@ async def test_logout_success(unauthenticated_client: httpx.AsyncClient, cleanup
         "password": "LogoutPassword123!"
     }
     await unauthenticated_client.post("/auth/register", json=register_data)
+    await asyncio.sleep(0.5) # Increased delay
 
     user_record = await get_user_from_db(db_connection, register_data["email"])
     await db_connection.execute(
@@ -373,6 +388,7 @@ async def test_reset_password_success(unauthenticated_client: httpx.AsyncClient,
         "password": "OldPassword123!"
     }
     await unauthenticated_client.post("/auth/register", json=register_data)
+    await asyncio.sleep(0.5) # Increased delay
 
     user_record = await get_user_from_db(db_connection, register_data["email"])
     # Manually verify email in DB for testing purposes
@@ -432,6 +448,7 @@ async def test_protected_endpoint_with_jwt(unauthenticated_client: httpx.AsyncCl
         "password": "ProtectedPassword123!"
     }
     await unauthenticated_client.post("/auth/register", json=register_data)
+    await asyncio.sleep(0.5) # Increased delay
 
     user_record = await get_user_from_db(db_connection, register_data["email"])
     await db_connection.execute(

@@ -13,6 +13,7 @@ import shutil
 from service.db.models import CrawlStatus
 
 API_BASE_URL = os.getenv("BASE_URL", "http://api:8000")
+API_KEY = os.getenv("API_KEY") # Get API_KEY from environment variables
 
 @dataclass
 class CrawlResult:
@@ -41,6 +42,8 @@ async def report_crawl_status(
         "elapsed_time": crawl_result.elapsed_time if crawl_result else 0.0,
     }
     headers = {"Content-Type": "application/json"}
+    if API_KEY:
+        headers["X-API-Key"] = API_KEY # Add API Key to headers
     
     try:
         async with httpx.AsyncClient() as client:
@@ -317,9 +320,13 @@ async def get_crawl_runs_from_api(crawl_date: datetime.date, status_filter: Unio
             logger.warning(f"Unsupported status filter for API: {status_filter.value}")
             return []
 
+    headers = {}
+    if API_KEY:
+        headers["X-API-Key"] = API_KEY # Add API Key to headers
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.json()
     except httpx.RequestError as e:

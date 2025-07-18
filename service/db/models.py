@@ -62,7 +62,7 @@ class UserPersonalData:
     user_id: UUID
     name: str
     email: str
-    api_key: str
+    api_key: Optional[str] = None # Make api_key optional
     last_login: Optional[datetime] = None
     updated_at: datetime
 
@@ -111,6 +111,7 @@ class UserLocation:
 class Chain:
     id: Optional[int] = None
     code: str
+    active: bool = True
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

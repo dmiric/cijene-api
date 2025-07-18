@@ -8,7 +8,9 @@ from service.db.repositories.crawl_run_repo import CrawlRunRepository
 from service.db.base import get_db_session # Import get_db_session
 from service.db.psql import PostgresDatabase # Import PostgresDatabase
 
-router = APIRouter()
+from service.routers.auth import verify_authentication # Import verify_authentication
+from service.routers.auth import RequireApiKey # Import RequireApiKey
+router = APIRouter(dependencies=[RequireApiKey])
 
 class CrawlStatusReport(BaseModel):
     chain_name: str

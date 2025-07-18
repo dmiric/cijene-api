@@ -128,33 +128,44 @@ async def register_user(
     """
     Register a new user.
     """
-    existing_user, _ = await db.users.get_user_by_email(request.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+    try:
+        existing_user, _ = await db.users.get_user_by_email(request.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered",
+            )
+
+        hashed_password = get_password_hash(request.password)
+        verification_token = uuid4()
+
+        user, personal_data = await db.users.add_user_with_password(
+            name=request.name,
+            email=request.email,
+            hashed_password=hashed_password,
+            verification_token=verification_token,
+            api_key=None, # Explicitly set API key to None
         )
 
-    hashed_password = get_password_hash(request.password)
-    verification_token = uuid4()
+        if not user or not personal_data:
+            logger.error("Failed to create user: user or personal_data is None after add_user_with_password")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user",
+            )
+        
+        # Send verification email in the background
+        await send_verification_email(personal_data.email, verification_token, background_tasks)
 
-    user, personal_data = await db.users.add_user_with_password(
-        name=request.name,
-        email=request.email,
-        hashed_password=hashed_password,
-        verification_token=verification_token,
-    )
-
-    if not user or not personal_data:
+        return {"message": "User registered successfully. Please check your email for verification."}
+    except HTTPException:
+        raise # Re-raise HTTPException as it's an expected error
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during user registration: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user",
+            detail="An unexpected error occurred during registration.",
         )
-    
-    # Send verification email in the background
-    await send_verification_email(personal_data.email, verification_token, background_tasks)
-
-    return {"message": "User registered successfully. Please check your email for verification."}
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
@@ -357,9 +368,40 @@ async def reset_password(
 
     return {"message": "Password reset successfully!"}
 
+from fastapi import Header # Import Header
+
+async def verify_api_key_authentication(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+) -> UserPersonalData:
+    """
+    Verify authentication using an X-API-Key header.
+
+    Args:
+        x_api_key: The API key provided in the X-API-Key header.
+
+    Returns:
+        The authenticated UserPersonalData object.
+    """
+    logger.debug(f"Attempting API Key authentication with key: {x_api_key[:5]}...") # Log first 5 chars
+    personal_data = await db.users.get_user_by_api_key(x_api_key)
+    
+    if personal_data:
+        # Now fetch the full User object to check is_active and deleted_at
+        user, _ = await db.users.get_user_by_id(personal_data.user_id)
+        if user and user.is_active and user.deleted_at is None:
+            logger.debug(f"Authenticated access (API Key) for user: {personal_data.name} (id={personal_data.user_id})")
+            return personal_data
+    
+    logger.warning(f"API Key authentication failed for key: {x_api_key[:5]}...")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API Key",
+        headers={"WWW-Authenticate": "Bearer"}, # Use Bearer for consistency in error response
+    )
+
 async def verify_authentication(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
-) -> UserPersonalData: # Return UserPersonalData
+) -> UserPersonalData:
     """
     Verify bearer token (JWT) authentication.
 
@@ -369,7 +411,15 @@ async def verify_authentication(
     Returns:
         The authenticated UserPersonalData object.
     """
-    if credentials and credentials.scheme == "Bearer":
+    if credentials is None:
+        logger.debug("No JWT credentials provided.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if credentials.scheme == "Bearer":
         token = credentials.credentials
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -387,22 +437,25 @@ async def verify_authentication(
             logger.debug(f"Authenticated access (JWT) for user: {personal_data.name} (id={personal_data.user_id})")
             return personal_data
         except JWTError:
+            logger.warning("JWT authentication failed.")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
     
-    logger.debug("No valid JWT provided.")
+    logger.debug("Invalid authentication scheme for JWT provided.")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
+        detail="Invalid authentication scheme",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-
-# Dependency for protecting routes
+# Dependency for protecting routes with JWT
 RequireAuth = Depends(verify_authentication)
+
+# Dependency for protecting routes with API Key
+RequireApiKey = Depends(verify_api_key_authentication)
 
 @router.post("/change-password", status_code=status.HTTP_200_OK)
 async def change_password(

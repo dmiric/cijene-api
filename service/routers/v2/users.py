@@ -21,7 +21,7 @@ class UserPersonalDataResponse(BaseModel):
     user_id: UUID
     name: str
     email: EmailStr
-    api_key: str
+    api_key: Optional[str]
     last_login: Optional[datetime] = None
     updated_at: datetime
 

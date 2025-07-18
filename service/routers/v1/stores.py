@@ -7,22 +7,29 @@ from service.config import get_settings
 from service.routers.auth import verify_authentication # Import verify_authentication directly
 from fastapi import Depends
 
-router = APIRouter(tags=["Stores"], dependencies=[Depends(verify_authentication)]) # Use Depends(verify_authentication)
+from service.routers.auth import RequireApiKey # Import RequireApiKey
+router = APIRouter(tags=["Stores"], dependencies=[RequireApiKey]) # Use RequireApiKey
 db = get_settings().get_db()
 
 def debug_print(*args, **kwargs):
     print("[DEBUG stores]", *args, file=sys.stderr, **kwargs)
 
+class ChainResponse(BaseModel):
+    """Chain response schema."""
+    id: int
+    code: str = Field(..., description="Code of the retail chain.")
+    active: bool = Field(..., description="Whether the chain is active.")
+
 class ListChainsResponse(BaseModel):
     """List chains response schema."""
 
-    chains: list[str] = Field(..., description="List of retail chain codes.")
+    chains: list[ChainResponse] = Field(..., description="List of retail chain codes.")
 
 @router.get("/chains/", summary="List retail chains")
 async def list_chains() -> ListChainsResponse:
     """List all available chains."""
     chains = await db.list_chains()
-    return ListChainsResponse(chains=[chain.code for chain in chains])
+    return ListChainsResponse(chains=[ChainResponse(id=chain.id, code=chain.code, active=chain.active) for chain in chains])
 
 class StoreResponse(BaseModel):
     """Store response schema."""

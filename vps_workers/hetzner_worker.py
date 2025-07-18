@@ -9,6 +9,8 @@ import time
 import os
 import sys
 from dotenv import load_dotenv
+import requests
+from datetime import date
 
 # Load environment variables from .env file in the current directory
 load_dotenv()
@@ -23,6 +25,7 @@ LOCATION = "fsn1"
 WORKER_PRIMARY_IP = os.getenv("WORKER_PRIMARY_IP")
 SERVER_IP = os.getenv("SERVER_IP")
 PROJECT_DIR_ON_VPS = "/opt/cijene-api"
+API_BASE_URL = f"http://{SERVER_IP}:8000/v1" # Assuming API is accessible on port 8000
 JOB_COMMANDS = [
     "make build-worker",
     "make crawl CHAIN=roto,trgovina-krk,lorenco,boso",
@@ -83,6 +86,37 @@ def wait_for_action(action, timeout: int = 180):
     elif action.status == "error":
         print(" FAILED!")
         raise ActionFailedException(action=action)
+
+def get_active_chains():
+    """Fetches active chains from the API."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/chains/")
+        response.raise_for_status()
+        chains_data = response.json()
+        return [chain for chain in chains_data.get("chains", []) if chain.get("active")]
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching active chains: {e}")
+        return []
+
+def get_crawl_run_status(chain_name: str, crawl_date: date):
+    """Fetches the crawl run status for a given chain and date from the API."""
+    try:
+        api_key = os.getenv("API_KEY") # Assuming API_KEY is available in .env
+        headers = {"X-API-Key": api_key}
+        
+        # Format the date for the URL
+        date_str = crawl_date.strftime("%Y-%m-%d")
+        
+        response = requests.get(f"{API_BASE_URL}/crawler/status/{chain_name}/{date_str}", headers=headers)
+        response.raise_for_status()
+        status_data = response.json()
+        return status_data.get("status")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching crawl run status for {chain_name} on {crawl_date}: {e}")
+        # If the endpoint returns 404, it means no run was found, which is not a "success"
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 404:
+            return "not_found"
+        return "error"
 
 
 # --- Main Execution Logic ---
@@ -179,10 +213,35 @@ def main():
         write_env_command = f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{local_env_content}\nEOF"
         run_remote_command(ssh_client, write_env_command, "Write .env file", sensitive=True)
 
-        # --- 8. Run the sequence of job commands ---
-        for command in JOB_COMMANDS:
-            full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
-            run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
+        # --- 8. Check chain statuses and run jobs if needed ---
+        active_chains = get_active_chains()
+        chains_to_crawl = []
+        today = date.today()
+
+        for chain in active_chains:
+            chain_code = chain.get("code")
+            if chain_code:
+                status = get_crawl_run_status(chain_code, today)
+                if status != "success":
+                    print(f"Chain '{chain_code}' has status '{status}' for today. Adding to crawl list.")
+                    chains_to_crawl.append(chain_code)
+                else:
+                    print(f"Chain '{chain_code}' already has 'success' status for today. Skipping crawl.")
+        
+        if chains_to_crawl:
+            # Modify JOB_COMMANDS to include only the chains that need crawling
+            # Assuming 'make crawl' command takes a CHAIN argument
+            modified_job_commands = [
+                "make build-worker",
+                f"make crawl CHAIN={','.join(chains_to_crawl)}",
+                "make import-data",
+            ]
+            print(f"Initiating crawl and import for chains: {', '.join(chains_to_crawl)}")
+            for command in modified_job_commands:
+                full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
+                run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
+        else:
+            print("All active chains already have successful crawl/import for today. No jobs to run.")
 
         ssh_client.close()
         print("SSH connection closed.")

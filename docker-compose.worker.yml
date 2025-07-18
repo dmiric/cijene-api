@@ -24,6 +24,8 @@ services:
       - ./.env
     environment:
       PYTHONUTF8: "1"
+      API_KEY: ${API_KEY}
+      BASE_URL: ${BASE_URL}
     volumes:
       - ./crawler_output:/app/output # Mount crawler output for direct access
       - .:/app # Mount the entire project directory

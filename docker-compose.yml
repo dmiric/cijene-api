@@ -47,6 +47,8 @@ services:
     environment:
       # DB_DSN is now defined directly in .env
       PYTHONUTF8: "1"
+      API_KEY: ${API_KEY}
+      BASE_URL: ${BASE_URL}
     depends_on:
       - db
     volumes:

@@ -104,8 +104,9 @@ class ProductRepository(BaseRepository):
             if chain_id is not None:
                 return chain_id
             chain_id = await conn.fetchval(
-                "INSERT INTO chains (code) VALUES ($1) RETURNING id",
+                "INSERT INTO chains (code, active) VALUES ($1, $2) RETURNING id",
                 chain.code,
+                chain.active,
             )
             if chain_id is None:
                 raise RuntimeError(f"Failed to insert chain {chain.code}")
