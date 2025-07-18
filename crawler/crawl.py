@@ -4,7 +4,6 @@ import datetime
 from typing import List, Union, Dict, Optional
 import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import httpx
 import json
@@ -187,11 +186,11 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
 async def crawl(
     root: Path,
     date: datetime.date | None = None,
-    num_workers: int = 4,
+    # num_workers: int = 4,  # --- REMOVED: This parameter is no longer needed for sequential execution.
     chains: list[str] | None = None,
 ) -> List[Path]:
     """
-    Crawl multiple retail chains for product/pricing data and save it.
+    Crawl multiple retail chains for product/pricing data and save it SEQUENTIALLY.
 
     Args:
         root: The base directory path where the data will be saved.
@@ -207,16 +206,9 @@ async def crawl(
 
     logger.debug(f"Crawl date being used: {date:%Y-%m-%d}")
 
-    # Fetch previous crawl statuses
+    # This part remains the same: check which chains actually need crawling.
     successful_runs = await get_crawl_runs_from_api(date, CrawlStatus.SUCCESS)
-    failed_or_started_runs = await get_crawl_runs_from_api(date, [CrawlStatus.FAILED, CrawlStatus.STARTED])
-
     successful_chains = {run["chain_name"] for run in successful_runs}
-    failed_or_started_chains = {run["chain_name"] for run in failed_or_started_runs}
-
-    logger.debug(f"Successful chains for {date:%Y-%m-%d}: {successful_chains}")
-    logger.debug(f"Failed or started chains for {date:%Y-%m-%d}: {failed_or_started_chains}")
-
     all_available_chains = get_chains()
     
     if chains is None:
@@ -232,13 +224,11 @@ async def crawl(
         logger.info(f"All requested chains for {date:%Y-%m-%d} are already successful or no chains to process.")
         return []
 
-    logger.info(f"Chains to process for {date:%Y-%m-%d}: {', '.join(chains_to_process)}")
-    # The 'chains' variable here should now refer to the filtered list for processing
-    # No need to reassign 'chains = chains_to_process' as it's used below.
+    logger.info(f"Chains to process sequentially for {date:%Y-%m-%d}: {', '.join(chains_to_process)}")
 
+    # Setup directories
     temp_base_path = root / "temp_crawls" / date.strftime("%Y-%m-%d")
     os.makedirs(temp_base_path, exist_ok=True)
-
     output_dir_for_date = root / date.strftime("%Y-%m-%d")
     os.makedirs(output_dir_for_date, exist_ok=True)
 
@@ -246,50 +236,57 @@ async def crawl(
     created_zip_paths = []
     t0 = time()
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        future_to_chain = {}
-        for chain in chains_to_process: # Changed from 'chains' to 'chains_to_process'
-            logger.info(f"Submitting crawl for {chain} on {date:%Y-%m-%d}")
+    # --- REPLACED ThreadPoolExecutor with a simple for loop for sequential execution ---
+    for chain in chains_to_process:
+        logger.info(f"--- Starting sequential crawl for {chain} ---")
+
+        # Report that this specific chain crawl has started
+        await report_crawl_status(
+            chain_name=chain,
+            crawl_date=date,
+            status=CrawlStatus.STARTED,
+        )
+        
+        # Initialize variables for this specific chain's run
+        crawl_result = CrawlResult()
+        zip_file_path = None
+        error_message = None
+        status = CrawlStatus.FAILED
+        
+        try:
+            # Prepare the temporary path for this single chain
+            temp_chain_path = temp_base_path / chain
+            
+            # Directly call the crawl_chain function and wait for it to complete
+            crawl_result, zip_file_path = crawl_chain(chain, date, temp_chain_path, output_dir_for_date)
+            
+            # If we get here, the crawl for this chain was successful
+            results[chain] = crawl_result
+            if zip_file_path:
+                created_zip_paths.append(zip_file_path)
+            status = CrawlStatus.SUCCESS
+            logger.info(f"--- COMPLETED crawl for {chain} successfully ---")
+
+        except Exception as exc:
+            # If anything goes wrong during the crawl_chain call, handle the exception
+            error_message = str(exc)
+            logger.error(f"Crawl for {chain} generated an exception: {exc}", exc_info=True)
+            results[chain] = CrawlResult() # Store an empty result for the failed chain
+            status = CrawlStatus.FAILED
+        
+        finally:
+            # Always report the final status (SUCCESS or FAILED) for the chain that just ran
             await report_crawl_status(
                 chain_name=chain,
                 crawl_date=date,
-                status=CrawlStatus.STARTED,
+                status=status,
+                error_message=error_message,
+                crawl_result=crawl_result,
             )
-            temp_chain_path = temp_base_path / chain
-            future = executor.submit(crawl_chain, chain, date, temp_chain_path, output_dir_for_date)
-            future_to_chain[future] = chain
 
-        for future in as_completed(future_to_chain):
-            chain = future_to_chain[future]
-            result = CrawlResult()
-            zip_file_path = None
-            error_message = None
-            status = CrawlStatus.FAILED
-
-            try:
-                result, zip_file_path = future.result()
-                results[chain] = result
-                if zip_file_path:
-                    created_zip_paths.append(zip_file_path)
-                status = CrawlStatus.SUCCESS
-                logger.info(f"COMPLETED crawl for {chain}")
-            except Exception as exc:
-                error_message = str(exc)
-                logger.error(f"Crawl for {chain} generated an exception: {exc}", exc_info=True)
-                results[chain] = CrawlResult()
-                status = CrawlStatus.FAILED
-            finally:
-                await report_crawl_status(
-                    chain_name=chain,
-                    crawl_date=date,
-                    status=status,
-                    error_message=error_message,
-                    crawl_result=result,
-                )
-
+    # This final summary part remains the same
     t1 = time()
-
-    logger.info(f"Finished processing chains for {date:%Y-%m-%d} in {t1 - t0:.2f}s")
+    logger.info(f"Finished processing all chains for {date:%Y-%m-%d} in {t1 - t0:.2f}s")
     for chain, r in results.items():
         logger.info(
             f"  * {chain}: {r.n_stores} stores, {r.n_products} products, {r.n_prices} prices in {r.elapsed_time:.2f}s"
