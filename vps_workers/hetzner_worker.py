@@ -147,7 +147,7 @@ def main():
         action = server_create_result.action
 
         print("Server creation initiated. Waiting for the server to become active...")
-        action.wait_until_finished()
+        action.wait_until_finished(timeout=180)
         server = client.servers.get_by_id(server.id) # Refresh server object to get final state
         print(f"Server '{SERVER_NAME}' is running with IP: {server.public_net.ipv4.ip}")
 
@@ -189,7 +189,7 @@ def main():
             print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
             try:
                 delete_action = client.servers.delete(server)
-                delete_action.wait_until_finished()
+                delete_action.wait_until_finished(60)
                 print(f"Server '{SERVER_NAME}' has been deleted successfully.")
             except Exception as e:
                 print(f"ERROR during server deletion: {e}")
