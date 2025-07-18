@@ -150,10 +150,18 @@ docker-prune: ## Stop all containers and perform a deep clean of the Docker syst
 ## Crawling, importing and enriching Commands
 crawl: ## Crawl data for specified chains (or all if none specified) and save console output to logs/crawler_console.log. Usage: make crawl [CHAIN=lidl,kaufland]
 	@mkdir -p ./output/$(DATE)
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),)
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		mkdir -p logs && docker compose -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
+	else \
+		mkdir -p logs && docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
+	fi
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE)
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
+	else \
+		docker compose -f docker-compose.yml -f docker-compose.worker.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
+	fi
 
 ## Hetzner VPS Worker Commands
 run-hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
