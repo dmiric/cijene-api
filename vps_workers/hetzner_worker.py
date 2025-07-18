@@ -19,7 +19,7 @@ SERVER_NAME = "cijene-ingestion-worker"
 SERVER_TYPE = "cpx31"
 IMAGE_NAME = "docker-ce" # Using Hetzner's pre-installed Docker CE image
 LOCATION = "fsn1" # e.g., "nbg1", "hel1". Note: Hetzner Cloud API typically uses broader locations like 'fsn1', not specific data centers like 'fsn1-dc14' for server creation.
-FLOATING_IP_ADDRESS = os.getenv("FLOATING_IP_ADDRESS") # The fixed public IP address to assign to the VPS
+WORKER_PRIMARY_IP = os.getenv("WORKER_PRIMARY_IP") # The fixed public IP address to assign to the VPS
 SERVER_IP = os.getenv("SERVER_IP") # The IP address of the master database server
 PROJECT_DIR_ON_VPS = "/root/cijene-api-clone" # Where your project will be cloned on the VPS
 MAKE_COMMAND = "make crawl CHAIN=roto,trgovina-krk,lorenco,boso && make import-data" # The command to run on the VPS
@@ -60,8 +60,8 @@ def main():
             raise Exception("HCLOUD_TOKEN environment variable not set. Please set it in your .env file or shell.")
         if not SSH_KEY_PATH:
             raise Exception("SSH_KEY_PATH environment variable not set. Please set it in your .env file or shell.")
-        if not FLOATING_IP_ADDRESS:
-            raise Exception("FLOATING_IP_ADDRESS environment variable not set. Please set it in your .env file or shell.")
+        if not WORKER_PRIMARY_IP:
+            raise Exception("WORKER_PRIMARY_IP environment variable not set. Please set it in your .env file or shell.")
         if not SERVER_IP:
             raise Exception("SERVER_IP environment variable not set. Please set it in your .env file or shell.")
 
@@ -141,26 +141,22 @@ def main():
             server = client.servers.get_by_id(server.id)
         print(f"Server {SERVER_NAME} is running at IP: {server.public_net.ipv4.ip}")
 
-        # 4. Assign Floating IP
-        print(f"Assigning Floating IP {FLOATING_IP_ADDRESS} to server {SERVER_NAME}...")
-        floating_ip = client.floating_ips.get_by_ip_address(FLOATING_IP_ADDRESS) # Use get_by_ip_address
-        if not floating_ip:
-            # If floating IP doesn't exist, create it.
-            # Note: This assumes the floating IP is not already created in Hetzner Cloud.
-            # If it is, ensure its type (IPv4) and home location match.
-            print(f"Floating IP {FLOATING_IP_ADDRESS} not found. Attempting to create it...")
-            floating_ip_create_result = client.floating_ips.create(
-                type="ipv4",
-                home_location=location_obj, # Use the location object
-                name=f"ingestion-worker-ip-{FLOATING_IP_ADDRESS}"
-            )
-            floating_ip = client.floating_ips.get_by_id(floating_ip_create_result.id)
-            print(f"Floating IP {FLOATING_IP_ADDRESS} created.")
+        # 4. Use the specified WORKER_PRIMARY_IP
+        primary_ip_obj = client.primary_ips.get_by_ip_address(WORKER_PRIMARY_IP)
+        if not primary_ip_obj:
+            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in Hetzner Cloud. Aborting.")
+        
+        if primary_ip_obj.assignee_id is not None and primary_ip_obj.assignee_id != server.id:
+            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another server (ID: {primary_ip_obj.assignee_id}). Aborting.")
+        
+        if primary_ip_obj.assignee_id is None:
+            print(f"Assigning Primary IP {WORKER_PRIMARY_IP} to server {SERVER_NAME}...")
+            primary_ip_obj.assign(assignee_id=server.id, assignee_type="server")
+            print(f"Primary IP {WORKER_PRIMARY_IP} assigned to {SERVER_NAME}.")
+        else:
+            print(f"Primary IP {WORKER_PRIMARY_IP} is already assigned to server {SERVER_NAME}.")
 
-        floating_ip.assign(server)
-        print(f"Floating IP {FLOATING_IP_ADDRESS} assigned to {SERVER_NAME}.")
-
-        # 5. SSH into the new VPS using the Floating IP
+        # 5. SSH into the new VPS using the WORKER_PRIMARY_IP
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         private_key = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
@@ -169,7 +165,7 @@ def main():
         # Retry SSH connection as it might take a moment for SSH daemon to start
         for i in range(15): # Increased retries
             try:
-                ssh_client.connect(hostname=FLOATING_IP_ADDRESS, username="root", pkey=private_key, timeout=10)
+                ssh_client.connect(hostname=WORKER_PRIMARY_IP, username="root", pkey=private_key, timeout=10)
                 print("SSH connected.")
                 break
             except Exception as e:
@@ -203,22 +199,15 @@ def main():
         traceback.print_exc() # Print full traceback
         sys.exit(1)
     finally:
-        # 7. De-provision the VPS and detach Floating IP (always try to clean up)
+        # 7. De-provision the VPS (always try to clean up)
         if server and server.status != "deleted":
             print(f"Deleting server {SERVER_NAME}...")
             try:
-                # Detach Floating IP if it was assigned
-                if FLOATING_IP_ADDRESS:
-                    floating_ip = client.floating_ips.get_by_ip_address(FLOATING_IP_ADDRESS) # Use get_by_ip_address
-                    if floating_ip and floating_ip.server and floating_ip.server.id == server.id:
-                        print(f"Detaching Floating IP {FLOATING_IP_ADDRESS} from {SERVER_NAME}...")
-                        floating_ip.unassign()
-                        print(f"Floating IP {FLOATING_IP_ADDRESS} unassigned.")
-                
+                # Primary IP is not managed by this script, so no unassignment/deletion here.
                 client.servers.delete(server)
                 print(f"Server {SERVER_NAME} deleted.")
             except Exception as e:
-                print(f"Error deleting server {SERVER_NAME} or detaching Floating IP: {e}")
+                print(f"Error deleting server {SERVER_NAME}: {e}")
 
 if __name__ == "__main__":
     main()
