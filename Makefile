@@ -29,7 +29,7 @@ API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 # Add a new variable for the query, it will be empty by default
 QUERY=limun
 
-.PHONY: help crawl rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database
+.PHONY: help crawl rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database build-worker
 
 ## General Commands
 help: ## Display this help message
@@ -77,6 +77,13 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 		pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes "$(EXCLUDE_VOLUMES)"; \
 	else \
 		bash ./scripts/rebuild.sh --exclude="$(EXCLUDE_VOLUMES)"; \
+	fi
+
+build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		pwsh -File ./scripts/build-worker.ps1; \
+	else \
+		bash ./scripts/build-worker.sh; \
 	fi
 	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
