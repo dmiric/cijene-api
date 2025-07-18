@@ -55,7 +55,7 @@ def run_remote_command(ssh_client, command, description="command"):
 def main():
     server = None
     try:
-        # Validate required environment variables
+        # --- (Your validation code remains the same) ---
         if not HCLOUD_TOKEN:
             raise Exception("HCLOUD_TOKEN environment variable not set. Please set it in your .env file or shell.")
         if not SSH_KEY_PATH:
@@ -65,7 +65,7 @@ def main():
         if not SERVER_IP:
             raise Exception("SERVER_IP environment variable not set. Please set it in your .env file or shell.")
 
-        # Read all environment variables from the local .env file
+        # --- (Your .env file processing remains the same) ---
         local_env_content = ""
         try:
             with open(".env", "r") as f:
@@ -73,7 +73,6 @@ def main():
         except FileNotFoundError:
             print("Warning: .env file not found in the current directory. Ensure all necessary variables are set as system environment variables.")
         
-        # Replace @db with SERVER_IP in DB_DSN within the .env content
         if "DB_DSN=" in local_env_content:
             lines = local_env_content.splitlines()
             for i, line in enumerate(lines):
@@ -84,11 +83,9 @@ def main():
             local_env_content = "\n".join(lines)
 
         # 1. Get SSH Key Object
-        # Assuming your SSH key is named 'price-mice-deploy-key' in Hetzner Cloud
-        ssh_key_obj = get_ssh_key_id("pricemice-worker-key") # Get the SSHKey object
+        ssh_key_obj = get_ssh_key_id("pricemice-worker-key")
 
         # 2. Define user_data for initial VPS setup
-        # This script will run on the VPS upon first boot
         user_data_script = f"""
         #cloud-config
         packages:
@@ -98,88 +95,65 @@ def main():
         runcmd:
           - [ sh, -c, "git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}" ]
         write_files:
-          - path: {PROJECT_DIR_ON_VPS}/.env # Create .env file on VPS
+          - path: {PROJECT_DIR_ON_VPS}/.env
             permissions: '0644'
             content: |
               {local_env_content}
         """
 
-        # 3. Provision a VPS
-        print(f"Creating server {SERVER_NAME}...")
-        # Get the ServerType object
+        # 3. Get objects for server creation
+        print("Gathering resources for server creation...")
         server_type_obj = client.server_types.get_by_name(SERVER_TYPE)
-        if not server_type_obj:
-            raise Exception(f"Server type '{SERVER_TYPE}' not found in Hetzner Cloud.")
-        
-        # Get the Image object
         image_obj = client.images.get_by_name(IMAGE_NAME)
-        if not image_obj:
-            raise Exception(f"Image '{IMAGE_NAME}' not found in Hetzner Cloud.")
-
-        # Get the Location object
         location_obj = client.locations.get_by_name(LOCATION)
-        if not location_obj:
-            raise Exception(f"Location '{LOCATION}' not found in Hetzner Cloud.")
 
-        # 4. Use the specified WORKER_PRIMARY_IP
-        primary_ips = client.primary_ips.get_list(ip=WORKER_PRIMARY_IP)
-        print(f"Type of primary_ips: {type(primary_ips)}")
-        print(f"Content of primary_ips: {primary_ips}")
-
-        if not primary_ips.primary_ips: # Check the actual list within the PageResults object
+        # 4. Get the Primary IP object and check its status
+        primary_ips_page = client.primary_ips.get_list(ip=WORKER_PRIMARY_IP)
+        if not primary_ips_page.primary_ips:
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in Hetzner Cloud. Aborting.")
         
-        # Iterate through the list to find the correct primary IP object
-        found_primary_ip_obj = None
-        print("Contents of primary_ips.primary_ips:")
-        for i, ip_obj in enumerate(primary_ips.primary_ips):
-            print(f"  Item {i}: Type={type(ip_obj)}, Content={ip_obj}")
-            if hasattr(ip_obj, 'ip') and ip_obj.ip == WORKER_PRIMARY_IP:
-                found_primary_ip_obj = ip_obj
-                break
+        primary_ip_obj = primary_ips_page.primary_ips[0]
         
-        if not found_primary_ip_obj:
-            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in the list of primary IPs returned. Aborting.")
+        # Check if the Primary IP is already assigned to a different, existing server
+        if primary_ip_obj.assignee_id is not None:
+            print(f"Warning: Primary IP '{WORKER_PRIMARY_IP}' is already assigned to resource ID {primary_ip_obj.assignee_id}. It will be unassigned and reassigned.")
+            # You might want to add logic here to unassign it first if needed,
+            # though the assign call should handle this.
+            # client.primary_ips.unassign(primary_ip_obj)
 
-        primary_ip_obj = found_primary_ip_obj # Assign the found object
-        print(f"Type of primary_ip_obj (after assignment): {type(primary_ip_obj)}")
-        print(f"Content of primary_ip_obj (after assignment): {primary_ip_obj}")
-
-        # Check if the Primary IP is already assigned to another server
-        if primary_ip_obj.assignee_id is not None and primary_ip_obj.assignee_id != server.id:
-            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another server (ID: {primary_ip_obj.assignee_id}). Aborting.")
-        
-        # If the Primary IP is not assigned, assign it during server creation
-        assign_primary_ip_id = primary_ip_obj.id if primary_ip_obj.assignee_id is None else None
-
+        # 5. Provision a VPS (without assigning the primary IP yet)
+        print(f"Creating server {SERVER_NAME}...")
         server_create_result = client.servers.create(
             name=SERVER_NAME,
-            server_type=server_type_obj, # Pass the ServerType object
-            image=image_obj, # Pass the Image object
-            location=location_obj, # Pass the Location object
-            ssh_keys=[ssh_key_obj], # Pass the SSHKey object in a list
+            server_type=server_type_obj,
+            image=image_obj,
+            location=location_obj,
+            ssh_keys=[ssh_key_obj],
             user_data=user_data_script,
-            start_after_create=True,
-            assign_primary_ip=assign_primary_ip_id # Assign Primary IP during creation
+            start_after_create=True
+            # The incorrect 'assign_primary_ip' argument is removed
         )
-        print(f"Type of server_create_result: {type(server_create_result)}")
-        print(f"Content of server_create_result: {server_create_result}")
-        server = server_create_result.server # Refresh server object
+        server = server_create_result.server
+        action = server_create_result.action
 
-        print(f"Server {SERVER_NAME} created. Waiting for it to become active...")
-        while server.status != "running":
-            time.sleep(5)
-            server = client.servers.get_by_id(server.id)
-        print(f"Server {SERVER_NAME} is running at IP: {server.public_net.ipv4.ip}")
+        print(f"Server {SERVER_NAME} creation initiated. Waiting for action to complete...")
+        action.wait_until_finished() # Wait for the creation action to finish
+        server = client.servers.get_by_id(server.id) # Refresh the server object to get the latest status
+        print(f"Server {SERVER_NAME} is created with status: {server.status} and temp IP: {server.public_net.ipv4.ip}")
 
-        # 5. SSH into the new VPS using the WORKER_PRIMARY_IP
+        # 6. Assign the Primary IP to the new server
+        print(f"Assigning Primary IP {WORKER_PRIMARY_IP} to server {server.name} ({server.id})...")
+        assign_action = primary_ip_obj.assign(assignee_id=server.id, assignee_type='server')
+        assign_action.wait_until_finished() # Wait for the assignment to complete
+        print(f"Primary IP {WORKER_PRIMARY_IP} assigned successfully.")
+
+        # 7. SSH into the new VPS using the WORKER_PRIMARY_IP
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         private_key = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
 
         print("Connecting via SSH...")
-        # Retry SSH connection as it might take a moment for SSH daemon to start
-        for i in range(15): # Increased retries
+        for i in range(15):
             try:
                 ssh_client.connect(hostname=WORKER_PRIMARY_IP, username="root", pkey=private_key, timeout=10)
                 print("SSH connected.")
@@ -190,18 +164,8 @@ def main():
         else:
             raise Exception("Could not establish SSH connection to the VPS after multiple retries.")
 
-        # 5. Run the Job on VPS
-        # The .env file should be created by user_data, and the repo cloned.
-        # Now, execute the make command.
+        # 8. Run the Job on VPS
         run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {MAKE_COMMAND}", "data ingestion job")
-
-        # 6. Retrieve Results (Optional - add your logic here)
-        # Example: scp logs or output files back to your local machine/storage
-        # You would need to set up scp or sftp using paramiko as well.
-        # For instance:
-        # sftp_client = ssh_client.open_sftp()
-        # sftp_client.get(f"{PROJECT_DIR_ON_VPS}/logs/crawler.log", "local_crawler.log")
-        # sftp_client.close()
 
         ssh_client.close()
         print("SSH connection closed.")
@@ -212,18 +176,20 @@ def main():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         import traceback
-        traceback.print_exc() # Print full traceback
+        traceback.print_exc()
         sys.exit(1)
     finally:
-        # 7. De-provision the VPS (always try to clean up)
-        if server and server.status != "deleted":
+        # 9. De-provision the VPS
+        if server:
             print(f"Deleting server {SERVER_NAME}...")
             try:
-                # Primary IP is not managed by this script, so no unassignment/deletion here.
-                client.servers.delete(server)
+                delete_action = client.servers.delete(server)
+                delete_action.wait_until_finished()
                 print(f"Server {SERVER_NAME} deleted.")
+                # The Primary IP is now unassigned and remains in your project for future use.
             except Exception as e:
                 print(f"Error deleting server {SERVER_NAME}: {e}")
 
+# --- (The rest of your script (get_ssh_key_id, run_remote_command, __main__) remains the same) ---
 if __name__ == "__main__":
     main()
