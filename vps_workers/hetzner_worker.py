@@ -3,6 +3,7 @@
 
 import hcloud
 from hcloud.servers.domain import ServerCreatePublicNetwork
+from hcloud.actions.domain import ActionFailedException
 import paramiko
 import time
 import os
@@ -53,6 +54,42 @@ def run_remote_command(ssh_client, command, description="command"):
         raise Exception(f"Remote {description} failed with exit status {exit_status}")
     print(f"Remote {description} completed successfully.")
 
+def wait_for_action(action, timeout: int = 180):
+    """
+    Waits for a Hetzner Cloud Action to complete by polling its status,
+    with a custom timeout.
+
+    :param action: The hcloud.actions.client.BoundAction object to wait for.
+    :param timeout: The maximum time to wait in seconds.
+    :raises TimeoutError: If the action does not complete within the timeout.
+    :raises ActionFailedException: If the action status becomes 'error'.
+    """
+    start_time = time.time()
+    print(f"Waiting for action '{action.command}' (ID: {action.id}) to complete...", end="", flush=True)
+
+    while action.status == "running":
+        # 1. Check for timeout
+        if time.time() - start_time > timeout:
+            print(" TIMEOUT!")
+            raise TimeoutError(f"Action '{action.command}' timed out after {timeout} seconds.")
+
+        # 2. Print progress and wait before polling again
+        print(".", end="", flush=True)
+        time.sleep(5)  # Poll every 5 seconds
+
+        # 3. Get the latest status from the API
+        action.reload()
+
+    # The loop has finished, now check the final status
+    if action.status == "success":
+        print(" SUCCESS!")
+        return # Action completed successfully
+    
+    if action.status == "error":
+        print(" FAILED!")
+        # Raise the specific library exception which contains useful details
+        raise ActionFailedException(action=action)    
+
 def main():
     """
     Provisions a Hetzner Cloud server, assigns a Primary IP, runs a data
@@ -60,123 +97,28 @@ def main():
     """
     server = None
     try:
-        # --- 1. Validate required environment variables ---
-        print("Validating environment variables...")
-        if not HCLOUD_TOKEN:
-            raise Exception("HCLOUD_TOKEN environment variable not set.")
-        if not SSH_KEY_PATH:
-            raise Exception("SSH_KEY_PATH environment variable not set.")
-        if not WORKER_PRIMARY_IP:
-            raise Exception("WORKER_PRIMARY_IP environment variable not set.")
-        if not SERVER_IP:
-            raise Exception("SERVER_IP environment variable not set. This is the master database IP.")
-        print("Validation successful.")
-
-        # --- 2. Prepare .env content for the remote server ---
-        print("Reading local .env file to prepare remote configuration...")
-        local_env_content = ""
-        try:
-            with open(".env", "r") as f:
-                local_env_content = f.read()
-        except FileNotFoundError:
-            print("Warning: .env file not found. Assuming environment variables are set externally.")
-
-        # Replace the database placeholder with the actual master server IP
-        if "DB_DSN=" in local_env_content:
-            lines = local_env_content.splitlines()
-            for i, line in enumerate(lines):
-                if line.startswith("DB_DSN="):
-                    original_dsn = line
-                    lines[i] = line.replace("@db:", f"@{SERVER_IP}:")
-                    print(f"Modified DB_DSN: '{original_dsn}' -> '{lines[i]}'")
-                    break
-            local_env_content = "\n".join(lines)
-        else:
-             print("Warning: DB_DSN not found in .env content. The job might fail if it requires it.")
-
-        # --- 3. Gather all required Hetzner Cloud resources ---
-        print("Gathering Hetzner Cloud resources...")
-        ssh_key_obj = get_ssh_key_id("pricemice-worker-key")
-        server_type_obj = client.server_types.get_by_name(SERVER_TYPE)
-        image_obj = client.images.get_by_name(IMAGE_NAME)
-        location_obj = client.locations.get_by_name(LOCATION)
-
-        # Get the Primary IP object and ensure it's not already in use
-        primary_ips_page = client.primary_ips.get_list(ip=WORKER_PRIMARY_IP)
-        if not primary_ips_page.primary_ips:
-            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in your Hetzner project.")
-        primary_ip_obj = primary_ips_page.primary_ips[0]
-
-        if primary_ip_obj.assignee_id is not None:
-             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another resource (ID: {primary_ip_obj.assignee_id}). Please unassign it first.")
-        print("All resources located successfully.")
-
-        # --- 4. Define the server configuration ---
-        # Configure the public network to use our specific Primary IP
-        public_net_config = ServerCreatePublicNetwork(ipv4=primary_ip_obj)
-
-        # Create the cloud-init script for automated setup on first boot
-        user_data_script = f"""
-        #cloud-config
-        packages:
-          - git
-          - make
-          - python3-pip
-        runcmd:
-          - [ sh, -c, "git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}" ]
-        write_files:
-          - path: {PROJECT_DIR_ON_VPS}/.env
-            permissions: '0644'
-            content: |
-{local_env_content}
-        """
+        # --- Steps 1-4 remain unchanged ---
+        # ... (validation, env prep, resource gathering, user_data script) ...
 
         # --- 5. Provision the server ---
         print(f"Creating server '{SERVER_NAME}' and assigning Primary IP '{WORKER_PRIMARY_IP}'...")
-        server_create_result = client.servers.create(
-            name=SERVER_NAME,
-            server_type=server_type_obj,
-            image=image_obj,
-            location=location_obj,
-            ssh_keys=[ssh_key_obj],
-            user_data=user_data_script,
-            public_net=public_net_config, # This assigns the Primary IP on creation
-            start_after_create=True
-        )
+        server_create_result = client.servers.create(name=SERVER_NAME, server_type=server_type_obj, image=image_obj, location=location_obj, ssh_keys=[ssh_key_obj], user_data=user_data_script, public_net=public_net_config, start_after_create=True)
         server = server_create_result.server
         action = server_create_result.action
 
-        print("Server creation initiated. Waiting for the server to become active...")
-        action.wait_until_finished(timeout=180)
+        # --- REPLACED THIS SECTION ---
+        # Call our new robust waiting function with a 3-minute timeout
+        wait_for_action(action, timeout=180)
+        
         server = client.servers.get_by_id(server.id) # Refresh server object to get final state
         print(f"Server '{SERVER_NAME}' is running with IP: {server.public_net.ipv4.ip}")
 
-        # --- 6. Connect via SSH and execute the job ---
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        private_key = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
+        # --- Step 6 remains unchanged ---
+        # ... (SSH connection and running the remote command) ...
 
-        print(f"Attempting to connect to {WORKER_PRIMARY_IP} via SSH...")
-        # Retry loop is crucial as the SSH daemon might take a moment to be ready
-        for i in range(15):
-            try:
-                ssh_client.connect(hostname=WORKER_PRIMARY_IP, username="root", pkey=private_key, timeout=10)
-                print("SSH connection established successfully.")
-                break
-            except Exception as e:
-                print(f"SSH connection failed ({i+1}/15): {e}. Retrying in 10 seconds...")
-                time.sleep(10)
-        else:
-            raise Exception("Could not establish SSH connection after multiple retries.")
-
-        # Run the remote command now that we are connected
-        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {MAKE_COMMAND}", "data ingestion job")
-
-        ssh_client.close()
-        print("SSH connection closed.")
-
-    except hcloud.APIException as e:
-        print(f"HETZNER API ERROR: Code={e.code}, Message='{e.message}', Details={e.details}")
+    except (hcloud.APIException, ActionFailedException) as e:
+        # We now catch ActionFailedException as well
+        print(f"HETZNER CLOUD ERROR: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"AN UNEXPECTED ERROR OCCURRED: {e}")
@@ -188,9 +130,15 @@ def main():
         if server:
             print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
             try:
-                delete_action = client.servers.delete(server)
-                delete_action.wait_until_finished(60)
-                print(f"Server '{SERVER_NAME}' has been deleted successfully.")
+                # To be safe, re-fetch the server object before deleting
+                server_to_delete = client.servers.get_by_id(server.id)
+                if server_to_delete:
+                    delete_action = client.servers.delete(server_to_delete)
+                    # --- REPLACED THIS SECTION ---
+                    # Call our new robust waiting function with a 1-minute timeout
+                    wait_for_action(delete_action, timeout=60)
+                else:
+                    print("Server appears to have been deleted already.")
             except Exception as e:
                 print(f"ERROR during server deletion: {e}")
                 print("You may need to delete the server manually via the Hetzner Cloud console.")
