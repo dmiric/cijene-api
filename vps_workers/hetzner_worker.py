@@ -121,25 +121,6 @@ def main():
         if not location_obj:
             raise Exception(f"Location '{LOCATION}' not found in Hetzner Cloud.")
 
-        server_create_result = client.servers.create(
-            name=SERVER_NAME,
-            server_type=server_type_obj, # Pass the ServerType object
-            image=image_obj, # Pass the Image object
-            location=location_obj, # Pass the Location object
-            ssh_keys=[ssh_key_obj], # Pass the SSHKey object in a list
-            user_data=user_data_script,
-            start_after_create=True
-        )
-        print(f"Type of server_create_result: {type(server_create_result)}")
-        print(f"Content of server_create_result: {server_create_result}")
-        server = server_create_result.server # Refresh server object
-
-        print(f"Server {SERVER_NAME} created. Waiting for it to become active...")
-        while server.status != "running":
-            time.sleep(5)
-            server = client.servers.get_by_id(server.id)
-        print(f"Server {SERVER_NAME} is running at IP: {server.public_net.ipv4.ip}")
-
         # 4. Use the specified WORKER_PRIMARY_IP
         primary_ips = client.primary_ips.get_list(ip=WORKER_PRIMARY_IP)
         print(f"Type of primary_ips: {type(primary_ips)}")
@@ -164,15 +145,32 @@ def main():
         print(f"Type of primary_ip_obj (after assignment): {type(primary_ip_obj)}")
         print(f"Content of primary_ip_obj (after assignment): {primary_ip_obj}")
 
+        # Check if the Primary IP is already assigned to another server
         if primary_ip_obj.assignee_id is not None and primary_ip_obj.assignee_id != server.id:
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another server (ID: {primary_ip_obj.assignee_id}). Aborting.")
         
-        if primary_ip_obj.assignee_id is None:
-            print(f"Assigning Primary IP {WORKER_PRIMARY_IP} to server {SERVER_NAME}...")
-            primary_ip_obj.assign(assignee_id=server.id, assignee_type="server")
-            print(f"Primary IP {WORKER_PRIMARY_IP} assigned to {SERVER_NAME}.")
-        else:
-            print(f"Primary IP {WORKER_PRIMARY_IP} is already assigned to server {SERVER_NAME}.")
+        # If the Primary IP is not assigned, assign it during server creation
+        assign_primary_ip_id = primary_ip_obj.id if primary_ip_obj.assignee_id is None else None
+
+        server_create_result = client.servers.create(
+            name=SERVER_NAME,
+            server_type=server_type_obj, # Pass the ServerType object
+            image=image_obj, # Pass the Image object
+            location=location_obj, # Pass the Location object
+            ssh_keys=[ssh_key_obj], # Pass the SSHKey object in a list
+            user_data=user_data_script,
+            start_after_create=True,
+            assign_primary_ip=assign_primary_ip_id # Assign Primary IP during creation
+        )
+        print(f"Type of server_create_result: {type(server_create_result)}")
+        print(f"Content of server_create_result: {server_create_result}")
+        server = server_create_result.server # Refresh server object
+
+        print(f"Server {SERVER_NAME} created. Waiting for it to become active...")
+        while server.status != "running":
+            time.sleep(5)
+            server = client.servers.get_by_id(server.id)
+        print(f"Server {SERVER_NAME} is running at IP: {server.public_net.ipv4.ip}")
 
         # 5. SSH into the new VPS using the WORKER_PRIMARY_IP
         ssh_client = paramiko.SSHClient()
