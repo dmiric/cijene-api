@@ -22,11 +22,7 @@ IMAGE_NAME = "docker-ce"
 LOCATION = "fsn1"
 WORKER_PRIMARY_IP = os.getenv("WORKER_PRIMARY_IP")
 SERVER_IP = os.getenv("SERVER_IP")
-
-# REFINED: Use /opt for application code, which is standard practice.
 PROJECT_DIR_ON_VPS = "/opt/cijene-api"
-
-# REFINED: Use a list for a clear sequence of commands to be executed.
 JOB_COMMANDS = [
     "make rebuild-everything",
     "make crawl CHAIN=roto,trgovina-krk,lorenco,boso",
@@ -35,7 +31,6 @@ JOB_COMMANDS = [
 
 # --- Hetzner Cloud Client ---
 client = hcloud.Client(token=HCLOUD_TOKEN)
-
 
 # --- Helper Functions ---
 
@@ -46,11 +41,17 @@ def get_ssh_key_id(key_name):
         raise Exception(f"SSH key '{key_name}' not found in Hetzner Cloud. Please upload it.")
     return ssh_keys[0]
 
-def run_remote_command(ssh_client, command, description="command"):
-    """Executes a command on the remote VPS and prints its output."""
+def run_remote_command(ssh_client, command, description="command", sensitive=False):
+    """
+    Executes a command on the remote VPS and prints its output.
+    If 'sensitive' is True, the command content is not logged.
+    """
     print(f"--- Executing Remote Step: {description} ---")
-    print(f"COMMAND: {command}")
-    # Removed get_pty=True as it's not needed for non-interactive commands and can be safer.
+    if not sensitive:
+        print(f"COMMAND: {command}")
+    else:
+        print("COMMAND: [Content is sensitive and not logged]")
+
     stdin, stdout, stderr = ssh_client.exec_command(command)
     exit_status = stdout.channel.recv_exit_status()
     stdout_output = stdout.read().decode().strip()
@@ -129,22 +130,23 @@ def main():
              raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned.")
         print("All resources located successfully.")
 
-        # --- 4. Define server configuration (with minimal user_data) ---
+        # --- 4. Define server configuration ---
         public_net_config = ServerCreatePublicNetwork(ipv4=primary_ip_obj)
-        # REFINED: Minimal setup. Only install essential packages.
-        user_data_script = """
-#cloud-config
-packages:
-  - git
-  - make
-"""
 
-        # --- 5. Provision the server ---
+        # --- 5. Provision the server (NO user_data needed) ---
         print(f"Creating server '{SERVER_NAME}' and assigning Primary IP '{WORKER_PRIMARY_IP}'...")
-        server_create_result = client.servers.create(name=SERVER_NAME, server_type=server_type_obj, image=image_obj, location=location_obj, ssh_keys=[ssh_key_obj], user_data=user_data_script, public_net=public_net_config, start_after_create=True)
+        server_create_result = client.servers.create(
+            name=SERVER_NAME,
+            server_type=server_type_obj,
+            image=image_obj,
+            location=location_obj,
+            ssh_keys=[ssh_key_obj],
+            public_net=public_net_config,
+            start_after_create=True
+        )
         server = server_create_result.server
         action = server_create_result.action
-        wait_for_action(action, timeout=300)
+        wait_for_action(action, timeout=120) # 2 min timeout just for server boot
 
         server = client.servers.get_by_id(server.id)
         print(f"Server '{SERVER_NAME}' is running with IP: {server.public_net.ipv4.ip}")
@@ -167,9 +169,14 @@ packages:
             raise Exception("Could not establish SSH connection after multiple retries.")
             
         # --- 7. Perform setup sequentially via SSH ---
-        run_remote_command(ssh_client, f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}", "Git Clone")
+        install_deps_command = "apt-get update && apt-get install -y git make"
+        run_remote_command(ssh_client, install_deps_command, "Install Dependencies")
+
+        git_clone_command = f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}"
+        run_remote_command(ssh_client, git_clone_command, "Git Clone")
+        
         write_env_command = f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{local_env_content}\nEOF"
-        run_remote_command(ssh_client, write_env_command, "Write .env file")
+        run_remote_command(ssh_client, write_env_command, "Write .env file", sensitive=True)
 
         # --- 8. Run the sequence of job commands ---
         for command in JOB_COMMANDS:
