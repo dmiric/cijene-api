@@ -150,7 +150,7 @@ docker-prune: ## Stop all containers and perform a deep clean of the Docker syst
 ## Crawling, importing and enriching Commands
 crawl: ## Crawl data for specified chains (or all if none specified) and save console output to logs/crawler_console.log. Usage: make crawl [CHAIN=lidl,kaufland]
 	@mkdir -p ./output/$(DATE)
-	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),) > logs/crawler_console.log 2>&1
+	mkdir -p logs && docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),)
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE)
