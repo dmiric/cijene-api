@@ -33,7 +33,7 @@ def get_ssh_key_id(key_name):
     ssh_keys = client.ssh_keys.get_all(name=key_name)
     if not ssh_keys:
         raise Exception(f"SSH key '{key_name}' not found in Hetzner Cloud. Please upload it.")
-    return ssh_keys[0].id
+    return ssh_keys[0] # Return the SSHKey object
 
 def run_remote_command(ssh_client, command, description="command"):
     """Executes a command on the remote VPS and prints its output."""
@@ -84,8 +84,9 @@ def main():
             local_env_content = "\n".join(lines)
 
         # 1. Get SSH Key ID
+        # 1. Get SSH Key Object
         # Assuming your SSH key is named 'price-mice-deploy-key' in Hetzner Cloud
-        ssh_key_id = get_ssh_key_id("pricemice-worker-key") # Replace with your actual SSH key name
+        ssh_key_obj = get_ssh_key_id("pricemice-worker-key") # Get the SSHKey object
 
         # 2. Define user_data for initial VPS setup
         # This script will run on the VPS upon first boot
@@ -126,7 +127,7 @@ def main():
             server_type=server_type_obj, # Pass the ServerType object
             image=image_obj, # Pass the Image object
             location=location_obj, # Pass the Location object
-            ssh_keys=[ssh_key_id],
+            ssh_keys=[ssh_key_obj], # Pass the SSHKey object in a list
             user_data=user_data_script,
             start_after_create=True
         )
