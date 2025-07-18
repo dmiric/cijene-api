@@ -3,7 +3,7 @@ import argparse
 from datetime import datetime
 import logging
 import sys
-import asyncio # Import asyncio
+import asyncio
 from pathlib import Path
 
 from crawler.crawl import crawl, get_chains
@@ -25,23 +25,13 @@ def setup_logging(log_level_str: str):
     Sets a high-level default for all loggers, then sets a specific,
     more verbose level for the 'crawler' package logger.
     """
-    # 1. Map the string level to a logging level constant
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-
-    # 2. Set a high-level default configuration for the root logger.
-    #    This will catch messages from all libraries. We set it to WARNING
-    #    to silence noisy INFO/DEBUG messages from third-party libs.
     logging.basicConfig(
-        level=logging.WARNING, # Default level for ALL loggers
+        level=logging.WARNING,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
-        stream=sys.stdout, # Explicitly set stream to stdout
+        stream=sys.stdout,
     )
-
-    # 3. Get the top-level logger for YOUR application and set its
-    #    level to the desired verbosity.
-    #    This will allow 'crawler' and all its sub-loggers (e.g., crawler.crawl)
-    #    to show DEBUG/INFO messages.
     crawler_logger = logging.getLogger("crawler")
     crawler_logger.setLevel(log_level)
 
@@ -71,17 +61,18 @@ async def main(): # Made async
     parser.add_argument(
         "-v",
         "--verbose",
-        choices=["debug", "info", "warning", "error", "critical"], # Keep choices
-        default="info", # Change default to debug
-        help="Set verbosity level (default: warning)",
+        choices=["debug", "info", "warning", "error", "critical"],
+        default="info",
+        help="Set verbosity level (default: info)", # Changed default to info
     )
-    parser.add_argument(
-        "-w",
-        "--workers",
-        type=int,
-        default=4, # Default to 4 workers
-        help="Number of parallel workers for crawling (default: 4)",
-    )
+    # --- FIX 1: REMOVED THE UNUSED --workers ARGUMENT ---
+    # parser.add_argument(
+    #     "-w",
+    #     "--workers",
+    #     type=int,
+    #     default=4,
+    #     help="Number of parallel workers for crawling (default: 4)",
+    # )
 
     args = parser.parse_args()
 
@@ -110,7 +101,7 @@ async def main(): # Made async
     # Run the crawler
     try:
         # Ensure date is None if not provided, so crawl() uses its default
-        crawl_date = args.date  # parse_date already handles empty string to None
+        crawl_date = args.date
 
         chains_txt = (
             ", ".join(chains_to_crawl) if chains_to_crawl else "all retail chains"
@@ -118,9 +109,13 @@ async def main(): # Made async
         date_txt = args.date.strftime("%Y-%m-%d") if args.date else "today"
         print(f"Fetching price data from {chains_txt} for {date_txt} ...", flush=True)
 
-        # Call async crawl with the hardcoded root path and num_workers
-        zip_path = await crawl(output_root_path, crawl_date, args.workers, chains_to_crawl) # Call async crawl
-        print(f"{zip_path}") # Print only the path to stdout for make to capture
+        # --- FIX 2: REMOVED args.workers FROM THE FUNCTION CALL ---
+        zip_paths = await crawl(output_root_path, crawl_date, chains_to_crawl)
+        
+        # Print the paths for potential downstream processing
+        for path in zip_paths:
+            print(str(path))
+            
         return 0
     except Exception as e:
         print(f"Error during crawling: {e}", file=sys.stderr) # Print errors to stderr
