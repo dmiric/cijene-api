@@ -148,9 +148,21 @@ def main():
         if not primary_ips.primary_ips: # Check the actual list within the PageResults object
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in Hetzner Cloud. Aborting.")
         
-        primary_ip_obj = primary_ips.primary_ips[0] # Get the first (and should be only) matching Primary IP from the list
-        print(f"Type of primary_ip_obj: {type(primary_ip_obj)}")
-        print(f"Content of primary_ip_obj: {primary_ip_obj}")
+        # Iterate through the list to find the correct primary IP object
+        found_primary_ip_obj = None
+        print("Contents of primary_ips.primary_ips:")
+        for i, ip_obj in enumerate(primary_ips.primary_ips):
+            print(f"  Item {i}: Type={type(ip_obj)}, Content={ip_obj}")
+            if hasattr(ip_obj, 'ip') and ip_obj.ip == WORKER_PRIMARY_IP:
+                found_primary_ip_obj = ip_obj
+                break
+        
+        if not found_primary_ip_obj:
+            raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in the list of primary IPs returned. Aborting.")
+
+        primary_ip_obj = found_primary_ip_obj # Assign the found object
+        print(f"Type of primary_ip_obj (after assignment): {type(primary_ip_obj)}")
+        print(f"Content of primary_ip_obj (after assignment): {primary_ip_obj}")
 
         if primary_ip_obj.assignee_id is not None and primary_ip_obj.assignee_id != server.id:
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another server (ID: {primary_ip_obj.assignee_id}). Aborting.")
