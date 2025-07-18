@@ -153,7 +153,6 @@ def main():
             packages:
             - git
             - make
-            - python3-pip
             runcmd:
             - [ sh, -c, "git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}" ]
             write_files:
@@ -178,7 +177,7 @@ def main():
         # --- 6. Connect via SSH and execute the job ---
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        private_key = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
+        private_key = paramiko.Ed25519Key.from_private_key_file(SSH_KEY_PATH)
 
         print(f"Attempting to connect to {WORKER_PRIMARY_IP} via SSH...")
         for i in range(15):
