@@ -28,7 +28,7 @@ PROJECT_DIR_ON_VPS = "/opt/cijene-api"
 API_BASE_URL = f"http://{SERVER_IP}:8000/v1" # Assuming API is accessible on port 8000
 JOB_COMMANDS = [
     "make build-worker",
-    "make crawl CHAIN=roto,trgovina-krk,lorenco,boso",
+    "make crawl",
     "make import-data",
 ]
 
@@ -123,8 +123,8 @@ def get_crawl_run_status(chain_name: str, crawl_date: date):
 
 def main():
     """
-    Provisions a server, sets it up sequentially via SSH, runs a series of jobs,
-    and then de-provisions the server.
+    Checks if a job needs to be run, provisions a server, sets it up,
+    runs the jobs, and then de-provisions the server.
     """
     server = None
     try:
@@ -134,7 +134,33 @@ def main():
             raise Exception("One or more required environment variables are not set.")
         print("Validation successful.")
 
-        # --- 2. Prepare .env content ---
+        # --- 2. Check chain statuses to see if any work is needed ---
+        print("\n--- Checking for chains that need crawling ---")
+        active_chains = get_active_chains()
+        if not active_chains:
+            print("No active chains found via API. Exiting.")
+            sys.exit(0)
+            
+        chains_to_crawl = []
+        today = date.today()
+
+        for chain in active_chains:
+            chain_code = chain.get("code")
+            if chain_code:
+                status = get_crawl_run_status(chain_code, today)
+                if status != "success":
+                    print(f"Chain '{chain_code}' has status '{status}' for today. Adding to crawl list.")
+                    chains_to_crawl.append(chain_code)
+                else:
+                    print(f"Chain '{chain_code}' already has 'success' status for today. Skipping.")
+        
+        if not chains_to_crawl:
+            print("\nAll active chains already have a successful crawl for today. No jobs to run. Exiting.")
+            sys.exit(0)
+
+        print(f"\nProceeding with worker provisioning for chains: {', '.join(chains_to_crawl)}")
+
+        # --- 3. Prepare .env content ---
         print("Reading local .env file to prepare remote configuration...")
         local_env_content = ""
         try:
@@ -150,8 +176,8 @@ def main():
                     lines[i] = line.replace("@db:", f"@{SERVER_IP}:")
             local_env_content = "\n".join(lines)
 
-        # --- 3. Gather Hetzner Cloud resources ---
-        print("Gathering Hetzner Cloud resources...")
+        # --- 4. Gather Hetzner Cloud resources ---
+        print("\nGathering Hetzner Cloud resources...")
         ssh_key_obj = get_ssh_key_id("pricemice-worker-key")
         server_type_obj = client.server_types.get_by_name(SERVER_TYPE)
         image_obj = client.images.get_by_name(IMAGE_NAME)
@@ -164,11 +190,10 @@ def main():
              raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned.")
         print("All resources located successfully.")
 
-        # --- 4. Define server configuration ---
+        # --- 5. Define server configuration and Provision ---
         public_net_config = ServerCreatePublicNetwork(ipv4=primary_ip_obj)
 
-        # --- 5. Provision the server (NO user_data needed) ---
-        print(f"Creating server '{SERVER_NAME}' and assigning Primary IP '{WORKER_PRIMARY_IP}'...")
+        print(f"\nCreating server '{SERVER_NAME}' and assigning Primary IP '{WORKER_PRIMARY_IP}'...")
         server_create_result = client.servers.create(
             name=SERVER_NAME,
             server_type=server_type_obj,
@@ -180,7 +205,7 @@ def main():
         )
         server = server_create_result.server
         action = server_create_result.action
-        wait_for_action(action, timeout=120) # 2 min timeout just for server boot
+        wait_for_action(action, timeout=120)
 
         server = client.servers.get_by_id(server.id)
         print(f"Server '{SERVER_NAME}' is running with IP: {server.public_net.ipv4.ip}")
@@ -203,7 +228,6 @@ def main():
             raise Exception("Could not establish SSH connection after multiple retries.")
             
         # --- 7. Perform setup sequentially via SSH ---
-        # NEW, ROBUST COMMAND
         install_deps_command = "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git make"
         run_remote_command(ssh_client, install_deps_command, "Install Dependencies")
 
@@ -213,35 +237,17 @@ def main():
         write_env_command = f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{local_env_content}\nEOF"
         run_remote_command(ssh_client, write_env_command, "Write .env file", sensitive=True)
 
-        # --- 8. Check chain statuses and run jobs if needed ---
-        active_chains = get_active_chains()
-        chains_to_crawl = []
-        today = date.today()
-
-        for chain in active_chains:
-            chain_code = chain.get("code")
-            if chain_code:
-                status = get_crawl_run_status(chain_code, today)
-                if status != "success":
-                    print(f"Chain '{chain_code}' has status '{status}' for today. Adding to crawl list.")
-                    chains_to_crawl.append(chain_code)
-                else:
-                    print(f"Chain '{chain_code}' already has 'success' status for today. Skipping crawl.")
-        
-        if chains_to_crawl:
-            # Modify JOB_COMMANDS to include only the chains that need crawling
-            # Assuming 'make crawl' command takes a CHAIN argument
-            modified_job_commands = [
-                "make build-worker",
-                f"make crawl CHAIN={','.join(chains_to_crawl)}",
-                "make import-data",
-            ]
-            print(f"Initiating crawl and import for chains: {', '.join(chains_to_crawl)}")
-            for command in modified_job_commands:
-                full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
-                run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
-        else:
-            print("All active chains already have successful crawl/import for today. No jobs to run.")
+        # --- 8. Run jobs for the chains identified earlier ---
+        # Modify JOB_COMMANDS to include only the chains that need crawling
+        modified_job_commands = [
+            "make build-worker",
+            f"make crawl CHAIN={','.join(chains_to_crawl)}",
+            "make import-data",
+        ]
+        print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_crawl)}")
+        for command in modified_job_commands:
+            full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
+            run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
 
         ssh_client.close()
         print("SSH connection closed.")
@@ -260,18 +266,23 @@ def main():
         if server:
             print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
             try:
+                # Re-fetch server object to ensure we have the latest state
                 server_to_delete = client.servers.get_by_id(server.id)
                 if server_to_delete:
-                    delete_action = client.servers.delete(server_to_delete)
+                    delete_action = server_to_delete.delete()
                     wait_for_action(delete_action, timeout=120)
+                else:
+                    # This case handles if the server was deleted manually during script execution
+                    print(f"Server (ID: {server.id}) no longer exists.")
             except hcloud.APIException as e:
+                # Hetzner API might return 'not_found' if deletion was very fast
                 if e.code == "not_found":
                     print(f"Server (ID: {server.id}) not found; likely already deleted.")
                 else:
                     print(f"ERROR during server deletion (API): {e}")
             except Exception as e:
                 print(f"ERROR during server deletion: {e}")
-                print("You may need to check the server status manually.")
+                print("You may need to check the server status manually in the Hetzner Cloud console.")
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
