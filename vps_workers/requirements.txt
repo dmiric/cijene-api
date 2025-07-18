@@ -1,3 +1,3 @@
-hcloud
+hcloud==1.22.0
 paramiko
 python-dotenv
