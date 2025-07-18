@@ -169,7 +169,8 @@ def main():
             raise Exception("Could not establish SSH connection after multiple retries.")
             
         # --- 7. Perform setup sequentially via SSH ---
-        install_deps_command = "apt-get update && apt-get install -y git make"
+        # NEW, ROBUST COMMAND
+        install_deps_command = "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git make"
         run_remote_command(ssh_client, install_deps_command, "Install Dependencies")
 
         git_clone_command = f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}"
