@@ -143,7 +143,7 @@ def main():
 
         # 4. Assign Floating IP
         print(f"Assigning Floating IP {FLOATING_IP_ADDRESS} to server {SERVER_NAME}...")
-        floating_ip = client.floating_ips.get_by_ip(FLOATING_IP_ADDRESS)
+        floating_ip = client.floating_ips.get_by_ip_address(FLOATING_IP_ADDRESS) # Use get_by_ip_address
         if not floating_ip:
             # If floating IP doesn't exist, create it.
             # Note: This assumes the floating IP is not already created in Hetzner Cloud.
@@ -151,7 +151,7 @@ def main():
             print(f"Floating IP {FLOATING_IP_ADDRESS} not found. Attempting to create it...")
             floating_ip_create_result = client.floating_ips.create(
                 type="ipv4",
-                home_location=LOCATION,
+                home_location=location_obj, # Use the location object
                 name=f"ingestion-worker-ip-{FLOATING_IP_ADDRESS}"
             )
             floating_ip = client.floating_ips.get_by_id(floating_ip_create_result.id)
@@ -209,7 +209,7 @@ def main():
             try:
                 # Detach Floating IP if it was assigned
                 if FLOATING_IP_ADDRESS:
-                    floating_ip = client.floating_ips.get_by_ip(FLOATING_IP_ADDRESS)
+                    floating_ip = client.floating_ips.get_by_ip_address(FLOATING_IP_ADDRESS) # Use get_by_ip_address
                     if floating_ip and floating_ip.server and floating_ip.server.id == server.id:
                         print(f"Detaching Floating IP {FLOATING_IP_ADDRESS} from {SERVER_NAME}...")
                         floating_ip.unassign()
