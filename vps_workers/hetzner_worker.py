@@ -170,7 +170,7 @@ def main():
         action = server_create_result.action
 
         # Call our robust waiting function
-        wait_for_action(action, timeout=180)
+        wait_for_action(action, timeout=300)
 
         server = client.servers.get_by_id(server.id)
         print(f"Server '{SERVER_NAME}' is running with IP: {server.public_net.ipv4.ip}")
