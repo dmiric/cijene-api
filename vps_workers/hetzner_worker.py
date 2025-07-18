@@ -88,25 +88,46 @@ def wait_for_action(action, timeout: int = 180):
         raise ActionFailedException(action=action)
 
 def get_active_chains():
-    """Fetches active chains from the API."""
+    """Fetches active chains from the API, sending the required API Key."""
     url = f"{API_BASE_URL}/chains/"
-    # --- DEBUGGING LINES ADDED ---
     print(f"DEBUG: Attempting to fetch active chains from: {url}")
+    
     try:
-        # Added timeout of 15 seconds to prevent infinite hang
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
+        # --- FIX: Added API key header to this request ---
+        api_key = os.getenv("API_KEY")
+        if not api_key:
+            print("ERROR: API_KEY is not set in the environment. Cannot authenticate.")
+            sys.exit(1)
+            
+        headers = {"X-API-Key": api_key}
+        
+        # Added timeout of 15 seconds and the headers
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        # This will raise an exception for errors like 4xx or 5xx
+        response.raise_for_status() 
+        
         chains_data = response.json()
         return [chain for chain in chains_data.get("chains", []) if chain.get("active")]
+
+    except requests.exceptions.HTTPError as e:
+        # This block catches specific HTTP errors like 422, 401, 403, 404
+        print(f"\nERROR: The API server responded with an error: {e}")
+        print("DETAILS: This is not a connection issue. The server is reachable but rejected the request.")
+        print("\nDEBUGGING TIPS:")
+        print("1. Is the API_KEY in your .env file correct?")
+        print(f"2. Does the key have permission to access the '{url}' endpoint?")
+        print(f"3. Check the API server logs for more details about why this {e.response.status_code} error occurred.")
+        sys.exit(1)
+
     except requests.exceptions.RequestException as e:
-        # --- MORE DETAILED DEBUGGING OUTPUT ---
+        # This block catches lower-level issues like connection timeouts or DNS failures
         print(f"\nERROR: Could not connect to the API at {url}. The script cannot proceed.")
         print(f"DETAILS: {e}")
         print("\nDEBUGGING TIPS:")
         print(f"1. Is the API server running and accessible at SERVER_IP='{SERVER_IP}'?")
-        print("2. If this script is in a Docker container, can it reach the host's IP? 'localhost' or '127.0.0.1' will not work from inside a container.")
-        print("3. Is a firewall blocking the connection on the host or the network?")
-        sys.exit(1) # Exit immediately as we can't determine what to do.
+        print("2. Is a firewall blocking the connection?")
+        sys.exit(1)
 
 def get_crawl_run_status(chain_name: str, crawl_date: date):
     """Fetches the crawl run status for a given chain and date from the API."""
