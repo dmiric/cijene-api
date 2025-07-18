@@ -194,3 +194,6 @@ def main():
             except Exception as e:
                 print(f"ERROR during server deletion: {e}")
                 print("You may need to delete the server manually via the Hetzner Cloud console.")
+
+if __name__ == "__main__":
+    main()
