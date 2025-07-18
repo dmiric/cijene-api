@@ -142,10 +142,12 @@ def main():
         print(f"Server {SERVER_NAME} is running at IP: {server.public_net.ipv4.ip}")
 
         # 4. Use the specified WORKER_PRIMARY_IP
-        primary_ip_obj = client.primary_ips.get_by_ip_address(WORKER_PRIMARY_IP)
-        if not primary_ip_obj:
+        primary_ips = client.primary_ips.get_list(ip=WORKER_PRIMARY_IP)
+        if not primary_ips:
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' not found in Hetzner Cloud. Aborting.")
         
+        primary_ip_obj = primary_ips[0] # Get the first (and should be only) matching Primary IP
+
         if primary_ip_obj.assignee_id is not None and primary_ip_obj.assignee_id != server.id:
             raise Exception(f"Primary IP '{WORKER_PRIMARY_IP}' is already assigned to another server (ID: {primary_ip_obj.assignee_id}). Aborting.")
         
