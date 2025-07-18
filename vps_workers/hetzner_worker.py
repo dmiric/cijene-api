@@ -89,14 +89,24 @@ def wait_for_action(action, timeout: int = 180):
 
 def get_active_chains():
     """Fetches active chains from the API."""
+    url = f"{API_BASE_URL}/chains/"
+    # --- DEBUGGING LINES ADDED ---
+    print(f"DEBUG: Attempting to fetch active chains from: {url}")
     try:
-        response = requests.get(f"{API_BASE_URL}/chains/")
+        # Added timeout of 15 seconds to prevent infinite hang
+        response = requests.get(url, timeout=15)
         response.raise_for_status()
         chains_data = response.json()
         return [chain for chain in chains_data.get("chains", []) if chain.get("active")]
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching active chains: {e}")
-        return []
+        # --- MORE DETAILED DEBUGGING OUTPUT ---
+        print(f"\nERROR: Could not connect to the API at {url}. The script cannot proceed.")
+        print(f"DETAILS: {e}")
+        print("\nDEBUGGING TIPS:")
+        print(f"1. Is the API server running and accessible at SERVER_IP='{SERVER_IP}'?")
+        print("2. If this script is in a Docker container, can it reach the host's IP? 'localhost' or '127.0.0.1' will not work from inside a container.")
+        print("3. Is a firewall blocking the connection on the host or the network?")
+        sys.exit(1) # Exit immediately as we can't determine what to do.
 
 def get_crawl_run_status(chain_name: str, crawl_date: date):
     """Fetches the crawl run status for a given chain and date from the API."""
@@ -104,16 +114,19 @@ def get_crawl_run_status(chain_name: str, crawl_date: date):
         api_key = os.getenv("API_KEY") # Assuming API_KEY is available in .env
         headers = {"X-API-Key": api_key}
         
-        # Format the date for the URL
         date_str = crawl_date.strftime("%Y-%m-%d")
+        url = f"{API_BASE_URL}/crawler/status/{chain_name}/{date_str}"
         
-        response = requests.get(f"{API_BASE_URL}/crawler/status/{chain_name}/{date_str}", headers=headers)
+        # --- DEBUGGING LINES ADDED ---
+        print(f"DEBUG: Checking crawl status at: {url}")
+
+        # Added timeout of 15 seconds
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         status_data = response.json()
         return status_data.get("status")
     except requests.exceptions.RequestException as e:
         print(f"Error fetching crawl run status for {chain_name} on {crawl_date}: {e}")
-        # If the endpoint returns 404, it means no run was found, which is not a "success"
         if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 404:
             return "not_found"
         return "error"
@@ -131,8 +144,8 @@ def main():
         # --- 1. Validate environment variables ---
         print("Validating environment variables...")
         if not all([HCLOUD_TOKEN, SSH_KEY_PATH, WORKER_PRIMARY_IP, SERVER_IP]):
-            raise Exception("One or more required environment variables are not set.")
-        print("Validation successful.")
+            raise Exception("One or more required environment variables are not set. Check SERVER_IP in particular.")
+        print(f"Validation successful. API server target is: {SERVER_IP}") # Added for clarity
 
         # --- 2. Check chain statuses to see if any work is needed ---
         print("\n--- Checking for chains that need crawling ---")
@@ -238,7 +251,6 @@ def main():
         run_remote_command(ssh_client, write_env_command, "Write .env file", sensitive=True)
 
         # --- 8. Run jobs for the chains identified earlier ---
-        # Modify JOB_COMMANDS to include only the chains that need crawling
         modified_job_commands = [
             "make build-worker",
             f"make crawl CHAIN={','.join(chains_to_crawl)}",
@@ -266,16 +278,13 @@ def main():
         if server:
             print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
             try:
-                # Re-fetch server object to ensure we have the latest state
                 server_to_delete = client.servers.get_by_id(server.id)
                 if server_to_delete:
                     delete_action = server_to_delete.delete()
                     wait_for_action(delete_action, timeout=120)
                 else:
-                    # This case handles if the server was deleted manually during script execution
                     print(f"Server (ID: {server.id}) no longer exists.")
             except hcloud.APIException as e:
-                # Hetzner API might return 'not_found' if deletion was very fast
                 if e.code == "not_found":
                     print(f"Server (ID: {server.id}) not found; likely already deleted.")
                 else:
