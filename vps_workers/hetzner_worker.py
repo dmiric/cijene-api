@@ -57,8 +57,8 @@ def run_remote_command(ssh_client, command, description="command", sensitive=Fal
 
     stdin, stdout, stderr = ssh_client.exec_command(command)
     exit_status = stdout.channel.recv_exit_status()
-    stdout_output = stdout.read().decode().strip()
-    stderr_output = stderr.read().decode().strip()
+    stdout_output = stdout.read().decode('utf-8', errors='replace').strip()
+    stderr_output = stderr.read().decode('utf-8', errors='replace').strip()
 
     if stdout_output:
         print(f"STDOUT:\n{stdout_output}")
