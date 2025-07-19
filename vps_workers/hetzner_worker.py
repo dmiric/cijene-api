@@ -152,6 +152,27 @@ def get_crawl_run_status(chain_name: str, crawl_date: date):
             return "not_found"
         return "error"
 
+def get_import_run_status(chain_name: str, import_date: date):
+    """Fetches the import run status for a given chain and date from the API."""
+    try:
+        api_key = os.getenv("API_KEY")
+        headers = {"X-API-Key": api_key}
+        
+        date_str = import_date.strftime("%Y-%m-%d")
+        url = f"{API_BASE_URL}/importer/status/{chain_name}/{date_str}"
+        
+        print(f"DEBUG: Checking import status at: {url}")
+
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        status_data = response.json()
+        return status_data.get("status")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching import run status for {chain_name} on {import_date}: {e}")
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 404:
+            return "not_found"
+        return "error"
+
 
 # --- Main Execution Logic ---
 
@@ -166,33 +187,35 @@ def main():
         print("Validating environment variables...")
         if not all([HCLOUD_TOKEN, SSH_KEY_PATH, WORKER_PRIMARY_IP, SERVER_IP]):
             raise Exception("One or more required environment variables are not set. Check SERVER_IP in particular.")
-        print(f"Validation successful. API server target is: {SERVER_IP}") # Added for clarity
+        print(f"Validation successful. API server target is: {SERVER_IP}")
 
         # --- 2. Check chain statuses to see if any work is needed ---
-        print("\n--- Checking for chains that need crawling ---")
+        print("\n--- Checking for chains that need crawling and importing ---")
         active_chains = get_active_chains()
         if not active_chains:
             print("No active chains found via API. Exiting.")
             sys.exit(0)
             
-        chains_to_crawl = []
+        chains_to_process = []
         today = date.today()
 
         for chain in active_chains:
             chain_code = chain.get("code")
             if chain_code:
-                status = get_crawl_run_status(chain_code, today)
-                if status != "success":
-                    print(f"Chain '{chain_code}' has status '{status}' for today. Adding to crawl list.")
-                    chains_to_crawl.append(chain_code)
+                crawl_status = get_crawl_run_status(chain_code, today)
+                import_status = get_import_run_status(chain_code, today)
+
+                if crawl_status != "success" or import_status != "success":
+                    print(f"Chain '{chain_code}': Crawl status '{crawl_status}', Import status '{import_status}'. Adding to process list.")
+                    chains_to_process.append(chain_code)
                 else:
-                    print(f"Chain '{chain_code}' already has 'success' status for today. Skipping.")
+                    print(f"Chain '{chain_code}' already has 'success' for both crawl and import today. Skipping.")
         
-        if not chains_to_crawl:
-            print("\nAll active chains already have a successful crawl for today. No jobs to run. Exiting.")
+        if not chains_to_process:
+            print("\nAll active chains already have successful crawl and import for today. No jobs to run. Exiting.")
             sys.exit(0)
 
-        print(f"\nProceeding with worker provisioning for chains: {', '.join(chains_to_crawl)}")
+        print(f"\nProceeding with worker provisioning for chains: {', '.join(chains_to_process)}")
 
         # --- 3. Prepare .env content ---
         print("Reading local .env file to prepare remote configuration...")
@@ -274,10 +297,10 @@ def main():
         # --- 8. Run jobs for the chains identified earlier ---
         modified_job_commands = [
             "make build-worker",
-            f"make crawl CHAIN={','.join(chains_to_crawl)}",
-            "make import-data",
+            f"make crawl CHAIN={','.join(chains_to_process)}",
+            f"make import-data", # Pass chains to import-data
         ]
-        print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_crawl)}")
+        print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_process)}")
         for command in modified_job_commands:
             full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
             run_remote_command(ssh_client, full_remote_command, f"Job: {command}")

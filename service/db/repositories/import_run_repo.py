@@ -185,3 +185,63 @@ class ImportRunRepository:
                 query, CrawlStatus.SUCCESS.value
             )
             return records
+
+    async def get_failed_or_started_runs(self, import_date: date) -> List[ImportRun]:
+        async with self.pool.acquire() as conn:
+            query = """
+                SELECT id, crawl_run_id, chain_name, import_date, status, error_message,
+                       n_stores, n_products, n_prices, elapsed_time, timestamp, unzipped_path
+                FROM import_runs
+                WHERE import_date = $1 AND (status = $2 OR status = $3)
+                ORDER BY chain_name ASC
+            """
+            records: List[Record] = await conn.fetch(
+                query, import_date, ImportStatus.FAILED.value, ImportStatus.STARTED.value
+            )
+            return [
+                ImportRun(
+                    id=record["id"],
+                    crawl_run_id=record["crawl_run_id"],
+                    chain_name=record["chain_name"],
+                    import_date=record["import_date"],
+                    status=ImportStatus(record["status"]),
+                    error_message=record["error_message"],
+                    n_stores=record["n_stores"],
+                    n_products=record["n_products"],
+                    n_prices=record["n_prices"],
+                    elapsed_time=record["elapsed_time"],
+                    timestamp=record["timestamp"],
+                    unzipped_path=record["unzipped_path"],
+                )
+                for record in records
+            ]
+
+    async def get_successful_runs(self, import_date: date) -> List[ImportRun]:
+        async with self.pool.acquire() as conn:
+            query = """
+                SELECT id, crawl_run_id, chain_name, import_date, status, error_message,
+                       n_stores, n_products, n_prices, elapsed_time, timestamp, unzipped_path
+                FROM import_runs
+                WHERE import_date = $1 AND status = $2
+                ORDER BY chain_name ASC
+            """
+            records: List[Record] = await conn.fetch(
+                query, import_date, ImportStatus.SUCCESS.value
+            )
+            return [
+                ImportRun(
+                    id=record["id"],
+                    crawl_run_id=record["crawl_run_id"],
+                    chain_name=record["chain_name"],
+                    import_date=record["import_date"],
+                    status=ImportStatus(record["status"]),
+                    error_message=record["error_message"],
+                    n_stores=record["n_stores"],
+                    n_products=record["n_products"],
+                    n_prices=record["n_prices"],
+                    elapsed_time=record["elapsed_time"],
+                    timestamp=record["timestamp"],
+                    unzipped_path=record["unzipped_path"],
+                )
+                for record in records
+            ]
