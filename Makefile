@@ -80,8 +80,8 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	fi
 
 build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
-	docker compose -f vps_workers/docker-compose.worker.yml down --remove-orphans --env API_KEY=$(API_KEY) --env BASE_URL=$(BASE_URL)
-	docker compose -f vps_workers/docker-compose.worker.yml up -d --build --force-recreate --env API_KEY=$(API_KEY) --env BASE_URL=$(BASE_URL)
+	docker compose -f docker-compose.worker.yml down --remove-orphans
+	docker compose -f docker-compose.worker.yml up -d --build --force-recreate
 	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
@@ -150,14 +150,14 @@ crawl: ## Crawl data for specified chains (or all if none specified) and save co
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		mkdir -p logs && docker compose -f docker-compose.local.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
 	else \
-		mkdir -p logs && docker compose -f vps_workers/docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
+		mkdir -p logs && docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
 	fi
 
 import-data: ## Import crawled data for a specific DATE (defaults to today)
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
 	else \
-		docker compose -f docker-compose.yml -f vps_workers/docker-compose.worker.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
+		docker compose -f docker-compose.yml -f docker-compose.worker.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
 	fi
 
 ## Hetzner VPS Worker Commands
