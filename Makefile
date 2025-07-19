@@ -155,14 +155,12 @@ crawl: ## Crawl data for specified chains (or all if none specified) and save co
 
 import-data: ## Import crawled data for a specific DATE (defaults to today). Usage: make import-data [DATE=YYYY-MM-DD]
 	$(eval IMPORT_ARGS :=)
-	@if [ -n "$(DATE)" ]; then \
-		$(eval IMPORT_ARGS := /app/crawler_output/$(DATE)); \
-	fi
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(IMPORT_ARGS); \
-	else \
-		docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(IMPORT_ARGS); \
-	fi
+	$(if $(DATE),$(eval IMPORT_ARGS := /app/crawler_output/$(DATE)))
+ifeq ($(IS_WINDOWS),true)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(IMPORT_ARGS)
+else
+	docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(IMPORT_ARGS)
+endif
 
 ## Hetzner VPS Worker Commands
 run-hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
