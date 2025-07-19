@@ -163,7 +163,7 @@ else
 endif
 
 ## Hetzner VPS Worker Commands
-run-hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
+hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
 	@echo "Building hetzner-worker-image..."
 	docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker .
 	@echo "Running hetzner_worker.py in Docker container..."
