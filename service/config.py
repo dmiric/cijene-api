@@ -68,9 +68,7 @@ class Settings:
             self._db = Database.from_url(
                 self.db_dsn,
                 min_size=self.db_min_connections,
-                max_size=self.db_max_connections,
-                connect_timeout=30,  # Timeout for establishing a NEW connection (in seconds)
-                command_timeout=60   # Default timeout for ALL commands on a connection
+                max_size=self.db_max_connections
             )
 
         return self._db

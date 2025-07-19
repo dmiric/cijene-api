@@ -78,6 +78,8 @@ class PostgresDatabase(Database):
             min_size=self.min_size,
             max_size=self.max_size,
             init=self._init_connection,  # Keep init for pgvector registration
+            connect_timeout=30,  # Timeout for establishing a NEW connection (in seconds)
+            command_timeout=60   # Default timeout for ALL commands on a connection
         )
         # Connect all repos and ensure they share the same connection pool
         await self.products.connect(self.pool)
