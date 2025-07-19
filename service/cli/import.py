@@ -518,7 +518,7 @@ async def main():
 
     # --- FIX 1: Add a delay to avoid a race condition with the crawler job ---
     # This gives the database a moment to finish writes and release locks from the previous step.
-    DELAY_SECONDS = 15
+    DELAY_SECONDS = 3
     logger.info(f"Waiting for {DELAY_SECONDS} seconds to allow database to settle...")
     await asyncio.sleep(DELAY_SECONDS)
 

@@ -353,15 +353,15 @@ def main():
         run_remote_command(ssh_client, write_env_command, "Write .env file", sensitive=True)
 
         # --- 8. Run jobs for the chains identified earlier ---
-        # modified_job_commands = [
-        #     "make build-worker",
-        #     f"make crawl CHAIN={','.join(chains_to_process)}",
-        #     f"make import-data DATE={today.strftime('%Y-%m-%d')}",
-        # ]
-        # print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_process)}")
-        # for command in modified_job_commands:
-        #     full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
-        #     run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
+        modified_job_commands = [
+            "make build-worker",
+            f"make crawl CHAIN={','.join(chains_to_process)}",
+            f"make import-data DATE={today.strftime('%Y-%m-%d')}",
+        ]
+        print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_process)}")
+        for command in modified_job_commands:
+            full_remote_command = f"cd {PROJECT_DIR_ON_VPS} && {command}"
+            run_remote_command(ssh_client, full_remote_command, f"Job: {command}")
 
         ssh_client.close()
         print("SSH connection closed.")
@@ -375,25 +375,25 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    #finally:
+    finally:
         # --- 9. Clean up and de-provision the server ---
-        # if server:
-        #     print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
-        #     try:
-        #         server_to_delete = client.servers.get_by_id(server.id)
-        #         if server_to_delete:
-        #             delete_action = server_to_delete.delete()
-        #             wait_for_action(delete_action, timeout=120)
-        #         else:
-        #             print(f"Server (ID: {server.id}) no longer exists.")
-        #     except hcloud.APIException as e:
-        #         if e.code == "not_found":
-        #             print(f"Server (ID: {server.id}) not found; likely already deleted.")
-        #         else:
-        #             print(f"ERROR during server deletion (API): {e}")
-        #     except Exception as e:
-        #         print(f"ERROR during server deletion: {e}")
-        #         print("You may need to check the server status manually in the Hetzner Cloud console.")
+        if server:
+            print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
+            try:
+                server_to_delete = client.servers.get_by_id(server.id)
+                if server_to_delete:
+                    delete_action = server_to_delete.delete()
+                    wait_for_action(delete_action, timeout=120)
+                else:
+                    print(f"Server (ID: {server.id}) no longer exists.")
+            except hcloud.APIException as e:
+                if e.code == "not_found":
+                    print(f"Server (ID: {server.id}) not found; likely already deleted.")
+                else:
+                    print(f"ERROR during server deletion (API): {e}")
+            except Exception as e:
+                print(f"ERROR during server deletion: {e}")
+                print("You may need to check the server status manually in the Hetzner Cloud console.")
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
