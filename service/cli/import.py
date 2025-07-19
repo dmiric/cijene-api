@@ -31,9 +31,12 @@ async def read_csv(file_path: Path) -> List[Dict[str, str]]:
         List of dictionaries where each dictionary represents a row in the CSV.
     """
     try:
+        logger.debug(f"Opening CSV file: {file_path}")
         with open(file_path, "r", encoding="utf-8") as f:
             reader = DictReader(f)  # type: ignore
-            return [row for row in reader]
+            rows = [row for row in reader]
+            logger.debug(f"Finished reading {len(rows)} rows from {file_path}")
+            return rows
     except Exception as e:
         logger.error(f"Error reading {file_path}: {e}")
         return []
@@ -64,8 +67,9 @@ async def process_stores(stores_path: Path, chain_id: int) -> dict[str, int]:
             city=store_row.get("city"),
             zipcode=store_row.get("zipcode"),
         )
-
+        logger.debug(f"Adding store {store.code} to DB...")
         store_id = await db.add_store(store)
+        logger.debug(f"Store {store.code} added with ID {store_id}")
         store_map[store.code] = store_id
 
     logger.debug(f"Processed {len(stores_data)} stores")
@@ -95,7 +99,9 @@ async def process_products(
     logger.debug(f"Processing products from {products_path}")
 
     products_data = await read_csv(products_path)
+    logger.debug(f"Fetching chain product map for chain_id {chain_id}...")
     chain_product_map = await db.get_chain_product_map(chain_id)
+    logger.debug(f"Fetched {len(chain_product_map)} existing chain products.")
 
     # Ideally the CSV would already have valid barcodes, but some older
     # archives contain invalid ones so we need to clean them up.
@@ -136,9 +142,11 @@ async def process_products(
         if barcode in barcodes:
             continue
 
+        logger.debug(f"Adding new EAN: {barcode}...")
         global_product_id = await db.add_ean(barcode)
         barcodes[barcode] = global_product_id
         n_new_barcodes += 1
+        logger.debug(f"EAN {barcode} added with global_product_id {global_product_id}")
 
     if n_new_barcodes:
         logger.debug(f"Added {n_new_barcodes} new barcodes to global products")
@@ -162,12 +170,13 @@ async def process_products(
             )
         )
 
+    logger.debug(f"Attempting to insert {len(products_to_create)} new chain products...")
     n_inserts = await db.add_many_chain_products(products_to_create)
     if n_inserts != len(new_products):
         logger.warning(
             f"Expected to insert {len(new_products)} products, but inserted {n_inserts}."
         )
-    logger.debug(f"Imported {len(new_products)} new chain products")
+    logger.debug(f"Imported {n_inserts} new chain products.")
 
     chain_product_map = await db.get_chain_product_map(chain_id)
     return chain_product_map
@@ -249,8 +258,9 @@ async def process_prices(
             )
         )
 
-    logger.debug(f"Importing {len(prices_to_create)} unique prices")
+    logger.debug(f"Attempting to insert {len(prices_to_create)} unique prices...")
     n_inserted = await db.add_many_prices(prices_to_create)
+    logger.debug(f"Inserted {n_inserted} unique prices.")
     return n_inserted
 
 

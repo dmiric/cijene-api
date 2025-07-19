@@ -153,13 +153,14 @@ crawl: ## Crawl data for specified chains (or all if none specified) and save co
 		mkdir -p logs && docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
 	fi
 
-import-data: ## Import crawled data for a specific DATE (defaults to today). Usage: make import-data [DATE=YYYY-MM-DD]
+import-data: ## Import crawled data for a specific DATE (defaults to today). Usage: make import-data [DATE=YYYY-MM-DD] [DEBUG=1]
 	$(eval IMPORT_ARGS :=)
 	$(if $(DATE),$(eval IMPORT_ARGS := /app/crawler_output/$(DATE)))
+	$(eval DEBUG_FLAG := $(if $(DEBUG),-d,))
 ifeq ($(IS_WINDOWS),true)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(IMPORT_ARGS)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(DEBUG_FLAG) $(IMPORT_ARGS)
 else
-	docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(IMPORT_ARGS)
+	docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(DEBUG_FLAG) $(IMPORT_ARGS)
 endif
 
 ## Hetzner VPS Worker Commands
