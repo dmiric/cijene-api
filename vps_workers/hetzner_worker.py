@@ -356,7 +356,7 @@ def main():
         modified_job_commands = [
             "make build-worker",
             f"make crawl CHAIN={','.join(chains_to_process)}",
-            f"make import-data DATE={today.strftime('%Y-%m-%d')} CHAINS={','.join(chains_to_process)}",
+            f"make import-data DATE={today.strftime('%Y-%m-%d')}",
         ]
         print(f"\nInitiating crawl and import for chains: {', '.join(chains_to_process)}")
         for command in modified_job_commands:
