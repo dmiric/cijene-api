@@ -241,7 +241,8 @@ async def process_prices(
         # Create a unique key for the price entry
         price_key = (product_id, store_id, price_date)
         if price_key in seen_prices:
-            logger.warning(f"Skipping duplicate price entry for {price_key}")
+            # This is a duplicate within the current CSV batch, which will be handled by ON CONFLICT DO UPDATE
+            # in the database. No need to log a warning here.
             continue
         seen_prices.add(price_key)
 
@@ -505,7 +506,7 @@ async def main():
     parser.add_argument(
         "--timeout",
         type=int,
-        default=180, # Default to 3 min
+        default=600,
         help="Timeout in seconds for each individual chain import",
     )
     args = parser.parse_args()
