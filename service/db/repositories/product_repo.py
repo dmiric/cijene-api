@@ -131,7 +131,7 @@ class ProductRepository(BaseRepository):
         return await self._fetchval(
             """
             INSERT INTO products (ean) VALUES ($1)
-            ON CONFLICT (ean) DO NOTHING
+            ON CONFLICT (ean) DO UPDATE SET ean = EXCLUDED.ean
             RETURNING id
             """,
             ean,
