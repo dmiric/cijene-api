@@ -142,11 +142,9 @@ async def process_products(
         if barcode in barcodes:
             continue
 
-        logger.debug(f"Adding new EAN: {barcode}...")
         global_product_id = await db.add_ean(barcode)
         barcodes[barcode] = global_product_id
         n_new_barcodes += 1
-        logger.debug(f"EAN {barcode} added with global_product_id {global_product_id}")
 
     if n_new_barcodes:
         logger.debug(f"Added {n_new_barcodes} new barcodes to global products")
@@ -337,6 +335,8 @@ async def _import_single_chain_data(
     price_date: datetime,
     crawl_run_id: Optional[int] = None,
     unzipped_path: Optional[str] = None, # This is the path to the original zip file
+    semaphore: Optional[asyncio.Semaphore] = None, # Added semaphore parameter
+    timeout: Optional[int] = None, # Added timeout parameter
 ) -> None:
     """
     Imports data for a single chain and logs the import run.
@@ -348,25 +348,8 @@ async def _import_single_chain_data(
     error_message: Optional[str] = None
     status = ImportStatus.STARTED
 
-    # Check if this chain and date combination has already been successfully imported
-    existing_import_run = await db.import_runs.get_import_run_by_chain_and_date(
-        chain_name=chain_name, import_date=price_date.date()
-    )
-
-    if existing_import_run and existing_import_run.status == ImportStatus.SUCCESS:
-        logger.info(
-            f"Skipping import for chain {chain_name} on {price_date.date()} as it was already successfully imported (ID: {existing_import_run.id})."
-        )
-        # If the unzipped directory exists and was created by this process, delete it.
-        if chain_data_path.is_dir() and chain_data_path.name == chain_name:
-            try:
-                shutil.rmtree(chain_data_path)
-                logger.debug(f"Successfully deleted unzipped directory: {chain_data_path}")
-            except OSError as e:
-                logger.error(f"Error deleting unzipped directory {chain_data_path}: {e}")
-        return # Skip the rest of the import process for this chain
-
     # If not already successfully imported, proceed with adding/updating the import run record
+    # This needs to be outside the try-except for timeout, so we always have an import_run_id
     import_run_id = await db.import_runs.add_import_run(
         chain_name=chain_name,
         import_date=price_date.date(),
@@ -375,20 +358,84 @@ async def _import_single_chain_data(
     )
 
     try:
-        barcodes = await db.get_product_barcodes()
-        # Pass chain_data_path directly to process_chain
-        chain_stats = await process_chain(price_date, chain_data_path, barcodes, chain_name, import_run_id)
-        total_stores += chain_stats.get("n_stores", 0)
-        total_products += chain_stats.get("n_products", 0)
-        total_prices += chain_stats.get("n_prices", 0)
+        # Check if this chain and date combination has already been successfully imported
+        # This check should be inside the semaphore context if it involves DB access
+        # or if we want to skip acquiring semaphore for already imported runs.
+        # For now, let's keep it outside the timeout, but inside the semaphore if present.
+        if semaphore:
+            async with semaphore:
+                existing_import_run = await db.import_runs.get_import_run_by_chain_and_date(
+                    chain_name=chain_name, import_date=price_date.date()
+                )
 
-        logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
-        await db.compute_chain_prices(price_date)
+                if existing_import_run and existing_import_run.status == ImportStatus.SUCCESS:
+                    logger.info(
+                        f"Skipping import for chain {chain_name} on {price_date.date()} as it was already successfully imported (ID: {existing_import_run.id})."
+                    )
+                    # If the unzipped directory exists and was created by this process, delete it.
+                    if chain_data_path.is_dir() and chain_data_path.name == chain_name:
+                        try:
+                            shutil.rmtree(chain_data_path)
+                            logger.debug(f"Successfully deleted unzipped directory: {chain_data_path}")
+                        except OSError as e:
+                            logger.error(f"Error deleting unzipped directory {chain_data_path}: {e}")
+                    # Update the import run status to SKIPPED if we have such a status, or just return
+                    await db.import_runs.update_import_run_status(
+                        import_run_id=import_run_id,
+                        status=ImportStatus.SKIPPED if hasattr(ImportStatus, 'SKIPPED') else ImportStatus.SUCCESS, # Use SKIPPED if available
+                        error_message="Already successfully imported",
+                        n_stores=0, n_products=0, n_prices=0, elapsed_time=0
+                    )
+                    return # Skip the rest of the import process for this chain
+        else: # No semaphore, still check for existing run
+            existing_import_run = await db.import_runs.get_import_run_by_chain_and_date(
+                chain_name=chain_name, import_date=price_date.date()
+            )
 
-        logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
-        await db.compute_chain_stats(price_date)
+            if existing_import_run and existing_import_run.status == ImportStatus.SUCCESS:
+                logger.info(
+                    f"Skipping import for chain {chain_name} on {price_date.date()} as it was already successfully imported (ID: {existing_import_run.id})."
+                )
+                if chain_data_path.is_dir() and chain_data_path.name == chain_name:
+                    try:
+                        shutil.rmtree(chain_data_path)
+                        logger.debug(f"Successfully deleted unzipped directory: {chain_data_path}")
+                    except OSError as e:
+                        logger.error(f"Error deleting unzipped directory {chain_data_path}: {e}")
+                await db.import_runs.update_import_run_status(
+                    import_run_id=import_run_id,
+                    status=ImportStatus.SKIPPED if hasattr(ImportStatus, 'SKIPPED') else ImportStatus.SUCCESS,
+                    error_message="Already successfully imported",
+                    n_stores=0, n_products=0, n_prices=0, elapsed_time=0
+                )
+                return
+
+        # The actual import logic that might hang, wrapped in timeout
+        async def _perform_import_logic():
+            nonlocal total_stores, total_products, total_prices # Allow modification of outer scope variables
+            barcodes = await db.get_product_barcodes()
+            chain_stats = await process_chain(price_date, chain_data_path, barcodes, chain_name, import_run_id)
+            total_stores = chain_stats.get("n_stores", 0)
+            total_products = chain_stats.get("n_products", 0)
+            total_prices = chain_stats.get("n_prices", 0)
+
+            logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
+            await db.compute_chain_prices(price_date)
+
+            logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
+            await db.compute_chain_stats(price_date)
+
+        if timeout:
+            await asyncio.wait_for(_perform_import_logic(), timeout=timeout)
+        else:
+            await _perform_import_logic()
+        
         status = ImportStatus.SUCCESS
 
+    except asyncio.TimeoutError:
+        logger.warning(f"Import for chain {chain_name} timed out after {timeout} seconds. Marking as FAILED.")
+        status = ImportStatus.FAILED
+        error_message = f"Timed out after {timeout} seconds."
     except Exception as e:
         logger.error(f"Error during import for chain {chain_name}: {e}", exc_info=True)
         status = ImportStatus.FAILED
@@ -407,8 +454,6 @@ async def _import_single_chain_data(
         )
         logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
         # Delete the unzipped directory if it was created by this import process
-        # The unzipped_path here is the original zip file path, not the directory.
-        # We need to delete the `chain_data_path` which is the unzipped directory.
         if chain_data_path.is_dir() and chain_data_path.name == chain_name: # Ensure it's an unzipped directory, not the original source
             try:
                 shutil.rmtree(chain_data_path)
@@ -449,6 +494,18 @@ async def main():
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5, # Default to 5 concurrent imports
+        help="Number of concurrent chain imports",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=180, # Default to 3 min
+        help="Timeout in seconds for each individual chain import",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -457,6 +514,7 @@ async def main():
     )
 
     await db.connect()
+    semaphore = asyncio.Semaphore(args.concurrency)
 
     try:
         price_date: datetime
@@ -473,9 +531,21 @@ async def main():
                 logger.error(f"Directory `{price_date_str}` is not a valid date in YYYY-MM-DD format.")
                 return
 
-            # Iterate through zip files within the date directory
+            tasks = []
+            # First, check for zip files within the date directory
             zip_files = [f.resolve() for f in path_arg.iterdir() if f.suffix.lower() == ".zip"]
-            if not zip_files:
+            if zip_files:
+                for zip_file in zip_files:
+                    chain_name_from_zip = zip_file.stem
+                    unzip_target_dir = zip_file.parent / chain_name_from_zip
+                    unzip_target_dir.mkdir(parents=True, exist_ok=True)
+
+                    logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
+                    with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                        zip_ref.extractall(unzip_target_dir)
+                    
+                    tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout))
+            else:
                 logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
                 # Fallback to looking for subdirectories if no zips found
                 chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
@@ -483,21 +553,12 @@ async def main():
                     logger.warning(f"No chain directories found in {path_arg}")
                     return
                 for chain_dir in chain_dirs:
-                    await _import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None)
-                return # Exit after processing the provided directory
+                    tasks.append(_import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None, semaphore, args.timeout))
 
-            for zip_file in zip_files:
-                chain_name_from_zip = zip_file.stem # e.g., "boso" from "boso.zip"
-                # Define the target directory for unzipping
-                unzip_target_dir = zip_file.parent / chain_name_from_zip
-                unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
-
-                logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
-                with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                    zip_ref.extractall(unzip_target_dir)
-                
-                # The extracted content should be directly the CSVs, not another subdirectory
-                await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file))
+            if tasks:
+                logger.info(f"Starting import for {len(tasks)} chains concurrently from path: {path_arg} (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
+                await asyncio.gather(*tasks, return_exceptions=True) # Run tasks concurrently, collect exceptions
+                logger.info("All import tasks completed (or encountered exceptions) for the provided path.")
         else:
             price_date = datetime.now()
             logger.info(f"No path provided, assuming today's date: {price_date.date()}")
@@ -507,12 +568,12 @@ async def main():
                 logger.info("No new successful crawl runs found to import.")
                 return
 
+            tasks = []
             for crawl_run in successful_crawl_runs:
                 crawl_run_id = crawl_run["id"]
                 chain_name = crawl_run["chain_name"]
                 crawl_date = crawl_run["crawl_date"]
                 
-                # Construct the expected path for the crawled data (which is a zip file)
                 date_str = crawl_date.strftime("%Y-%m-%d")
                 chain_zip_path = Path(f"/app/crawler_output/{date_str}/{chain_name}.zip")
 
@@ -520,18 +581,35 @@ async def main():
                 
                 if not chain_zip_path.is_file():
                     logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
+                    # We should still log this as a skipped import run in the DB
+                    await db.import_runs.update_import_run_status(
+                        import_run_id=await db.import_runs.add_import_run(
+                            chain_name=chain_name,
+                            import_date=crawl_date.date(),
+                            crawl_run_id=crawl_run_id,
+                            unzipped_path=str(chain_zip_path),
+                        ),
+                        status=ImportStatus.FAILED, # Or SKIPPED if available
+                        error_message="Chain zip file not found",
+                        n_stores=0, n_products=0, n_prices=0, elapsed_time=0
+                    )
                     continue
 
-                # Define the target directory for unzipping
                 unzip_target_dir = chain_zip_path.parent / chain_zip_path.stem
-                unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+                unzip_target_dir.mkdir(parents=True, exist_ok=True)
 
                 logger.debug(f"Extracting archive {chain_zip_path} to {unzip_target_dir}")
                 with zipfile.ZipFile(chain_zip_path, "r") as zip_ref:
                     zip_ref.extractall(unzip_target_dir)
                 
-                # The extracted content should be directly the CSVs, not another subdirectory
-                await _import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path))
+                tasks.append(_import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path), semaphore, args.timeout))
+            
+            if tasks:
+                logger.info(f"Starting import for {len(tasks)} successful crawl runs concurrently (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
+                await asyncio.gather(*tasks, return_exceptions=True)
+                logger.info("All automatic import tasks completed (or encountered exceptions).")
+            else:
+                logger.info("No automatic import tasks to run.")
     finally:
         await db.close()
 
