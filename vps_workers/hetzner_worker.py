@@ -11,7 +11,7 @@ import sys
 from dotenv import load_dotenv
 import requests
 from datetime import date
-from typing import Optional
+from typing import Optional # Added for Optional type hint
 
 # Load environment variables from .env file in the current directory
 load_dotenv()
@@ -57,14 +57,25 @@ def run_remote_command(ssh_client, command, description="command", sensitive=Fal
         print("COMMAND: [Content is sensitive and not logged]")
 
     stdin, stdout, stderr = ssh_client.exec_command(command)
-    exit_status = stdout.channel.recv_exit_status()
-    stdout_output = stdout.read().decode('utf-8', errors='replace').strip()
-    stderr_output = stderr.read().decode('utf-8', errors='replace').strip()
+    
+    stdout_output_lines = []
+    stderr_output_lines = []
 
-    if stdout_output:
-        print(f"STDOUT:\n{stdout_output}")
-    if stderr_output:
-        print(f"STDERR:\n{stderr_output}")
+    # Stream stdout
+    print("STDOUT:")
+    for line in iter(stdout.readline, ""):
+        stripped_line = line.decode('utf-8', errors='replace').strip()
+        print(stripped_line)
+        stdout_output_lines.append(stripped_line)
+
+    # Stream stderr
+    print("STDERR:")
+    for line in iter(stderr.readline, ""):
+        stripped_line = line.decode('utf-8', errors='replace').strip()
+        print(stripped_line)
+        stderr_output_lines.append(stripped_line)
+
+    exit_status = stdout.channel.recv_exit_status() # Get exit status after reading all output
 
     if exit_status != 0:
         raise Exception(f"Remote step '{description}' failed with exit status {exit_status}")
