@@ -80,11 +80,8 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	fi
 
 build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh -File ./scripts/build-worker.ps1; \
-	else \
-		bash ./scripts/build-worker.sh; \
-	fi
+	docker compose -f docker-compose.worker.yml down --remove-orphans
+	docker compose -f docker-compose.worker.yml up -d --build --force-recreate
 	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"

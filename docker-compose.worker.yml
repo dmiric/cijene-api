@@ -23,9 +23,15 @@ services:
     env_file:
       - ./.env
     environment:
-      PYTHONUTF8: "1"
-      API_KEY: ${API_KEY}
-      BASE_URL: ${BASE_URL}
+      # --- THESE ARE THE CRUCIAL LINES TO ADD/ENSURE ---
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      # It's good practice to keep these as well
+      - PYTHONUNBUFFERED=1 # Ensures logs appear in real-time
+      - PYTHONUTF8=1
+      # Your existing variables
+      - API_KEY=${API_KEY}
+      - BASE_URL=${BASE_URL}
     volumes:
       - ./crawler_output:/app/output # Mount crawler output for direct access
       - .:/app # Mount the entire project directory
