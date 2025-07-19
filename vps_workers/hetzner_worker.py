@@ -64,14 +64,14 @@ def run_remote_command(ssh_client, command, description="command", sensitive=Fal
     # Stream stdout
     print("STDOUT:")
     for line in iter(stdout.readline, ""):
-        stripped_line = line.decode('utf-8', errors='replace').strip()
+        stripped_line = line.strip()
         print(stripped_line)
         stdout_output_lines.append(stripped_line)
 
     # Stream stderr
     print("STDERR:")
     for line in iter(stderr.readline, ""):
-        stripped_line = line.decode('utf-8', errors='replace').strip()
+        stripped_line = line.strip()
         print(stripped_line)
         stderr_output_lines.append(stripped_line)
 
