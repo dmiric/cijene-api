@@ -78,8 +78,6 @@ class PostgresDatabase(Database):
             min_size=self.min_size,
             max_size=self.max_size,
             init=self._init_connection,  # Keep init for pgvector registration
-            connect_timeout=30,  # Timeout for establishing a NEW connection (in seconds)
-            command_timeout=60   # Default timeout for ALL commands on a connection
         )
         # Connect all repos and ensure they share the same connection pool
         await self.products.connect(self.pool)
@@ -95,6 +93,8 @@ class PostgresDatabase(Database):
     async def _init_connection(self, conn):
         # Register the 'vector' type for asyncpg using pgvector's utility
         await pgvector.asyncpg.register_vector(conn)
+        # Set a default statement timeout for all commands on this connection (e.g., 60 seconds)
+        await conn.execute('SET statement_timeout = 60000')
 
     async def close(self) -> None:
         """Close all database connections."""
