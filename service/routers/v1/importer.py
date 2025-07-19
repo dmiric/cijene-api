@@ -29,7 +29,8 @@ async def report_importer_status(
     report: ImportStatusReport,
     db: PostgresDatabase = Depends(get_db_session),
 ):
-    repo = ImportRunRepository(db.pool)
+    repo = ImportRunRepository()
+    await repo.connect(db.pool)
     
     existing_run = await repo.get_import_run_by_chain_and_date(report.chain_name, report.import_date)
 
@@ -68,7 +69,8 @@ async def get_importer_status(
     import_date: date,
     db: PostgresDatabase = Depends(get_db_session),
 ):
-    repo = ImportRunRepository(db.pool)
+    repo = ImportRunRepository()
+    await repo.connect(db.pool)
     import_run = await repo.get_import_run_by_chain_and_date(chain_name, import_date)
     if not import_run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import run not found")
@@ -91,7 +93,8 @@ async def get_failed_or_started_imports(
     import_date: date,
     db: PostgresDatabase = Depends(get_db_session),
 ):
-    repo = ImportRunRepository(db.pool)
+    repo = ImportRunRepository()
+    await repo.connect(db.pool)
     runs = await repo.get_failed_or_started_runs(import_date)
     return [
         ImportStatusReport(
@@ -113,7 +116,8 @@ async def get_successful_imports(
     import_date: date,
     db: PostgresDatabase = Depends(get_db_session),
 ):
-    repo = ImportRunRepository(db.pool)
+    repo = ImportRunRepository()
+    await repo.connect(db.pool)
     runs = await repo.get_successful_runs(import_date)
     return [
         ImportStatusReport(
