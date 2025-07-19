@@ -382,8 +382,36 @@ def main():
             try:
                 server_to_delete = client.servers.get_by_id(server.id)
                 if server_to_delete:
+                    # Initiate deletion
                     delete_action = server_to_delete.delete()
-                    wait_for_action(delete_action, timeout=120)
+                    print(f"Initiated server deletion action (ID: {delete_action.id}).")
+
+                    # Wait for a short period before starting to poll for server existence
+                    time.sleep(10) # User's suggested initial wait
+
+                    # Poll for server existence
+                    delete_start_time = time.time()
+                    delete_timeout = 180 # Max time to wait for server to disappear
+                    server_deleted = False
+                    while time.time() - delete_start_time < delete_timeout:
+                        try:
+                            client.servers.get_by_id(server.id)
+                            print(f"Server '{SERVER_NAME}' still exists. Waiting...")
+                            time.sleep(10) # Poll every 10 seconds
+                        except hcloud.APIException as e:
+                            if e.code == "not_found":
+                                print(f"Server '{SERVER_NAME}' (ID: {server.id}) successfully deleted.")
+                                server_deleted = True
+                                break
+                            else:
+                                raise # Re-raise other API exceptions
+                        except Exception as e:
+                            print(f"Error while checking server status: {e}")
+                            break # Exit loop on unexpected error
+
+                    if not server_deleted:
+                        print(f"WARNING: Server '{SERVER_NAME}' (ID: {server.id}) did not disappear within {delete_timeout} seconds.")
+                        print("You may need to check the server status manually in the Hetzner Cloud console.")
                 else:
                     print(f"Server (ID: {server.id}) no longer exists.")
             except hcloud.APIException as e:
