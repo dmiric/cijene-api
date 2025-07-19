@@ -157,7 +157,7 @@ import-data: ## Import crawled data for a specific DATE (defaults to today)
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
 	else \
-		docker compose -f docker-compose.yml -f docker-compose.worker.yml run --rm crawler python service/cli/import.py /app/crawler_output/$(DATE); \
+		docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py /app/crawler_output/$(DATE); \
 	fi
 
 ## Hetzner VPS Worker Commands
