@@ -428,10 +428,10 @@ async def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "paths",
+        "path",
         type=Path,
-        help="One or more directories or zip archives containing price data",
-        nargs="*", # Changed to * to allow no paths for automatic import
+        nargs="?", # Make the path argument optional
+        help="Directory containing price data in YYYY-MM-DD format. If not provided, assumes today's date.",
     )
     parser.add_argument(
         "-d",
@@ -449,69 +449,49 @@ async def main():
     await db.connect()
 
     try:
-        if args.paths:
-            for path_arg in args.paths:
-                if path_arg.is_dir():
-                    # If it's a directory like YYYY-MM-DD, process all chains within it
-                    price_date_str = path_arg.name
-                    try:
-                        price_date = datetime.strptime(price_date_str, "%Y-%m-%d")
-                    except ValueError:
-                        logger.error(f"Directory `{price_date_str}` is not a valid date in YYYY-MM-DD format")
-                        continue
-                    
-                    # Iterate through zip files within the date directory
-                    zip_files = [f.resolve() for f in path_arg.iterdir() if f.suffix.lower() == ".zip"]
-                    if not zip_files:
-                        logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
-                        # Fallback to looking for subdirectories if no zips found
-                        chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
-                        if not chain_dirs:
-                            logger.warning(f"No chain directories found in {path_arg}")
-                            continue
-                        for chain_dir in chain_dirs:
-                            await _import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None)
-                        continue # Skip to next path_arg after processing subdirectories
+        price_date: datetime
+        if args.path:
+            path_arg = args.path
+            if not path_arg.is_dir():
+                logger.error(f"Provided path `{path_arg}` is not a directory.")
+                return
 
-                    for zip_file in zip_files:
-                        chain_name_from_zip = zip_file.stem # e.g., "boso" from "boso.zip"
-                        # Define the target directory for unzipping
-                        unzip_target_dir = zip_file.parent / chain_name_from_zip
-                        unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+            price_date_str = path_arg.name
+            try:
+                price_date = datetime.strptime(price_date_str, "%Y-%m-%d")
+            except ValueError:
+                logger.error(f"Directory `{price_date_str}` is not a valid date in YYYY-MM-DD format.")
+                return
 
-                        logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
-                        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                            zip_ref.extractall(unzip_target_dir)
-                        
-                        # The extracted content should be directly the CSVs, not another subdirectory
-                        await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file))
-                elif path_arg.suffix.lower() == ".zip":
-                    # If it's a single zip file (e.g., boso.zip), extract and process
-                    price_date_str = path_arg.stem # This might be "boso" or "2025-07-17"
-                    chain_name_from_zip = path_arg.stem # Use stem as chain name for single zip
-                    try:
-                        # Try to parse date from stem, if it's a date-named zip
-                        price_date = datetime.strptime(price_date_str, "%Y-%m-%d")
-                    except ValueError:
-                        # If not a date-named zip, use today's date or infer from context if possible
-                        # For now, default to today if not explicitly a date-named zip
-                        price_date = datetime.now() 
-                        logger.warning(f"Could not infer date from zip name `{price_date_str}`. Using current date for import.")
+            # Iterate through zip files within the date directory
+            zip_files = [f.resolve() for f in path_arg.iterdir() if f.suffix.lower() == ".zip"]
+            if not zip_files:
+                logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
+                # Fallback to looking for subdirectories if no zips found
+                chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
+                if not chain_dirs:
+                    logger.warning(f"No chain directories found in {path_arg}")
+                    return
+                for chain_dir in chain_dirs:
+                    await _import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None)
+                return # Exit after processing the provided directory
 
-                    # Define the target directory for unzipping
-                    unzip_target_dir = path_arg.parent / chain_name_from_zip
-                    unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
+            for zip_file in zip_files:
+                chain_name_from_zip = zip_file.stem # e.g., "boso" from "boso.zip"
+                # Define the target directory for unzipping
+                unzip_target_dir = zip_file.parent / chain_name_from_zip
+                unzip_target_dir.mkdir(parents=True, exist_ok=True) # Create the directory
 
-                    logger.debug(f"Extracting archive {path_arg} to {unzip_target_dir}")
-                    with zipfile.ZipFile(path_arg, "r") as zip_ref:
-                        zip_ref.extractall(unzip_target_dir)
-                    
-                    # The extracted content should be directly the CSVs, not another subdirectory
-                    await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(path_arg))
-                else:
-                    logger.error(f"Path `{path_arg}` is neither a directory nor a zip archive.")
+                logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
+                with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                    zip_ref.extractall(unzip_target_dir)
+                
+                # The extracted content should be directly the CSVs, not another subdirectory
+                await _import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file))
         else:
-            logger.info("No paths provided, checking for successful crawl runs to import...")
+            price_date = datetime.now()
+            logger.info(f"No path provided, assuming today's date: {price_date.date()}")
+            logger.info("Checking for successful crawl runs to import...")
             successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
             if not successful_crawl_runs:
                 logger.info("No new successful crawl runs found to import.")
@@ -530,7 +510,6 @@ async def main():
                 
                 if not chain_zip_path.is_file():
                     logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
-                    # Optionally, update import_run status to skipped or failed here if we want to log this
                     continue
 
                 # Define the target directory for unzipping
@@ -542,7 +521,6 @@ async def main():
                     zip_ref.extractall(unzip_target_dir)
                 
                 # The extracted content should be directly the CSVs, not another subdirectory
-                # So, the chain_dir_path for process_chain will be the temp_dir itself
                 await _import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path))
     finally:
         await db.close()
