@@ -173,6 +173,32 @@ def get_import_run_status(chain_name: str, import_date: date):
             return "not_found"
         return "error"
 
+def report_crawl_status_via_api(chain_name: str, crawl_date: date, status: str, error_message: Optional[str] = None):
+    """Reports the crawl status to the API."""
+    try:
+        api_key = os.getenv("API_KEY")
+        headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+        
+        payload = {
+            "chain_name": chain_name,
+            "crawl_date": crawl_date.strftime("%Y-%m-%d"),
+            "status": status,
+            "error_message": error_message,
+            "n_stores": 0,
+            "n_products": 0,
+            "n_prices": 0,
+            "elapsed_time": 0.0,
+        }
+        url = f"{API_BASE_URL}/crawler/status"
+        
+        print(f"DEBUG: Reporting crawl status to: {url} with payload: {payload}")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
+        print(f"Successfully reported crawl status for {chain_name} as '{status}'.")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: Failed to report crawl status for {chain_name} as '{status}': {e}")
+
 
 # --- Main Execution Logic ---
 
@@ -214,6 +240,18 @@ def main():
         if not chains_to_process:
             print("\nAll active chains already have successful crawl and import for today. No jobs to run. Exiting.")
             sys.exit(0)
+        
+        # Before proceeding, set the status of all chains to be processed to 'failed'
+        # This ensures that if the worker fails during provisioning or job execution,
+        # the crawl runs for these chains are correctly marked as failed.
+        print(f"\nSetting crawl status to 'failed' for chains to be processed: {', '.join(chains_to_process)}")
+        for chain_code in chains_to_process:
+            report_crawl_status_via_api(
+                chain_code, 
+                today, 
+                "failed", 
+                "Crawl initiated by worker, but not yet completed."
+            )
 
         print(f"\nProceeding with worker provisioning for chains: {', '.join(chains_to_process)}")
 
