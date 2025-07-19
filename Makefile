@@ -117,13 +117,13 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 # 	fi
 
 	@echo "Crawl data"
-	$(MAKE) crawl CHAIN=boso,eurospin,lidl,kaufland,roto,trgovina-krk,lorenco,boso
+	$(MAKE) crawl CHAIN=boso,eurospin,lidl,kaufland,roto
 
 	@echo "Importing data..."
 	$(MAKE) import-data
 
-	@echo "Enriching data..."
-	$(MAKE) enrich-data
+#	@echo "Enriching data..."
+#	$(MAKE) enrich-data
 
 #	@echo "Normalizing data..."
 #	$(MAKE) normalize-data-grok

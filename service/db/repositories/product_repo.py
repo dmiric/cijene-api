@@ -119,16 +119,21 @@ class ProductRepository(BaseRepository):
 
     async def add_ean(self, ean: str) -> int:
         """
-        Add an empty product with only EAN barcode info.
+        Add an empty product with only EAN barcode info, or return the ID
+        of an existing product if the EAN already exists.
 
         Args:
             ean: The EAN code to add.
 
         Returns:
-            The database ID of the created product.
+            The database ID of the created or existing product.
         """
         return await self._fetchval(
-            "INSERT INTO products (ean) VALUES ($1) RETURNING id",
+            """
+            INSERT INTO products (ean) VALUES ($1)
+            ON CONFLICT (ean) DO NOTHING
+            RETURNING id
+            """,
             ean,
         )
 
