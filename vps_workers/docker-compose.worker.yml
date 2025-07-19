@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./.env
+      - ../.env
     environment:
       REDIRECT_URL: http://localhost:8000/docs
       PYTHONUTF8: "1"
@@ -21,7 +21,7 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - ./.env
+      - ../.env
     environment:
       # --- THESE ARE THE CRUCIAL LINES TO ADD/ENSURE ---
       - LANG=C.UTF-8
