@@ -15,10 +15,12 @@ from typing import Any, Dict, List, Optional
 from service.config import get_settings
 from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
 
+      
+# Corrected Code
 logger = logging.getLogger("importer")
 
-db = get_settings().get_db()
-
+# The db object will be initialized inside the main() function.
+db: Any = None # Optional: Use a type hint for better static analysis
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:
     """
@@ -513,9 +515,33 @@ async def main():
         format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
     )
 
-    await db.connect()
-    semaphore = asyncio.Semaphore(args.concurrency)
+    # --- FIX 1: Add a delay to avoid a race condition with the crawler job ---
+    # This gives the database a moment to finish writes and release locks from the previous step.
+    DELAY_SECONDS = 15
+    logger.info(f"Waiting for {DELAY_SECONDS} seconds to allow database to settle...")
+    await asyncio.sleep(DELAY_SECONDS)
 
+    # --- FIX 2: Defer DB object initialization to inside main() ---
+    global db
+    db = get_settings().get_db()
+
+    # --- FIX 3: Connect to the database with a timeout to prevent silent hangs ---
+    CONNECT_TIMEOUT = 60  # seconds
+    try:
+        logger.info(f"Attempting to connect to the database (timeout: {CONNECT_TIMEOUT}s)...")
+        await asyncio.wait_for(db.connect(), timeout=CONNECT_TIMEOUT)
+        logger.info("Database connection successful.")
+    except asyncio.TimeoutError:
+        logger.critical(
+            f"Database connection timed out after {CONNECT_TIMEOUT} seconds. "
+            "The database may be overloaded or deadlocked. Exiting."
+        )
+        return  # Exit gracefully
+    except Exception as e:
+        logger.critical(f"A critical error occurred while connecting to the database: {e}", exc_info=True)
+        return  # Exit gracefully
+
+    semaphore = asyncio.Semaphore(args.concurrency)
     try:
         price_date: datetime
         if args.path:
@@ -537,13 +563,14 @@ async def main():
             if zip_files:
                 for zip_file in zip_files:
                     chain_name_from_zip = zip_file.stem
-                    unzip_target_dir = zip_file.parent / chain_name_from_zip
+                    # Create a unique temporary directory for each zip to avoid conflicts
+                    unzip_target_dir = Path(TemporaryDirectory(prefix=f"import_{chain_name_from_zip}_").name)
                     unzip_target_dir.mkdir(parents=True, exist_ok=True)
 
                     logger.debug(f"Extracting archive {zip_file} to {unzip_target_dir}")
                     with zipfile.ZipFile(zip_file, "r") as zip_ref:
                         zip_ref.extractall(unzip_target_dir)
-                    
+
                     tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout))
             else:
                 logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
@@ -573,37 +600,33 @@ async def main():
                 crawl_run_id = crawl_run["id"]
                 chain_name = crawl_run["chain_name"]
                 crawl_date = crawl_run["crawl_date"]
-                
+
                 date_str = crawl_date.strftime("%Y-%m-%d")
                 chain_zip_path = Path(f"/app/crawler_output/{date_str}/{chain_name}.zip")
 
                 logger.info(f"Attempting to import data for chain '{chain_name}' from crawl run ID {crawl_run_id} from zip: {chain_zip_path}")
-                
+
                 if not chain_zip_path.is_file():
                     logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
-                    # We should still log this as a skipped import run in the DB
-                    await db.import_runs.update_import_run_status(
-                        import_run_id=await db.import_runs.add_import_run(
-                            chain_name=chain_name,
-                            import_date=crawl_date.date(),
-                            crawl_run_id=crawl_run_id,
-                            unzipped_path=str(chain_zip_path),
-                        ),
-                        status=ImportStatus.FAILED, # Or SKIPPED if available
+                    await db.import_runs.add_import_run(
+                        chain_name=chain_name,
+                        import_date=crawl_date,
+                        crawl_run_id=crawl_run_id,
+                        status=ImportStatus.FAILED,
                         error_message="Chain zip file not found",
-                        n_stores=0, n_products=0, n_prices=0, elapsed_time=0
                     )
                     continue
 
-                unzip_target_dir = chain_zip_path.parent / chain_zip_path.stem
-                unzip_target_dir.mkdir(parents=True, exist_ok=True)
-
+                # Use a temporary directory to handle extraction and cleanup
+                unzip_target_dir = Path(TemporaryDirectory(prefix=f"import_{chain_name}_").name)
+                
                 logger.debug(f"Extracting archive {chain_zip_path} to {unzip_target_dir}")
                 with zipfile.ZipFile(chain_zip_path, "r") as zip_ref:
+                    # Assuming the zip contains the CSVs at the root
                     zip_ref.extractall(unzip_target_dir)
-                
+
                 tasks.append(_import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path), semaphore, args.timeout))
-            
+
             if tasks:
                 logger.info(f"Starting import for {len(tasks)} successful crawl runs concurrently (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -611,6 +634,7 @@ async def main():
             else:
                 logger.info("No automatic import tasks to run.")
     finally:
+        logger.info("Closing database connection.")
         await db.close()
 
 
