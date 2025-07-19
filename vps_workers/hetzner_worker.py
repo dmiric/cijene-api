@@ -11,6 +11,7 @@ import sys
 from dotenv import load_dotenv
 import requests
 from datetime import date
+from typing import Optional
 
 # Load environment variables from .env file in the current directory
 load_dotenv()
