@@ -153,16 +153,15 @@ crawl: ## Crawl data for specified chains (or all if none specified) and save co
 		mkdir -p logs && docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py $(if $(CHAIN),--chain $(CHAIN),); \
 	fi
 
-import-data: ## Import crawled data for a specific DATE (defaults to today) and specific CHAINS. Usage: make import-data [DATE=YYYY-MM-DD] [CHAINS=chain1,chain2]
-	@if [ -z "$(DATE)" ]; then DATE=$(shell date +%Y-%m-%d); fi
-	@if [ -z "$(CHAINS)" ]; then \
-		echo "Error: CHAINS is required for import-data. Usage: make import-data CHAINS=chain1,chain2 [DATE=YYYY-MM-DD]"; exit 1; \
+import-data: ## Import crawled data for a specific DATE (defaults to today). Usage: make import-data [DATE=YYYY-MM-DD]
+	$(eval IMPORT_ARGS :=)
+	@if [ -n "$(DATE)" ]; then \
+		$(eval IMPORT_ARGS := /app/crawler_output/$(DATE)); \
 	fi
-	$(eval IMPORT_PATHS := $(foreach chain,$(subst ,,$(CHAINS)),/app/crawler_output/$(DATE)/$(chain).zip))
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(IMPORT_PATHS); \
+		docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm crawler python service/cli/import.py $(IMPORT_ARGS); \
 	else \
-		docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(IMPORT_PATHS); \
+		docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py $(IMPORT_ARGS); \
 	fi
 
 ## Hetzner VPS Worker Commands
