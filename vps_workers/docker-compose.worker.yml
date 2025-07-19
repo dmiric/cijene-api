@@ -1,7 +1,7 @@
 services:
   api:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
@@ -18,7 +18,7 @@ services:
 
   crawler:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     env_file:
       - ../.env

@@ -80,8 +80,8 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	fi
 
 build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
-	docker compose -f vps_workers/docker-compose.worker.yml down --remove-orphans
-	docker compose -f vps_workers/docker-compose.worker.yml up -d --build --force-recreate
+	docker compose -f vps_workers/docker-compose.worker.yml down --remove-orphans --env API_KEY=$(API_KEY) --env BASE_URL=$(BASE_URL)
+	docker compose -f vps_workers/docker-compose.worker.yml up -d --build --force-recreate --env API_KEY=$(API_KEY) --env BASE_URL=$(BASE_URL)
 	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
