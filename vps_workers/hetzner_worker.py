@@ -63,17 +63,25 @@ def run_remote_command(ssh_client, command, description="command", sensitive=Fal
 
     # Stream stdout
     print("STDOUT:")
-    for line in iter(stdout.readline, ""):
-        stripped_line = line.strip()
-        print(stripped_line)
-        stdout_output_lines.append(stripped_line)
+    while not stdout.channel.exit_status_ready() or stdout.channel.recv_ready():
+        if stdout.channel.recv_ready():
+            output = stdout.channel.recv(1024).decode('utf-8', errors='replace')
+            for line in output.splitlines():
+                stripped_line = line.strip()
+                print(stripped_line)
+                stdout_output_lines.append(stripped_line)
+        time.sleep(0.1) # Small delay to prevent busy-waiting
 
     # Stream stderr
     print("STDERR:")
-    for line in iter(stderr.readline, ""):
-        stripped_line = line.strip()
-        print(stripped_line)
-        stderr_output_lines.append(stripped_line)
+    while not stderr.channel.exit_status_ready() or stderr.channel.recv_stderr_ready():
+        if stderr.channel.recv_stderr_ready():
+            output = stderr.channel.recv_stderr(1024).decode('utf-8', errors='replace')
+            for line in output.splitlines():
+                stripped_line = line.strip()
+                print(stripped_line)
+                stderr_output_lines.append(stripped_line)
+        time.sleep(0.1) # Small delay to prevent busy-waiting
 
     exit_status = stdout.channel.recv_exit_status() # Get exit status after reading all output
 
