@@ -14,6 +14,10 @@ from service.db.models import Store # Keep Store, remove StoreWithId
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Suppress debug logs from httpx and httpcore
+logging.getLogger("httpx").setLevel(logging.INFO)
+logging.getLogger("httpcore").setLevel(logging.INFO)
+
 app = typer.Typer()
 
 async def get_db() -> PostgresDatabase:
