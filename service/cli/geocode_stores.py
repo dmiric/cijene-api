@@ -19,8 +19,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Suppress debug and info logs from httpx and httpcore
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.CRITICAL)
+logging.getLogger("httpcore").setLevel(logging.CRITICAL)
 
 app = typer.Typer()
 
@@ -47,27 +47,27 @@ async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal]
             response = await client.get(base_url, params=params, timeout=10.0)
             response.raise_for_status()
             data = response.json()
-
-            if data["status"] == "OK" and data["results"]:
-                location = data["results"][0]["geometry"]["location"]
-                lat = Decimal(str(location["lat"]))
-                lon = Decimal(str(location["lng"]))
-                logger.info(f"Geocoded '{address}': Lat={lat}, Lng={lon}")
-                return lat, lon
-            elif data["status"] == "ZERO_RESULTS":
-                logger.warning(f"No results for address: '{address}'")
-                return None
-            elif data["status"] == "OVER_QUERY_LIMIT":
-                # Raise custom exception to stop the process immediately
-                raise RateLimitExceededError(f"Geocoding API rate limit exceeded for '{address}'. Please check your API key usage.")
-            else:
-                logger.error(f"Geocoding API error for '{address}': {data.get('error_message', 'Unknown error')}")
-                return None
         except httpx.RequestError as e:
             logger.error(f"HTTP request failed for '{address}': {e}")
             return None
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during geocoding for '{address}': {e}")
+        except Exception as e: # Catch other unexpected errors during request/json parsing
+            logger.error(f"An unexpected error occurred during API call for '{address}': {e}")
+            return None
+
+        if data["status"] == "OK" and data["results"]:
+            location = data["results"][0]["geometry"]["location"]
+            lat = Decimal(str(location["lat"]))
+            lon = Decimal(str(location["lng"]))
+            logger.info(f"Geocoded '{address}': Lat={lat}, Lng={lon}")
+            return lat, lon
+        elif data["status"] == "ZERO_RESULTS":
+            logger.warning(f"No results for address: '{address}'")
+            return None
+        elif data["status"] == "OVER_QUERY_LIMIT":
+            # Raise custom exception to stop the process immediately
+            raise RateLimitExceededError(f"Geocoding API rate limit exceeded for '{address}'. Please check your API key usage.")
+        else:
+            logger.error(f"Geocoding API error for '{address}': {data.get('error_message', 'Unknown error')}")
             return None
 
 @app.command()
