@@ -43,7 +43,7 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Configure Cron Job
+    - name: Configure Import Cron Job
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -56,6 +56,20 @@ jobs:
           # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
           (crontab -l 2>/dev/null; echo "0 6-10 * * * cd /home/dmiric/pricemice && mkdir -p logs && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for hetzner-worker configured."
+
+    - name: Configure Golden Record Orchestrator Cron Job
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Remove any existing golden-record-orchestrator cron jobs to prevent duplicates
+          (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
+          # Add the new cron job: run every hour at the 30-minute mark
+          # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 1 --batch-size 100 >> /home/dmiric/pricemice/logs/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          echo "Cron job for golden-record-orchestrator configured."
 
     - name: Configure Swap Space
       uses: appleboy/ssh-action@v1.0.0
@@ -95,3 +109,5 @@ jobs:
           docker compose up -d --remove-orphans --force-recreate # Force recreate to ensure new image is used
           make migrate-db # Apply database migrations
           docker image prune -f # Clean up old images
+
+
