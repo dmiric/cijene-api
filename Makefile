@@ -177,16 +177,25 @@ hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker containe
 normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
 	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
 	@if [ -z "$(EMBEDDER_TYPE)" ]; then echo "Error: EMBEDDER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
+ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+else
+	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+endif
 
 calculate-prices: ## Orchestrate price calculation. Usage: make calculate-prices [NUM_WORKERS=N] [BATCH_SIZE=M]
+ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+else
+	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+endif
 
 update-best-offers: ## Orchestrate best offer updates. Usage: make update-best-offers [NUM_WORKERS=N] [BATCH_SIZE=M]
+ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
-
-get-embedding: ## Process products missing embeddings from g_products table
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/normaliser/embedding_service.py
+else
+	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+endif
 
 enrich-data: ## Enrich store and product data from enrichment CSV
 ifeq ($(IS_WINDOWS),true)
@@ -245,7 +254,11 @@ pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
 	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 $(SSH_USER)@$(SSH_IP)
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
+ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
+else
+	docker compose -f docker-compose.worker.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
+endif
 
 
 ## Data Management Commands
@@ -426,3 +439,127 @@ gpush: ## Add all changes, commit with a message, and push to the remote reposit
 	git add .
 	git commit -m "$(M)"
 	git push
+
+</final_file_content>
+
+IMPORTANT: For any future changes to this file, use the final_file_content shown above as your reference. This content reflects the current state of the file, including any auto-formatting (e.g., if you used single quotes but the formatter converted them to double quotes). Always base your SEARCH/REPLACE operations on this final version to ensure accuracy.
+
+<environment_details>
+# VSCode Visible Files
+Makefile
+
+# VSCode Open Tabs
+service/routers/v2/chat_components/ai_providers.py
+service/normaliser/__init__.py
+service/routers/v2/shopping_list_items.py
+backups/g_prices.csv
+service/cli/geocode_stores.py
+service/db/migrate.py
+scripts/rebuild.sh
+scripts/rebuild.ps1
+service/utils/timing.py
+docker-compose.local.yml
+.github/workflows/ci-cd.yml
+service/cli/import.py
+service/cli/enrich.py
+vps_workers/hetzner_worker.py
+Makefile
+vps_workers/requirements.txt
+scripts/backup_tables.sh
+scripts/check_and_unzip_crawler_data.ps1
+scripts/check_and_unzip_crawler_data.sh
+.env
+docker-compose.yml
+.clinerules/architecture.md
+.clinerules/automatic-file-saving.md
+backups/users.csv
+backups/chains.csv
+service/db/migrations/V013__create_import_runs_table.sql
+service/db/psql.sql
+service/db/models.py
+tests/test_auth.py
+service/db/repositories/user_repo.py
+service/db/migrations/V010__add_ai_response_to_chat_messages.sql
+service/db/migrations/V011__add_auth_tables.sql
+crawler_output/2025-07-17/boso/prices.csv
+crawler_output/2025-07-17/boso/stores.csv
+.gitignore
+.env.example
+.dockerignore
+service/db/repositories/import_run_repo.py
+service/main.py
+service/db/migrations/V014__add_active_to_chains_table.sql
+LICENSE
+service/db/migrations/V015__make_api_key_nullable.sql
+service/routers/auth.py
+service/routers/v2/users.py
+service/routers/v2/chat_components/ai_tools.py
+service/routers/v2/chat_components/ai_schemas.py
+service/routers/v2/chat_components/chat_orchestrator.py
+pgadmin/servers.json
+scripts/restore_database.ps1
+service/db/repositories/product_repo.py
+service/config.py
+service/db/base.py
+service/db/psql.py
+pgadmin/servers_dev.json
+pgadmin/preferences.json
+.pre-commit-config.yaml
+requirements.txt
+README.md
+pyproject.toml
+uv.lock
+vps_workers/Dockerfile.hetzner_worker
+crawler/store/trgovina_krk.py
+crawler/store/lorenco.py
+crawler/store/brodokomerc.py
+crawler/store/boso.py
+crawler/store/base.py
+crawler/store/__init__.py
+crawler/store/utils.py
+crawler/store/output.py
+crawler/store/models.py
+crawler/store/metro.py
+service/normaliser/price_calculator.py
+service/normaliser/orchestrator_prices.py
+service/normaliser/db_utils.py
+service/normaliser/ean_filters.py
+service/normaliser/best_offer_updater.py
+service/normaliser/orchestrator_best_offers.py
+service/normaliser/golden_record/normaliser-grok-3-mini.py
+service/normaliser/golden_record/normaliser-gemini.py
+service/db/migrations/V012__create_crawl_runs_table.sql
+service/routers/v1.py
+crawler/cli/crawl.py
+Dockerfile
+service/routers/v1/stores.py
+service/routers/v1/crawler.py
+crawler/crawl.py
+service/routers/v1/importer.py
+docker-compose.worker.yml
+Dockerfile.postgres
+.python-version
+service/db/repositories/crawl_run_repo.py
+tests/test_crawler.py
+crawler/store/zabac.py
+crawler/store/studenac.py
+backups/g_products.csv
+service/routers/v2/user_locations.py
+service/routers/v2/chat_components/initial_context.py
+service/db/repositories/golden_product_repo.py
+service/routers/v2/stores.py
+service/db/repositories/store_repo.py
+service/db/field_configs.py
+service/routers/v2/chat.py
+
+# Current Time
+7/20/2025, 11:21:05 AM (Europe/Paris, UTC+2:00)
+
+# Context Window Usage
+436,250 / 1,048.576K tokens used (42%)
+
+# Current Mode
+PLAN MODE
+In this mode you should focus on information gathering, asking questions, and architecting a solution. Once you have a plan, use the plan_mode_respond tool to engage in a conversational back and forth with the user. Do not use the plan_mode_respond tool until you've gathered all the information you need e.g. with read_file or ask_followup_question.
+(Remember: If it seems the user wants you to use tools only available in Act Mode, you should ask the user to "toggle to Act mode" (use those words) - they will have to manually do this themselves with the Plan/Act toggle button below. You do not have the ability to switch to Act Mode yourself, and must wait for the user to do it themselves once they are satisfied with the plan. You also cannot present an option to toggle to Act mode, as this will be something you need to direct the user to do manually themselves.)
+</environment_details>
