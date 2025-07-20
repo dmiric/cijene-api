@@ -104,6 +104,19 @@ jobs:
           sudo timedatectl set-ntp true
           echo "Server time and NTP synchronization configured."
 
+    - name: Configure Price Calculation Cron Job
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Remove any existing price-calculation cron jobs to prevent duplicates
+          (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
+          # Add the new cron job: run every hour at the 50-minute mark
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs && make calculate-prices NUM_WORKERS=1 BATCH_SIZE=1000 >> /home/dmiric/pricemice/logs/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          echo "Cron job for price-calculation configured."
+
     - name: Deploy Application
       uses: appleboy/ssh-action@v1.0.0
       with:
