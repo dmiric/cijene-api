@@ -47,6 +47,7 @@ if ($confirm -eq "y") {
     }
     Write-Host "Docker services rebuilt and restarted. Check logs/docker-build.log for details."
 
+    docker image prune -f
     docker compose ps
 
 } else {
