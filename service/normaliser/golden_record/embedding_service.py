@@ -10,7 +10,7 @@ from psycopg2.extras import RealDictCursor
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 
 # Import database utility functions
-from .db_utils import get_db_connection
+from ..db_utils import get_db_connection
 
 # Load environment variables
 load_dotenv()

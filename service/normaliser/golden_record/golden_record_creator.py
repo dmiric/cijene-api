@@ -18,7 +18,7 @@ from service.normaliser.db_utils import (
 )
 
 # Import EAN filter list
-from .ean_filters import EAN_FILTER_LIST
+from service.normaliser.ean_filters import EAN_FILTER_LIST
 
 # Import embedding service
 from .embedding_service import get_embedding
