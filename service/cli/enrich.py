@@ -130,7 +130,7 @@ async def enrich_products(csv_path: Path) -> None:
             if was_updated:
                 updated_count += 1
         else:
-            logger.info(f"Product with EAN {row['barcode']} not found. Skipping new product.")
+            logger.debug(f"Product with EAN {row['barcode']} not found. Skipping new product.")
 
     t1 = time()
     dt = int(t1 - t0)
