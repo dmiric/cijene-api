@@ -68,7 +68,7 @@ jobs:
           (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
           # Add the new cron job: run every hour at the 30-minute mark
           # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 100 >> /home/dmiric/pricemice/logs/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for golden-record-orchestrator configured."
 
     - name: Configure Swap Space
