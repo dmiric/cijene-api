@@ -180,27 +180,27 @@ normalize-golden-records: ## Orchestrate golden record creation. Usage: make nor
 ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 else
-	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type $(NORMALIZER_TYPE) --embedder-type $(EMBEDDER_TYPE) --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 endif
 
 calculate-prices: ## Orchestrate price calculation. Usage: make calculate-prices [NUM_WORKERS=N] [BATCH_SIZE=M]
 ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 else
-	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 endif
 
 update-best-offers: ## Orchestrate best offer updates. Usage: make update-best-offers [NUM_WORKERS=N] [BATCH_SIZE=M]
 ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 else
-	docker compose -f docker-compose.worker.yml run --rm api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -m service.normaliser.orchestrator_best_offers --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 endif
 
 enrich-data: ## Enrich store and product data from enrichment CSV
 ifeq ($(IS_WINDOWS),true)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type stores ./enrichment/stores.csv
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type products ./enrichment/products.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env api python service/cli/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env api python service/cli/enrich.py --type products ./enrichment/products.csv
 else
 	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type stores ./enrichment/stores.csv
 	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type products ./enrichment/products.csv
@@ -255,21 +255,13 @@ pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 ifeq ($(IS_WINDOWS),true)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env DEBUG=false api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
 else
-	docker compose -f docker-compose.worker.yml run --rm api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -c "import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())"
 endif
 
 
 ## Data Management Commands
-unzip-crawler-output: ## Unzips the latest crawled data on the host. Usage: make unzip-crawler-output [DATE=YYYY-MM-DD]
-	@if [ -z "$(DATE)" ]; then echo "Unzipping today's archive..."; else echo "Unzipping archive for $(DATE)..."; fi
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh -Command "Expand-Archive -Path '$(CURDIR)/output/$(DATE).zip' -DestinationPath '$(CURDIR)/output/$(DATE)_unzipped' -Force"; \
-	else \
-		unzip -o './output/$(DATE).zip' -d './output/$(DATE)_unzipped'; \
-	fi
-
 enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=products|stores|users|user-locations|search-keywords [USER_LOCATIONS_CSV_FILE=./path/to/user_locations.csv]
 	@if [ -z "$(CSV_FILE)" ]; then echo "Error: CSV_FILE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
 	@if [ -z "$(TYPE)" ]; then echo "Error: TYPE is required. Usage: make enrich CSV_FILE=./path/to/file.csv TYPE=..."; exit 1; fi
@@ -280,12 +272,6 @@ enrich: ## Enrich data from a CSV file. Usage: make enrich CSV_FILE=./path/to/fi
 ## API & User Commands
 migrate-db: ## Apply database migrations
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/migrate.py
-
-search-products: ## Search for products by name. Usage: make search-products QUERY="your query" API_KEY=your_api_key [STORE_IDS=val] [SEARCH_DATE=val]
-	@if [ -z "$(API_KEY)" ]; then echo "Error: API_KEY is required. Usage: make search-products API_KEY=your_api_key [QUERY=your_query]"; exit 1; fi
-	$(eval ENCODED_QUERY=$(shell echo "$(QUERY)" | sed 's/ /+/g'))
-	$(eval DATE_PARAM=$(if $(SEARCH_DATE),&date=$(SEARCH_DATE),))
-	true > search-prod.json && curl -s -H "Authorization: Bearer $(API_KEY)" "http://localhost:8000/v1/products/?q=$(ENCODED_QUERY)&store_ids=$(STORE_IDS)$(DATE_PARAM)" | jq . > prod.json
 
 ## Testing and Logging Commands
 # API
