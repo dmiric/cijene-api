@@ -80,8 +80,8 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 	fi
 
 build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
-	docker compose -f docker-compose.worker.yml down --remove-orphans
-	docker compose -f docker-compose.worker.yml up -d --build --force-recreate
+	docker compose -f docker-compose.worker.yml down --remove-orphans > /dev/null 2>&1
+	docker compose -f docker-compose.worker.yml up -d --build --force-recreate > /dev/null 2>&1
 	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
@@ -199,11 +199,11 @@ endif
 
 enrich-data: ## Enrich store and product data from enrichment CSV
 ifeq ($(IS_WINDOWS),true)
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type stores ./enrichment/stores.csv
-	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/cli/enrich.py --type products ./enrichment/products.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type products ./enrichment/products.csv
 else
-	docker compose -f docker-compose.worker.yml run --rm api python service/cli/enrich.py --type stores ./enrichment/stores.csv
-	docker compose -f docker-compose.worker.yml run --rm api python service/cli/enrich.py --type products ./enrichment/products.csv
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type stores ./enrichment/stores.csv
+	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python service/cli/enrich.py --type products ./enrichment/products.csv
 endif
 
 
