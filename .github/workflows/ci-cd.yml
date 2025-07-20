@@ -53,7 +53,8 @@ jobs:
           # Remove any existing hetzner-worker cron jobs to prevent duplicates
           (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
           # Add the new cron job: run every hour from 6 AM to 10 AM UTC
-          (crontab -l 2>/dev/null; echo "0 6-10 * * * cd /home/dmiric/pricemice && mkdir -p logs && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker-$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).log 2>&1") | crontab -
+          # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
+          (crontab -l 2>/dev/null; echo "0 6-10 * * * cd /home/dmiric/pricemice && mkdir -p logs && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for hetzner-worker configured."
 
     - name: Configure Swap Space

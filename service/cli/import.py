@@ -340,6 +340,7 @@ async def _import_single_chain_data(
     unzipped_path: Optional[str] = None, # This is the path to the original zip file
     semaphore: Optional[asyncio.Semaphore] = None, # Added semaphore parameter
     timeout: Optional[int] = None, # Added timeout parameter
+    price_computation_lock: Optional[asyncio.Lock] = None, # New: Lock for serializing price computations
 ) -> None:
     """
     Imports data for a single chain and logs the import run.
@@ -398,7 +399,7 @@ async def _import_single_chain_data(
             if existing_import_run and existing_import_run.status == ImportStatus.SUCCESS:
                 logger.info(
                     f"Skipping import for chain {chain_name} on {price_date.date()} as it was already successfully imported (ID: {existing_import_run.id})."
-                )
+                    )
                 if chain_data_path.is_dir() and chain_data_path.name == chain_name:
                     try:
                         shutil.rmtree(chain_data_path)
@@ -423,7 +424,12 @@ async def _import_single_chain_data(
             total_prices = chain_stats.get("n_prices", 0)
 
             logger.debug(f"Computing average chain prices for {price_date:%Y-%m-%d}")
-            await db.compute_chain_prices(price_date)
+            # Acquire lock to ensure only one price computation runs at a time
+            if price_computation_lock:
+                async with price_computation_lock:
+                    await db.compute_chain_prices(price_date)
+            else:
+                await db.compute_chain_prices(price_date)
 
             logger.debug(f"Computing chain stats for {price_date:%Y-%m-%d}")
             await db.compute_chain_stats(price_date)
@@ -456,7 +462,7 @@ async def _import_single_chain_data(
             elapsed_time=elapsed_time,
         )
         logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
-        # Delete the unzipped directory if it was created by this import process
+        # Delete the unzipped directory if it was created by this process
         if chain_data_path.is_dir() and chain_data_path.name == chain_name: # Ensure it's an unzipped directory, not the original source
             try:
                 shutil.rmtree(chain_data_path)
@@ -543,6 +549,7 @@ async def main():
         return  # Exit gracefully
 
     semaphore = asyncio.Semaphore(args.concurrency)
+    price_computation_lock = asyncio.Lock() # Initialize the lock here
     try:
         price_date: datetime
         if args.path:
@@ -572,7 +579,7 @@ async def main():
                     with zipfile.ZipFile(zip_file, "r") as zip_ref:
                         zip_ref.extractall(unzip_target_dir)
 
-                    tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout))
+                    tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock))
             else:
                 logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
                 # Fallback to looking for subdirectories if no zips found
@@ -581,7 +588,7 @@ async def main():
                     logger.warning(f"No chain directories found in {path_arg}")
                     return
                 for chain_dir in chain_dirs:
-                    tasks.append(_import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None, semaphore, args.timeout))
+                    tasks.append(_import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None, semaphore, args.timeout, price_computation_lock))
 
             if tasks:
                 logger.info(f"Starting import for {len(tasks)} chains concurrently from path: {path_arg} (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
@@ -626,7 +633,7 @@ async def main():
                     # Assuming the zip contains the CSVs at the root
                     zip_ref.extractall(unzip_target_dir)
 
-                tasks.append(_import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path), semaphore, args.timeout))
+                tasks.append(_import_single_chain_data(chain_name, unzip_target_dir, crawl_date, crawl_run_id, str(chain_zip_path), semaphore, args.timeout, price_computation_lock))
 
             if tasks:
                 logger.info(f"Starting import for {len(tasks)} successful crawl runs concurrently (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
