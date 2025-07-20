@@ -7,7 +7,7 @@ from typing import Optional, List
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 from dotenv import load_dotenv
 
-from .db_utils import get_db_connection
+from service.normaliser.db_utils import get_db_connection
 
 # Load environment variables
 load_dotenv()
