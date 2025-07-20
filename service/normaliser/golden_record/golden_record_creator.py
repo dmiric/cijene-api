@@ -11,7 +11,7 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 # Import database utility functions
-from .db_utils import (
+from service.normaliser.db_utils import (
     get_db_connection,
     create_golden_record,
     mark_chain_products_as_processed
