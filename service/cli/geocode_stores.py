@@ -10,13 +10,17 @@ from service.config import get_settings
 from service.db.psql import PostgresDatabase
 from service.db.models import Store # Keep Store, remove StoreWithId
 
+# Custom exception for API rate limits
+class RateLimitExceededError(Exception):
+    pass
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Suppress debug logs from httpx and httpcore
-logging.getLogger("httpx").setLevel(logging.INFO)
-logging.getLogger("httpcore").setLevel(logging.INFO)
+# Suppress debug and info logs from httpx and httpcore
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = typer.Typer()
 
@@ -54,8 +58,8 @@ async def geocode_address(address: str, api_key: str) -> tuple[Decimal, Decimal]
                 logger.warning(f"No results for address: '{address}'")
                 return None
             elif data["status"] == "OVER_QUERY_LIMIT":
-                logger.critical(f"Geocoding API rate limit exceeded for '{address}'. Please check your API key usage. Stopping geocoding process.")
-                return None # Return None for rate limit, handle gracefully in geocode_stores
+                # Raise custom exception to stop the process immediately
+                raise RateLimitExceededError(f"Geocoding API rate limit exceeded for '{address}'. Please check your API key usage.")
             else:
                 logger.error(f"Geocoding API error for '{address}': {data.get('error_message', 'Unknown error')}")
                 return None
@@ -96,33 +100,35 @@ async def geocode_stores():
                 continue
 
             logger.info(f"Geocoding store ID {store.id}: '{full_address}'")
-            result = await geocode_address(full_address, google_api_key)
+            try:
+                result = await geocode_address(full_address, google_api_key)
 
-            if result is not None:
-                lat, lon = result
-                updated_store = Store(
-                    chain_id=store.chain_id,
-                    code=store.code,
-                    type=store.type,
-                    address=store.address,
-                    city=store.city,
-                    zipcode=store.zipcode,
-                    lat=lat,
-                    lon=lon
-                )
-                # Use add_store for upserting, it will update existing store by chain_id and code
-                await db.stores.add_store(updated_store)
-                logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}")
-            else:
-                # If result is None, it means geocoding failed or rate limit was hit
-                logger.error(f"Failed to geocode store ID {store.id}: '{full_address}'. Skipping.")
-                # Do not exit, continue to next store or finish gracefully
+                if result is not None:
+                    lat, lon = result
+                    updated_store = Store(
+                        chain_id=store.chain_id,
+                        code=store.code,
+                        type=store.type,
+                        address=store.address,
+                        city=store.city,
+                        zipcode=store.zipcode,
+                        lat=lat,
+                        lon=lon
+                    )
+                    # Use add_store for upserting, it will update existing store by chain_id and code
+                    await db.stores.add_store(updated_store)
+                    logger.info(f"Successfully updated store ID {store.id} with Lat={lat}, Lng={lon}")
+                else:
+                    # If result is None, it means geocoding failed for other reasons
+                    logger.error(f"Failed to geocode store ID {store.id}: '{full_address}'. Skipping.")
+            except RateLimitExceededError as e:
+                logger.critical(str(e))
+                break # Exit the loop immediately on rate limit
 
         logger.info("Geocoding process completed.")
 
     except Exception as e:
         logger.critical(f"An unrecoverable error occurred: {e}")
-        # Do not raise typer.Exit here, handle gracefully
     finally:
         if db:
             # After geocoding attempts, count remaining ungeocoded stores
@@ -133,9 +139,6 @@ async def geocode_stores():
                 logger.info("All stores have been geocoded.")
             await db.close()
             logger.info("Database connection closed.")
-        # Exit gracefully after logging remaining ungeocoded count
-        # No explicit typer.Exit(code=0) needed, as successful completion implies code 0
-        # If an unhandled exception occurs, it will still result in a non-zero exit code.
 
 if __name__ == "__main__":
     asyncio.run(app())
