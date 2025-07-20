@@ -89,8 +89,9 @@ jobs:
           cd ${{ secrets.APP_PATH }}
           git pull origin main # Pull the latest code from the main branch
           docker compose pull
+          docker compose build db # Rebuild the db service to apply Dockerfile changes
           docker compose stop api || true # Stop the API container if it's running (ignore errors if not running)
           docker compose rm -f api || true # Remove the API container (ignore errors if not existing)
-          docker compose up -d --remove-orphans
+          docker compose up -d --remove-orphans --force-recreate # Force recreate to ensure new image is used
           make migrate-db # Apply database migrations
           docker image prune -f # Clean up old images
