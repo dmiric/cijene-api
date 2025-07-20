@@ -45,7 +45,7 @@ def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: i
     command = [
         sys.executable, # Use the current Python executable
         "-m",
-        "service.normaliser.golden_record_creator",
+        "service.normaliser.golden_record.golden_record_creator",
         "--normalizer-type", normalizer_type,
         "--embedder-type", embedder_type,
         "--start-id", str(start_id),
