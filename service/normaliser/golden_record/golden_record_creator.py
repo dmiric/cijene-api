@@ -38,10 +38,15 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # Dynamically import the correct normalizer's AI function
+        normalizer_map = {
+            "gemini": ".normaliser_gemini",
+            "grok": ".normaliser_grok_3_mini"
+        }
+        module_name = normalizer_map.get(normalizer_type)
+        if not module_name:
+            raise ValueError(f"Unknown normalizer type: {normalizer_type}")
+
         try:
-            # Construct the module name dynamically
-            module_name = f".normaliser_{normalizer_type.replace('-', '_')}"
-            # Import the module from the golden_record package
             normalizer_module = importlib.import_module(module_name, package="service.normaliser.golden_record")
         except ImportError:
             raise ValueError(f"Could not import normalizer module for type: {normalizer_type}")
