@@ -5,6 +5,7 @@ export POSTGRES_PASSWORD
 export POSTGRES_DB
 export SSH_USER
 export SSH_IP
+export WORKER_PRIMARY_IP # Added for hetzner-worker-ssh
 export PYTHONUNBUFFERED
 
 # A helper variable to detect the OS
@@ -406,6 +407,9 @@ logs-crawler-console: ## Continuously display console output from logs/crawler_c
 	fi
 
 ## SSH Commands
+hetzner-worker-ssh: ## SSH into the Hetzner worker VPS
+	ssh -i $(SSH_KEY_PATH) root@$(WORKER_PRIMARY_IP)
+
 ssh-server: ## SSH into the VPS server
 	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 $(SSH_USER)@$(SSH_IP)
 
