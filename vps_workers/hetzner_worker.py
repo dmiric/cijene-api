@@ -57,34 +57,40 @@ def run_remote_command(ssh_client, command, description="command", sensitive=Fal
     else:
         print("COMMAND: [Content is sensitive and not logged]")
 
-    stdin, stdout, stderr = ssh_client.exec_command(command)
+    transport = ssh_client.get_transport()
+    channel = transport.open_session()
+    channel.exec_command(command)
+
+    stdout = channel.makefile("rb", -1)
+    stderr = channel.makefile_stderr("rb", -1)
     
     stdout_output_lines = []
     stderr_output_lines = []
 
-    # Stream stdout
+    # Stream stdout and stderr simultaneously
     print("STDOUT:")
-    while not stdout.channel.exit_status_ready() or stdout.channel.recv_ready():
-        if stdout.channel.recv_ready():
+    while True:
+        # Read from stdout
+        while stdout.channel.recv_ready():
             output = stdout.channel.recv(1024).decode('utf-8', errors='replace')
             for line in output.splitlines():
                 stripped_line = line.strip()
                 print(stripped_line)
                 stdout_output_lines.append(stripped_line)
-        time.sleep(0.1) # Small delay to prevent busy-waiting
-
-    # Stream stderr
-    print("STDERR:")
-    while not stderr.channel.exit_status_ready() or stderr.channel.recv_stderr_ready():
-        if stderr.channel.recv_stderr_ready():
+        
+        # Read from stderr
+        while stderr.channel.recv_stderr_ready():
             output = stderr.channel.recv_stderr(1024).decode('utf-8', errors='replace')
             for line in output.splitlines():
                 stripped_line = line.strip()
                 print(stripped_line)
                 stderr_output_lines.append(stripped_line)
+
+        if channel.exit_status_ready() and not stdout.channel.recv_ready() and not stderr.channel.recv_stderr_ready():
+            break
         time.sleep(0.1) # Small delay to prevent busy-waiting
 
-    exit_status = stdout.channel.recv_exit_status() # Get exit status after reading all output
+    exit_status = channel.recv_exit_status() # Get exit status after reading all output
 
     if exit_status != 0:
         raise Exception(f"Remote step '{description}' failed with exit status {exit_status}")
