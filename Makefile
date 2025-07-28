@@ -218,8 +218,7 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
 
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
-	docker compose exec backup chmod +x /scripts/dump_database.sh
-	docker compose exec backup /scripts/dump_database.sh
+	docker compose exec backup bash /scripts/dump_database.sh
 	mkdir -p backups
 	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
 
