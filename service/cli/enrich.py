@@ -114,7 +114,6 @@ async def enrich_products(csv_path: Path) -> None:
         if product:
             # If product.brand or product.name already exist, skip updating
             if product.brand and product.name:
-                logger.info(f"Product with EAN {row['barcode']} already has brand and name. Skipping update.")
                 continue
 
             unit, qty = convert_unit_and_quantity(row["unit"], row["quantity"])
@@ -129,8 +128,6 @@ async def enrich_products(csv_path: Path) -> None:
             was_updated = await db.products.update_product(updated_product)
             if was_updated:
                 updated_count += 1
-        else:
-            logger.debug(f"Product with EAN {row['barcode']} not found. Skipping new product.")
 
     t1 = time()
     dt = int(t1 - t0)
