@@ -18,10 +18,13 @@ BACKUP_DIR="/backups"
 # Timestamp for the backup file
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-BACKUP_FILE="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
+# Temporary file path in /tmp, which is usually writable
+TEMP_BACKUP_FILE="/tmp/full_db_${TIMESTAMP}.sql.gz"
+FINAL_BACKUP_FILE="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
 
-echo "Starting full database dump to ${BACKUP_FILE}..."
+echo "Starting full database dump to ${TEMP_BACKUP_FILE}..."
 
-pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -Fc | gzip > "$BACKUP_FILE"
+# Dump to a temporary file in /tmp
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -Fc | gzip > "$TEMP_BACKUP_FILE"
 
-echo "Full database dump completed successfully."
+echo "Full database dump completed successfully to ${TEMP_BACKUP_FILE}."

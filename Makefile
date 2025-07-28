@@ -218,9 +218,10 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
 
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
+	$(eval TIMESTAMP := $(shell date +%Y%m%d_%H%M%S))
 	docker compose exec backup bash /scripts/dump_database.sh
 	mkdir -p backups
-	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
+	docker cp cijene-api-clone-backup-1:/tmp/full_db_$(TIMESTAMP).sql.gz ./backups/full_db_$(TIMESTAMP).sql.gz
 
 csv-export: ## Export specified database tables to CSV files in the backups/ folder
 	@mkdir -p backups
