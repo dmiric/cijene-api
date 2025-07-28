@@ -164,7 +164,9 @@ else
 endif
 
 ## Hetzner VPS Worker Commands
-hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container.
+hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker container. Usage: make hetzner-worker [TEARDOWN=false]
+	$(eval TEARDOWN_FLAG :=)
+	$(if $(filter false,$(TEARDOWN)),$(eval TEARDOWN_FLAG := --no-teardown))
 	@echo "Building hetzner-worker-image..."
 	docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker .
 	@echo "Running hetzner_worker.py in Docker container..."
@@ -173,7 +175,7 @@ hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker containe
 		-v "$(CURDIR)/.env:/app/.env:ro" \
 		-v "$(SSH_KEY_PATH):/app/ssh_key:ro" \
 		-e SSH_KEY_PATH=/app/ssh_key \
-		hetzner-worker-image
+		hetzner-worker-image python vps_workers/hetzner_worker.py $(TEARDOWN_FLAG)
 
 normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
 	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
