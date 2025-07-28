@@ -175,7 +175,7 @@ hetzner-worker: ## Run the Hetzner VPS orchestration script in a Docker containe
 		-v "$(CURDIR)/.env:/app/.env:ro" \
 		-v "$(SSH_KEY_PATH):/app/ssh_key:ro" \
 		-e SSH_KEY_PATH=/app/ssh_key \
-		hetzner-worker-image python vps_workers/hetzner_worker.py $(TEARDOWN_FLAG)
+		hetzner-worker-image python hetzner_worker.py $(TEARDOWN_FLAG)
 
 normalize-golden-records: ## Orchestrate golden record creation. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini [NUM_WORKERS=N] [BATCH_SIZE=M]
 	@if [ -z "$(NORMALIZER_TYPE)" ]; then echo "Error: NORMALIZER_TYPE is required. Usage: make normalize-golden-records NORMALIZER_TYPE=gemini|grok EMBEDDER_TYPE=gemini"; exit 1; fi
