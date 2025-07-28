@@ -16,11 +16,12 @@ export PGPASSWORD="${POSTGRES_PASSWORD}"
 BACKUP_DIR="/backups"
 
 # Timestamp for the backup file
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+# If a timestamp is provided as an argument, use it; otherwise, generate a new one.
+TIMESTAMP=${1:-$(date +%Y%m%d_%H%M%S)}
 
 # Temporary file path in /tmp, which is usually writable
 TEMP_BACKUP_FILE="/tmp/full_db_${TIMESTAMP}.sql.gz"
-FINAL_BACKUP_FILE="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
+# FINAL_BACKUP_FILE="${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz" # No longer needed as mv is removed
 
 echo "Starting full database dump to ${TEMP_BACKUP_FILE}..."
 
