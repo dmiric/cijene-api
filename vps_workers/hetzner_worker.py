@@ -8,6 +8,7 @@ import paramiko
 import time
 import os
 import sys
+import argparse # Added for command-line argument parsing
 from dotenv import load_dotenv
 import requests
 from datetime import date
@@ -227,6 +228,11 @@ def main():
     Checks if a job needs to be run, provisions a server, sets it up,
     runs the jobs, and then de-provisions the server.
     """
+    # --- 0. Parse command-line arguments ---
+    parser = argparse.ArgumentParser(description="Hetzner VPS worker for data ingestion.")
+    parser.add_argument("--no-teardown", action="store_true", help="Do not tear down the server after job completion.")
+    args = parser.parse_args()
+
     server = None
     try:
         # --- 1. Validate environment variables ---
@@ -378,8 +384,8 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     finally:
-        # --- 9. Clean up and de-provision the server ---
-        if server:
+        # --- 9. Clean up and de-provision the server (if --no-teardown is not set) ---
+        if server and not args.no_teardown:
             print(f"--- Teardown: Deleting server '{SERVER_NAME}' (ID: {server.id}) ---")
             try:
                 server_to_delete = client.servers.get_by_id(server.id)
@@ -424,6 +430,8 @@ def main():
             except Exception as e:
                 print(f"ERROR during server deletion: {e}")
                 print("You may need to check the server status manually in the Hetzner Cloud console.")
+        elif args.no_teardown:
+            print("\n--- Server teardown skipped as --no-teardown flag was set. ---")
 
 # --- Script Entry Point ---
 if __name__ == "__main__":

@@ -43,7 +43,7 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Configure Import Cron Job
+    - name: Configure Hetzner Worker Cron Job
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -54,7 +54,7 @@ jobs:
           (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
           # Add the new cron job: run every hour from 6 AM to 10 AM UTC
           # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
-          (crontab -l 2>/dev/null; echo "0 6-10 * * * cd /home/dmiric/pricemice && mkdir -p logs && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "0 6-10 * * * cd /home/dmiric/pricemice && mkdir -p logs/hetzner-worker && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for hetzner-worker configured."
 
     - name: Configure Golden Record Orchestrator Cron Job
@@ -68,7 +68,7 @@ jobs:
           (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
           # Add the new cron job: run every hour at the 30-minute mark
           # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for golden-record-orchestrator configured."
 
     - name: Configure Swap Space
@@ -114,7 +114,7 @@ jobs:
           # Remove any existing price-calculation cron jobs to prevent duplicates
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
           # Add the new cron job: run every hour at the 50-minute mark
-          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs && make calculate-prices NUM_WORKERS=1 BATCH_SIZE=1000 >> /home/dmiric/pricemice/logs/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && make calculate-prices NUM_WORKERS=1 BATCH_SIZE=1000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           echo "Cron job for price-calculation configured."
 
     - name: Deploy Application
