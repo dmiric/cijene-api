@@ -212,10 +212,10 @@ endif
 
 ## Database Commands
 dump-tables: ## Dump specified database tables to the db_backups volume and copy to local backups directory
-	docker exec cijene-api-clone-backup-1 find /backups -type f -delete
-	docker exec cijene-api-clone-backup-1 /scripts/backup_tables.sh
+	docker exec pricemice-backup-1 find /backups -type f -delete
+	docker exec pricemice-backup-1 /scripts/backup_tables.sh
 	mkdir -p backups
-	docker cp cijene-api-clone-backup-1:/backups/. ./backups/
+	docker cp pricemice-backup-1:/backups/. ./backups/
 
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
 	$(eval TIMESTAMP := $(shell date +%Y%m%d_%H%M%S))
@@ -230,7 +230,7 @@ dump-database: ## Dump the entire database to a gzipped backup file in the db_ba
 	@echo "Executing dump script inside container..."
 	docker compose exec backup bash /scripts/dump_database.sh $(TIMESTAMP)
 	mkdir -p backups
-	$(eval BACKUP_CONTAINER_NAME := cijene-api-clone-backup-1) # Explicitly define container name
+	$(eval BACKUP_CONTAINER_NAME := pricemice-backup-1) # Explicitly define container name
 	@echo "DEBUG: Using backup container name: $(BACKUP_CONTAINER_NAME)"
 	@echo "Copying dump file from container $(BACKUP_CONTAINER_NAME) to local backups/..."
 	docker cp $(BACKUP_CONTAINER_NAME):/tmp/full_db_$(TIMESTAMP).sql.gz ./backups/full_db_$(TIMESTAMP).sql.gz
@@ -248,7 +248,7 @@ csv-export: ## Export specified database tables to CSV files in the backups/ fol
 
 restore-tables: ## Restore specified database tables from the db_backups volume. Usage: make restore-tables [TIMESTAMP=YYYYMMDD_HHMMSS]
 	@echo "Copying backup files from host's ./backups/ to container's /backups/..."
-	docker cp ./backups/. cijene-api-clone-backup-1:/backups/
+	docker cp ./backups/. pricemice-backup-1:/backups/
 	@echo "Starting database restore..."
 	docker compose exec backup /scripts/restore_tables.sh $(TIMESTAMP)
 

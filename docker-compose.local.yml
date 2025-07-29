@@ -51,6 +51,7 @@ services:
     # This command is still essential to fix the pgpass file permissions.
 
   mailhog:
+    container_name: pricemice-mailhog-1
     # Add MailHog service
     image: mailhog/mailhog
     logging:
