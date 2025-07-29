@@ -439,6 +439,17 @@ upload-database-dump: ## Upload the latest full database dump to the remote serv
 	ssh-add ~/.ssh/github_actions_deploy_key; scp "$(LATEST_DUMP_FILE)" "$(SSH_USER)"@"$(SSH_IP)":/home/"$(SSH_USER)"/pricemice/backups/
 	@echo "Database dump uploaded successfully."
 
+download-database-dump: ## Download the latest full database dump from the remote server. Usage: make download-database-dump [TIMESTAMP=YYYYMMDD_HHMMSS]
+	@echo "Finding latest database dump on remote server..."
+	$(eval REMOTE_DUMP_FILE := $(shell ssh -i $(SSH_KEY_PATH) $(SSH_USER)@$(SSH_IP) "ls -t /home/$(SSH_USER)/pricemice/backups/full_db_$(TIMESTAMP)*.sql.gz 2>/dev/null | head -n 1"))
+	@if [ -z "$(REMOTE_DUMP_FILE)" ]; then \
+		echo "Error: No full database dump found on remote server in /home/$(SSH_USER)/pricemice/backups/. Please ensure a dump exists or provide a TIMESTAMP."; \
+		exit 1; \
+	fi
+	@echo "Downloading $(REMOTE_DUMP_FILE) from $(SSH_USER)@$(SSH_IP) to local backups/..."
+	ssh-add ~/.ssh/github_actions_deploy_key; scp "$(SSH_USER)"@"$(SSH_IP)":"$(REMOTE_DUMP_FILE)" ./backups/
+	@echo "Database dump downloaded successfully to local backups/."
+
 gpush: ## Add all changes, commit with a message, and push to the remote repository. Usage: make gpush M="Your commit message"
 	@if [ -z "$(M)" ]; then echo "Error: M is required. Usage: make gpush M=\"Your commit message\""; exit 1; fi
 	git add .

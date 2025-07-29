@@ -144,7 +144,9 @@ class GoldenProductRepository(BaseRepository):
                                 'best_price_30', NULL, 'anchor_price', NULL, 'is_on_special_offer', gpr.is_on_special_offer
                             ) as price_data
                         FROM g_prices gpr
-                        WHERE gpr.product_id = gp.id AND gpr.store_id = ANY(${param_counter + 2})
+                        WHERE gpr.product_id = gp.id
+                          AND gpr.store_id = ANY(${param_counter + 2})
+                          AND gpr.price_date = (SELECT MAX(price_date) FROM g_prices WHERE product_id = gpr.product_id AND store_id = gpr.store_id)
                     ) AS prices
                 ) AS prices_in_stores
             FROM g_products gp

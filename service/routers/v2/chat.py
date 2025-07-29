@@ -39,6 +39,7 @@ async def event_stream_post(
     session_id = chat_request.session_id or uuid4()
     user_id = context["user_id"]
     debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}")
+    debug_print(f"[chat.py] Chat request details: message_text='{chat_request.message_text}', location_info={chat_request.location_info}")
     
     orchestrator = ChatOrchestrator(
         user_id=user_id,
