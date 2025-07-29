@@ -219,9 +219,21 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
 	$(eval TIMESTAMP := $(shell date +%Y%m%d_%H%M%S))
+	@echo "Ensuring backup service is running..."
+	docker compose up -d backup
+	# Add a short delay to ensure the container is fully up
+	sleep 5
+	@echo "Checking backup service logs for startup issues..."
+	docker compose logs backup
+	@echo "Listing all Docker containers for debugging..."
+	docker ps -a
+	@echo "Executing dump script inside container..."
 	docker compose exec backup bash /scripts/dump_database.sh $(TIMESTAMP)
 	mkdir -p backups
-	docker cp cijene-api-clone-backup-1:/tmp/full_db_$(TIMESTAMP).sql.gz ./backups/full_db_$(TIMESTAMP).sql.gz
+	$(eval BACKUP_CONTAINER_NAME := cijene-api-clone-backup-1) # Explicitly define container name
+	@echo "DEBUG: Using backup container name: $(BACKUP_CONTAINER_NAME)"
+	@echo "Copying dump file from container $(BACKUP_CONTAINER_NAME) to local backups/..."
+	docker cp $(BACKUP_CONTAINER_NAME):/tmp/full_db_$(TIMESTAMP).sql.gz ./backups/full_db_$(TIMESTAMP).sql.gz
 
 csv-export: ## Export specified database tables to CSV files in the backups/ folder
 	@mkdir -p backups
