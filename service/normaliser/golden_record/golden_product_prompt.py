@@ -21,7 +21,7 @@ You will be given an array of raw product names, along with aggregated brands, c
     Prioritize categories from the `categories` input array if consistent and present in the available list.
 5.  **Create a `variants` array.** This is a critical step.
     *   If the product is a single item (e.g., "150g" or "1.5l"), the array should contain one object.
-    *   If it is a multi-pack (e.g., "4x100g"), the array should contain one object representing the total (e.g., `{"unit": "g", "value": 400, "piece_count": 4}`).
+    *   If it is a multi-pack (e.g., "4x100g"), the array should contain one object representing the total (e.g., `{{"unit": "g", "value": 400, "piece_count": 4}}`).
     *   If it is an **assortment of different sizes** (e.g., "270g, 276g, 300g"), create multiple objects in the array, one for each variant.
     *   Each object in the array must contain `unit` ('g', 'ml', 'kom') and `value` (an integer). Use the `units` input array to help determine the unit if not clear from name variations.
 6.  **Based on the variants, determine the product's `base_unit_type`**. This must be one of 'WEIGHT', 'VOLUME', or 'COUNT'.
