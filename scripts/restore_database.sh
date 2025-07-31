@@ -50,7 +50,7 @@ echo "Database '${DB_NAME}' recreated successfully."
 # Now, proceed with pg_restore
 docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | \
 docker compose exec -T --env "PGPASSWORD=${DB_PASSWORD}" db \
-  pg_restore --clean --no-owner --no-privileges \
+  pg_restore --no-owner --no-privileges \
              --username "${DB_USER}" \
              --dbname "${DB_NAME}" \
              --host "${DB_HOST}" \

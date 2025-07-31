@@ -11,7 +11,7 @@ services:
       - ./.env
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./service/db/psql.sql:/docker-entrypoint-initdb.d/init.sql
+      # - ./service/db/psql.sql:/docker-entrypoint-initdb.d/init.sql # Commented out to prevent automatic schema creation on startup
       - ./docker/db/init-croatian-fts.sh:/docker-entrypoint-initdb.d/init-croatian-fts.sh
       - ./docker/db/croatian.stop:/usr/share/postgresql/16/tsearch_data/croatian.stop
     healthcheck:

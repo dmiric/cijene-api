@@ -37,7 +37,7 @@ help: ## Display this help message
 	@grep -E '^(## .*$$|[a-zA-Z_-]+:.*?## .*$$)' $(MAKEFILE_LIST) | sort | sed -E 's/^(## .*)$$/\x1b[33m\1\x1b[0m\n/;s/^(.*?):.*?## (.*)$$/\x1b[36m\1\x1b[0m              \2/'
 
 ## Brand new start:
-## For development use make dev-fresh-start
+## For development use make dev-csv-start
 ## make rebuild-everything
 ## make migrate-db
 ## make crawl
@@ -106,35 +106,12 @@ dev-csv-start: ## Perform a fast fresh start for development, using sample data 
 dev-fresh-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
 
+	@echo "Import last db dump"
+	$(MAKE) restore-database
+
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db
-
-# 	@echo "Checking for existing crawled data..."
-# 	@if [ ! -f "./output/$(DATE).zip" ]; then \
-# 		echo "No existing zip found. Running sample crawl for lidl, kaufland, spar..."; \
-# 		$(MAKE) crawl --chain boso,eurospin,lidl,kaufland; \
-# 	else \
-# 		echo "Existing zip found: ./output/$(DATE).zip"; \
-# 	fi
-
-	@echo "Crawl data"
-	$(MAKE) crawl CHAIN=boso,eurospin,lidl,kaufland,roto
-
-	@echo "Importing data..."
-	$(MAKE) import-data
-
-#	@echo "Enriching data..."
-#	$(MAKE) enrich-data
-
-#	@echo "Normalizing data..."
-#	$(MAKE) normalize-data-grok
-
-#	@echo "Geocoding stores..."
-#	$(MAKE) geocode-stores
-
-	@echo "Enriching users and user locations from backups..."
-	$(MAKE) enrich CSV_FILE=./backups/users.csv TYPE=all-user-data USER_LOCATIONS_CSV_FILE=./backups/user_locations.csv
-
+	
 	@echo "Development fresh start completed."
 
 docker-prune: ## Stop all containers and perform a deep clean of the Docker system.
