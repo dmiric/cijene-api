@@ -78,6 +78,10 @@ def normalize_product_with_ai(
         )
         
         normalized_data = json.loads(response.choices[0].message.content)
+        print(f"DEBUG: AI Request Payload: {json.dumps(input_data, indent=2)}")
+        print(f"DEBUG: AI Raw Response: {response.choices[0].message.content}")
+        
+        normalized_data = json.loads(response.choices[0].message.content)
         print(f"Received normalized data from Grok-3-mini: {normalized_data}")
 
         return normalized_data

@@ -45,22 +45,22 @@ You will be given an array of raw product names, along with aggregated brands, c
 **Provide the final output as a single, clean JSON object with the following structure. Do not add any text or explanation outside of the JSON object.**
 
 ```json
-{
+{{
   "canonical_name": "string",
   "brand": "string | null",
   "category": "string",
   "base_unit_type": "string",
   "variants": [
-    {
+    {{
       "unit": "string",
       "value": "integer",
       "piece_count": "integer | null"
-    }
+    }}
   ],
   "text_for_embedding": "string",
   "keywords": ["string"],
   "is_generic_product": "boolean",
   "seasonal_start_month": "integer | null",
   "seasonal_end_month": "integer | null"
-}
+}}
 """
