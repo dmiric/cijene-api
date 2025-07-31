@@ -151,7 +151,7 @@ class GoldenProductRepository(BaseRepository):
                     ) AS prices
                 ) AS prices_in_stores
             FROM g_products gp
-            LEFT JOIN categories c ON gp.category_id = c.id -- Join with categories table
+            LEFT JOIN g_categories c ON gp.category_id = c.id -- Join with g_categories table
             WHERE gp.id IN (SELECT id FROM sorted_product_ids)
             ORDER BY (
                 SELECT {sort_by_column} FROM products_with_metrics WHERE products_with_metrics.id = gp.id
@@ -202,7 +202,7 @@ class GoldenProductRepository(BaseRepository):
                     gpr.is_on_special_offer
                 FROM g_prices gpr
                 JOIN g_products gp ON gpr.product_id = gp.id
-                LEFT JOIN categories cat ON gp.category_id = cat.id -- Join with categories table
+                LEFT JOIN g_categories cat ON gp.category_id = cat.id -- Join with g_categories table
                 JOIN stores gs ON gpr.store_id = gs.id
                 JOIN chains c ON gs.chain_id = c.id -- Joined chains table
                 WHERE gpr.product_id = $1
@@ -233,7 +233,7 @@ class GoldenProductRepository(BaseRepository):
                    gp.seasonal_start_month, gp.seasonal_end_month, gp.embedding,
                    gp.created_at, gp.updated_at
             FROM g_products gp
-            LEFT JOIN categories cat ON gp.category_id = cat.id
+            LEFT JOIN g_categories cat ON gp.category_id = cat.id
             WHERE gp.ean = $1
         """
         async with self._get_conn() as conn:
@@ -305,7 +305,7 @@ class GoldenProductRepository(BaseRepository):
         
         # Add join for categories if category is selected
         if "category" in fields_to_select:
-            join_clause += " LEFT JOIN categories cat ON gp.category_id = cat.id"
+            join_clause += " LEFT JOIN g_categories cat ON gp.category_id = cat.id"
 
 
         query = f"""
@@ -470,7 +470,7 @@ class GoldenProductRepository(BaseRepository):
                     gpbo.best_price_found_at
                 FROM g_products gp
                 JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
-                LEFT JOIN categories cat ON gp.category_id = cat.id -- Join with categories table
+                LEFT JOIN g_categories cat ON gp.category_id = cat.id -- Join with g_categories table
                 WHERE
                     gp.is_generic_product = TRUE
                     AND gp.canonical_name ILIKE $1

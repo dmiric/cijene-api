@@ -87,7 +87,7 @@ def calculate_unit_prices(
 
 def get_category_id_by_name(cur: PgCursor, category_name: str) -> Optional[int]:
     """Retrieves the ID of an existing category by its name."""
-    cur.execute("SELECT id FROM categories WHERE name = %s", (category_name,))
+    cur.execute("SELECT id FROM g_categories WHERE name = %s", (category_name,))
     result = cur.fetchone()
     return result['id'] if result else None
 
@@ -97,7 +97,7 @@ def create_category_if_not_exists(cur: PgCursor, category_name: str) -> int:
     Handles concurrent inserts using ON CONFLICT.
     """
     cur.execute("""
-        INSERT INTO categories (name) VALUES (%s)
+        INSERT INTO g_categories (name) VALUES (%s)
         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name -- No-op update to return id
         RETURNING id
     """, (category_name,))
