@@ -10,7 +10,7 @@ from service.utils.timing import timing_decorator # Import the decorator
 from service.db.base import BaseRepository
 from service.db.models import (
     GProduct, GProductWithId, GPrice, GStore, GStoreWithId, GProductBestOffer,
-    GProductBestOfferWithId, ProductSearchItemV2,
+    GProductBestOfferWithId, ProductSearchItemV2, Category
 )
 from service.db.field_configs import PRODUCT_FULL_FIELDS, PRODUCT_AI_SEARCH_FIELDS, PRODUCT_AI_DETAILS_FIELDS, PRODUCT_DB_SEARCH_FIELDS
 
@@ -124,6 +124,7 @@ class GoldenProductRepository(BaseRepository):
             -- Step 3: Fetch the full data for only the final, filtered, sorted, and limited set of product IDs.
             SELECT
                 gp.*,
+                c.name AS category_name, -- Fetch category name
                 (
                     SELECT jsonb_agg(prices.price_data)
                     FROM (
@@ -150,6 +151,7 @@ class GoldenProductRepository(BaseRepository):
                     ) AS prices
                 ) AS prices_in_stores
             FROM g_products gp
+            LEFT JOIN categories c ON gp.category_id = c.id -- Join with categories table
             WHERE gp.id IN (SELECT id FROM sorted_product_ids)
             ORDER BY (
                 SELECT {sort_by_column} FROM products_with_metrics WHERE products_with_metrics.id = gp.id
@@ -166,6 +168,8 @@ class GoldenProductRepository(BaseRepository):
             for r in results:
                 if r.get('prices_in_stores') is None:
                     r['prices_in_stores'] = []
+                # Populate the 'category' field from 'category_name'
+                r['category'] = r.pop('category_name', None)
             return results
     
     #this is being used to search products without stores
@@ -183,6 +187,7 @@ class GoldenProductRepository(BaseRepository):
                     gp.id AS product_id,
                     gp.canonical_name AS product_name,
                     gp.brand AS product_brand,
+                    cat.name AS category_name, -- Added category name
                     gs.id AS store_id,
                     gs.code AS store_code,
                     gs.address AS store_address,
@@ -197,6 +202,7 @@ class GoldenProductRepository(BaseRepository):
                     gpr.is_on_special_offer
                 FROM g_prices gpr
                 JOIN g_products gp ON gpr.product_id = gp.id
+                LEFT JOIN categories cat ON gp.category_id = cat.id -- Join with categories table
                 JOIN stores gs ON gpr.store_id = gs.id
                 JOIN chains c ON gs.chain_id = c.id -- Joined chains table
                 WHERE gpr.product_id = $1
@@ -211,7 +217,7 @@ class GoldenProductRepository(BaseRepository):
 
             query += " ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC"
 
-            self.debug_print(f"get_g_product_prices_by_location: Executing Query!!")
+            self.debug_print(f"get_g_product_prices_by_location: Executing Query!!!")
             self.debug_print(f"get_g_product_prices_by_location: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
@@ -222,12 +228,13 @@ class GoldenProductRepository(BaseRepository):
         """
         self.debug_print(f"get_g_product_by_ean: ean={ean}")
         query = """
-            SELECT id, ean, canonical_name, brand, category, base_unit_type,
-                   variants, text_for_embedding, keywords, is_generic_product,
-                   seasonal_start_month, seasonal_end_month, embedding,
-                   created_at, updated_at
-            FROM g_products
-            WHERE ean = $1
+            SELECT gp.id, gp.ean, gp.canonical_name, gp.brand, gp.category_id, cat.name AS category_name, gp.base_unit_type,
+                   gp.variants, gp.text_for_embedding, gp.keywords, gp.is_generic_product,
+                   gp.seasonal_start_month, gp.seasonal_end_month, gp.embedding,
+                   gp.created_at, gp.updated_at
+            FROM g_products gp
+            LEFT JOIN categories cat ON gp.category_id = cat.id
+            WHERE gp.ean = $1
         """
         async with self._get_conn() as conn:
             row = await conn.fetchrow(query, ean)
@@ -239,6 +246,11 @@ class GoldenProductRepository(BaseRepository):
                     except json.JSONDecodeError:
                         self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
                         row_dict["embedding"] = None
+                
+                # Create Category object and assign to GProductWithId
+                category_data = {"id": row_dict.pop("category_id"), "name": row_dict.pop("category_name")}
+                row_dict["category"] = Category(**category_data)
+                
                 return GProductWithId(**row_dict)
             return None
 
@@ -279,6 +291,8 @@ class GoldenProductRepository(BaseRepository):
             # Remove regular_price and special_price from here, as they belong to g_prices
             elif field in ["regular_price", "special_price"]:
                 continue # Skip these fields
+            elif field == "category": # Handle category specifically
+                select_parts.append("cat.name AS category")
             else:
                 select_parts.append(f"gp.{field}") # Direct mapping for other fields
 
@@ -288,6 +302,11 @@ class GoldenProductRepository(BaseRepository):
         # Add join for best offers if selecting best offer fields
         if any(f.startswith('best_unit_price_') for f in fields_to_select):
             join_clause = "LEFT JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id"
+        
+        # Add join for categories if category is selected
+        if "category" in fields_to_select:
+            join_clause += " LEFT JOIN categories cat ON gp.category_id = cat.id"
+
 
         query = f"""
             SELECT {select_clause}
@@ -325,7 +344,7 @@ class GoldenProductRepository(BaseRepository):
                 p.ean, # Added ean
                 p.canonical_name,
                 p.brand,
-                p.category,
+                p.category_id, # Changed to category_id
                 p.text_for_embedding,
                 p.base_unit_type,
                 json.dumps(p.variants) if p.variants is not None else None, # Convert to JSON string
@@ -345,7 +364,7 @@ class GoldenProductRepository(BaseRepository):
                 records=records,
                 columns=[
                     'ean',
-                    'canonical_name', 'brand', 'category', 'text_for_embedding',
+                    'canonical_name', 'brand', 'category_id', 'text_for_embedding', # Changed to category_id
                     'base_unit_type', 'variants', 'keywords', 'is_generic_product',
                     'seasonal_start_month', 'seasonal_end_month', 'embedding'
                 ]
@@ -437,7 +456,7 @@ class GoldenProductRepository(BaseRepository):
                 SELECT
                     gp.id AS product_id,
                     gp.canonical_name,
-                    gp.category,
+                    cat.name AS category, -- Fetch category name
                     gp.brand,
                     gp.base_unit_type,
                     gp.variants,
@@ -451,10 +470,11 @@ class GoldenProductRepository(BaseRepository):
                     gpbo.best_price_found_at
                 FROM g_products gp
                 JOIN g_product_best_offers gpbo ON gp.id = gpbo.product_id
+                LEFT JOIN categories cat ON gp.category_id = cat.id -- Join with categories table
                 WHERE
                     gp.is_generic_product = TRUE
                     AND gp.canonical_name ILIKE $1
-                    AND gp.category ILIKE $2
+                    AND cat.name ILIKE $2 -- Filter by category name
                     AND gp.seasonal_start_month IS NOT NULL
                     AND gp.seasonal_end_month IS NOT NULL
                     AND (

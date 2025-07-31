@@ -18,12 +18,15 @@ from service.utils.timing import debug_print
 from .ai_schemas import LocationInfo # Add this import
 
 class ChatOrchestrator:
-    def __init__(self, user_id: UUID, session_id: UUID, db: Database, system_instructions: list[str], location_info: Optional[LocationInfo] = None):
+    def __init__(self, user_id: UUID, session_id: UUID, db: Database, system_instructions: list[str], 
+                 location_info: Optional[LocationInfo] = None, ignore_session_history: bool = True, history_limit: int = 20):
         self.user_id = user_id
         self.session_id = session_id
         self.db = db
         self.system_instructions = system_instructions
-        self.location_info = location_info # Store location_info
+        self.location_info = location_info
+        self.ignore_session_history = ignore_session_history
+        self.history_limit = history_limit
         self.ai_provider: AbstractAIProvider = get_ai_provider(
             db=self.db, user_id=self.user_id, session_id=self.session_id
         )
@@ -42,8 +45,8 @@ class ChatOrchestrator:
             loc_dict = {
                 "latitude": self.location_info.latitude,
                 "longitude": self.location_info.longitude,
-                "id": self.location_info.locationId if self.location_info.locationId else None, # Changed to int
-                "is_current_location": True # Mark this as the current location from the request
+                "id": self.location_info.locationId if self.location_info.locationId else None,
+                "is_current_location": True
             }
             locations_to_process.append(loc_dict)
             print(f"!!! ORCHESTRATOR: Using location from chat request: {loc_dict}", file=sys.stderr, flush=True)
@@ -68,7 +71,7 @@ class ChatOrchestrator:
                 nearby_stores = await self.db.stores.get_stores_within_radius(
                     lat=latitude,
                     lon=longitude,
-                    radius_meters=1500 # Default to 1.5 km radius
+                    radius_meters=1500
                 )
                 loc_dict["nearby_stores"] = nearby_stores
             else:
@@ -79,8 +82,12 @@ class ChatOrchestrator:
     
     async def _load_history(self):
         print("!!! ORCHESTRATOR: Loading history...", file=sys.stderr, flush=True)
-        self.history = await self.db.chat.get_chat_messages(self.user_id, self.session_id)
-        print(f"!!! ORCHESTRATOR: Loaded {len(self.history)} messages from DB.", file=sys.stderr, flush=True)
+        if self.ignore_session_history:
+            self.history = await self.db.chat.get_latest_chat_messages(self.user_id, self.history_limit)
+            print(f"!!! ORCHESTRATOR: Loaded {len(self.history)} latest messages for user {self.user_id} from DB.", file=sys.stderr, flush=True)
+        else:
+            self.history = await self.db.chat.get_chat_messages_by_session(self.user_id, self.session_id)
+            print(f"!!! ORCHESTRATOR: Loaded {len(self.history)} messages for session {self.session_id} from DB.", file=sys.stderr, flush=True)
 
 
     async def _add_and_save_message(self, message: ChatMessage):
@@ -114,19 +121,6 @@ class ChatOrchestrator:
                 "Koristi popis trgovina za multi_search_tool."
             )
         
-        # The location_info is already handled by _get_location_context_with_nearby_stores,
-        # so we remove the separate handling here to avoid duplication.
-        # if self.location_info:
-        #     location_data = {
-        #         "latitude": self.location_info.latitude,
-        #         "longitude": self.location_info.longitude,
-        #         "locationId": str(self.location_info.locationId) if self.location_info.locationId else None
-        #     }
-        #     self.system_instructions.append(
-        #         "Trenutna lokacija korisnika: " + json.dumps(location_data) +
-        #         "Koristi ovu lokaciju za pretragu obližnjih trgovina ako je potrebno."
-        #     )
-
         # --- 2. Make a Single API Call with Tools Enabled ---
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history)
         
@@ -149,8 +143,6 @@ class ChatOrchestrator:
         if tool_calls_this_turn:
             # PATH A: TOOL USE - Execute the tool and we are DONE.
             debug_print("[Orchestrator] Tool call detected. Executing tool and ending request.")
-            # We don't send tool_calls to chat.
-            # yield StreamedPart(type="tool_call", content=tool_calls_this_turn).to_sse()
 
             model_request_message = ChatMessage(
                 id=uuid4(), 

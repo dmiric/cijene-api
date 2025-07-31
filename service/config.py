@@ -50,6 +50,7 @@ class Settings:
         # AI Models
         self.gemini_text_model: str = os.getenv("GEMINI_TEXT_MODEL")
         self.max_tool_calls: int = int(os.getenv("MAX_TOOL_CALLS", "10"))
+        self.chat_history_message_limit: int = int(os.getenv("CHAT_HISTORY_MESSAGE_LIMIT", "20"))
 
     def get_db(self) -> "Database":
         """

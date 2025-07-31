@@ -14,7 +14,9 @@ from dotenv import load_dotenv
 from service.normaliser.db_utils import (
     get_db_connection,
     create_golden_record,
-    mark_chain_products_as_processed
+    mark_chain_products_as_processed,
+    get_category_id_by_name, # Import new function
+    create_category_if_not_exists # Import new function
 )
 
 # Import EAN filter list
@@ -111,13 +113,24 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
                             print(f"Skipping EAN {ean}: AI normalization failed.")
                             continue
 
+                        # Get or create category ID
+                        category_name = normalized_data.get('category')
+                        if category_name:
+                            category_id = get_category_id_by_name(product_cur, category_name)
+                            if not category_id:
+                                category_id = create_category_if_not_exists(product_cur, category_name)
+                                conn.commit() # Commit category creation immediately
+                                print(f"Created new category: {category_name} with ID {category_id}")
+                        else:
+                            category_id = None # Handle cases where category might be missing
+
                         embedding = get_embedding(normalized_data['text_for_embedding'], embedder_type)
                         if not embedding:
                             print(f"Skipping EAN {ean}: Embedding generation failed.")
                             continue
 
                         # Load (Golden Record)
-                        g_product_id = create_golden_record(product_cur, ean, normalized_data, embedding)
+                        g_product_id = create_golden_record(product_cur, ean, normalized_data, embedding, category_id)
                         if not g_product_id:
                             # If create_golden_record returned None, it means the record already exists (due to ON CONFLICT DO NOTHING)
                             # or some other issue. Skip this EAN and continue.

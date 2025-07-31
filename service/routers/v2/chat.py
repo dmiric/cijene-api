@@ -38,7 +38,7 @@ async def event_stream_post(
     """Handles a new or continuing chat conversation via POST."""
     session_id = chat_request.session_id or uuid4()
     user_id = context["user_id"]
-    debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}")
+    debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}, ignore_session_history: {chat_request.ignore_session_history}")
     debug_print(f"[chat.py] Chat request details: message_text='{chat_request.message_text}', location_info={chat_request.location_info}")
     
     orchestrator = ChatOrchestrator(
@@ -46,7 +46,9 @@ async def event_stream_post(
         session_id=session_id,
         db=db,
         system_instructions=context["system_instructions"],
-        location_info=chat_request.location_info
+        location_info=chat_request.location_info,
+        ignore_session_history=chat_request.ignore_session_history,
+        history_limit=get_settings().chat_history_message_limit
     )
     
     generator = orchestrator.stream_response(chat_request.message_text)

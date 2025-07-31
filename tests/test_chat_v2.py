@@ -186,3 +186,117 @@ async def test_single_chat_query(authenticated_client: httpx.AsyncClient, initia
         print(f"\n  [SUCCESS] Correctly received text response: \"{full_text_response}\"")
     
     print(f"--- Test completed successfully for query: '{query_to_test}' ---")
+
+@pytest.mark.timeout(60)
+@pytest.mark.asyncio
+async def test_chat_history_modes(authenticated_client: httpx.AsyncClient, db_connection):
+    """
+    Tests the chat history retrieval based on session_id and ignore_session_history flag.
+    """
+    user_id_from_db = await db_connection.fetchval("SELECT user_id FROM user_personal_data WHERE email = $1", TEST_USER_EMAIL)
+    
+    print("\n--- TESTING CHAT HISTORY MODES ---")
+
+    # 1. Populate history with messages across different "sessions"
+    # Message 1 (Session 1)
+    payload_1_1 = {"message_text": "My favorite fruit is apple."}
+    session_id_1 = None
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_1_1, timeout=40.0) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            decoded_chunk = chunk.decode("utf-8")
+            for line in decoded_chunk.splitlines():
+                if line.startswith("data:"):
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data.get("type") == "end":
+                        session_id_1 = UUID(event_data["content"]["session_id"])
+                        print(f"  [INFO] Session 1 ID: {session_id_1}")
+    assert session_id_1 is not None, "Session ID 1 not received."
+
+    # Message 2 (Session 1)
+    payload_1_2 = {"session_id": str(session_id_1), "message_text": "I also like bananas."}
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_1_2, timeout=40.0) as response:
+        response.raise_for_status()
+        # Consume stream to ensure message is processed
+        async for _ in response.aiter_bytes(): pass
+
+    # Message 3 (Session 2 - new session)
+    payload_2_1 = {"message_text": "My favorite color is blue."}
+    session_id_2 = None
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_2_1, timeout=40.0) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            decoded_chunk = chunk.decode("utf-8")
+            for line in decoded_chunk.splitlines():
+                if line.startswith("data:"):
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data.get("type") == "end":
+                        session_id_2 = UUID(event_data["content"]["session_id"])
+                        print(f"  [INFO] Session 2 ID: {session_id_2}")
+    assert session_id_2 is not None, "Session ID 2 not received."
+
+    # Message 4 (Session 2)
+    payload_2_2 = {"session_id": str(session_id_2), "message_text": "I prefer sunny weather."}
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_2_2, timeout=40.0) as response:
+        response.raise_for_status()
+        # Consume stream to ensure message is processed
+        async for _ in response.aiter_bytes(): pass
+
+    # 2. Test ignore_session_history=True (default behavior)
+    print("\n  [TEST] ignore_session_history=True (default)")
+    payload_ignore_session = {"message_text": "What is my favorite fruit?"} # ignore_session_history defaults to True
+    full_text_response_ignore = ""
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_ignore_session, timeout=40.0) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            decoded_chunk = chunk.decode("utf-8")
+            for line in decoded_chunk.splitlines():
+                if line.startswith("data:"):
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data.get("type") == "text":
+                        full_text_response_ignore += event_data["content"]
+    
+    # Assert that the response contains "jabuka" (Croatian for apple) and "banane" (Croatian for bananas)
+    assert "jabuka" in full_text_response_ignore.lower() and "banane" in full_text_response_ignore.lower(), \
+        f"Expected 'jabuka' and 'banane' in response for ignore_session_history=True, got: {full_text_response_ignore}"
+    print(f"  [SUCCESS] ignore_session_history=True: Response contains 'jabuka' and 'banane'. Full response: {full_text_response_ignore}")
+
+    # 3. Test ignore_session_history=False (session-based)
+    print("\n  [TEST] ignore_session_history=False (session-based)")
+
+    # Test with session_id_1: Should know about fruit, not color
+    payload_session_1 = {"session_id": str(session_id_1), "message_text": "What is my favorite color?", "ignore_session_history": False}
+    full_text_response_session_1 = ""
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_session_1, timeout=40.0) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            decoded_chunk = chunk.decode("utf-8")
+            for line in decoded_chunk.splitlines():
+                if line.startswith("data:"):
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data.get("type") == "text":
+                        full_text_response_session_1 += event_data["content"]
+    
+    # The key is that it *should not* mention "plava" (Croatian for blue) if it's strictly session-based on session_id_1.
+    assert "plava" not in full_text_response_session_1.lower(), \
+        f"Expected 'plava' NOT in response for session_id_1, got: {full_text_response_session_1}"
+    print(f"  [SUCCESS] session_id_1 (ignore_session_history=False): Response does NOT contain 'plava'. Full response: {full_text_response_session_1}")
+
+    # Test with session_id_2: Should know about color
+    payload_session_2 = {"session_id": str(session_id_2), "message_text": "What is my favorite color?", "ignore_session_history": False}
+    full_text_response_session_2 = ""
+    async with authenticated_client.stream("POST", "/chat_v2", json=payload_session_2, timeout=40.0) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            decoded_chunk = chunk.decode("utf-8")
+            for line in decoded_chunk.splitlines():
+                if line.startswith("data:"):
+                    event_data = json.loads(line[len("data:"):])
+                    if event_data.get("type") == "text":
+                        full_text_response_session_2 += event_data["content"]
+    
+    assert "plava" in full_text_response_session_2.lower(), \
+        f"Expected 'plava' in response for session_id_2, got: {full_text_response_session_2}"
+    print(f"  [SUCCESS] session_id_2 (ignore_session_history=False): Response contains 'plava'. Full response: {full_text_response_session_2}")
+
+    print("\n--- All chat history mode tests completed successfully ---")

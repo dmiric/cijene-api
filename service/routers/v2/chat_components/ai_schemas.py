@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[UUID] = Field(None, description="Optional: UUID of the chat session to continue. If not provided, a new session will be started.")
     message_text: str = Field(..., description="The user's message.")
     location_info: Optional[LocationInfo] = Field(None, description="Optional: Information about the user's location.")
+    ignore_session_history: Optional[bool] = Field(True, description="If true, chat history will ignore session_id and fetch the latest messages for the user. Set to false to use session-based history.")
 
 class ChatMessageResponse(BaseModel):
     id: UUID

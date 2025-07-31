@@ -85,17 +85,36 @@ def calculate_unit_prices(
         "price_per_piece": price_per_piece,
     }
 
+def get_category_id_by_name(cur: PgCursor, category_name: str) -> Optional[int]:
+    """Retrieves the ID of an existing category by its name."""
+    cur.execute("SELECT id FROM categories WHERE name = %s", (category_name,))
+    result = cur.fetchone()
+    return result['id'] if result else None
+
+def create_category_if_not_exists(cur: PgCursor, category_name: str) -> int:
+    """
+    Creates a new category if it doesn't exist and returns its ID.
+    Handles concurrent inserts using ON CONFLICT.
+    """
+    cur.execute("""
+        INSERT INTO categories (name) VALUES (%s)
+        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name -- No-op update to return id
+        RETURNING id
+    """, (category_name,))
+    return cur.fetchone()['id']
+
 def create_golden_record(
     cur: PgCursor,
     ean: str,
     normalized_data: Dict[str, Any],
-    embedding: List[float]
+    embedding: List[float],
+    category_id: int # Changed to category_id
 ) -> Optional[int]:
     """Inserts a new golden record into g_products and returns its ID."""
     try:
         insert_query = """
             INSERT INTO g_products (
-                ean, canonical_name, brand, category, base_unit_type, variants,
+                ean, canonical_name, brand, category_id, base_unit_type, variants,
                 text_for_embedding, keywords, is_generic_product,
                 seasonal_start_month, seasonal_end_month, embedding
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -106,7 +125,7 @@ def create_golden_record(
             ean,
             normalized_data['canonical_name'],
             normalized_data['brand'],
-            normalized_data['category'],
+            category_id, # Use category_id
             normalized_data['base_unit_type'],
             json.dumps(normalized_data['variants']), # Pass variants as a JSON string
             normalized_data['text_for_embedding'],

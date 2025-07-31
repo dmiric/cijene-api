@@ -214,12 +214,21 @@ class StorePrice:
 
 # New G_ models for v2
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Category:
+    id: Optional[int] = None
+    name: str
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CategoryWithId(Category):
+    id: int
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class GProduct:
     id: Optional[int] = None
     ean: str
     canonical_name: str
     brand: Optional[str] = None
-    category: str
+    category_id: Optional[int] = None # Changed to category_id
     base_unit_type: str
     variants: Optional[List[dict]] = None
     text_for_embedding: Optional[str] = None
@@ -230,6 +239,7 @@ class GProduct:
     embedding: Optional[List[float]] = None
     created_at: datetime
     updated_at: datetime
+    category: Optional[Category] = None # Added for joining
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GProductWithId(GProduct):
@@ -309,7 +319,7 @@ class ShoppingListItem(BaseModel):
     product_name: Optional[str] = None
     ean: Optional[str] = None
     brand: Optional[str] = None
-    category: Optional[str] = None
+    category_id: Optional[int] = None # Changed to category_id
     variants: Optional[List[dict]] = None
     is_generic_product: Optional[bool] = None
     seasonal_start_month: Optional[int] = None
@@ -350,6 +360,7 @@ class ShoppingListItem(BaseModel):
     store_lon: Optional[Decimal] = None
     store_phone: Optional[str] = None
     chain_code: Optional[str] = None
+    category: Optional[str] = None # Added for display purposes, will be populated via join
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CrawlRun:
@@ -385,7 +396,7 @@ class ProductSearchItemV2(BaseModel):
     id: int
     name: str
     brand: Optional[str] = None
-    category: Optional[str] = None
+    category_id: Optional[int] = None # Changed to category_id
     description: Optional[str] = None
     image_url: Optional[str] = None
     product_url: Optional[str] = None
@@ -394,3 +405,4 @@ class ProductSearchItemV2(BaseModel):
     embedding: Optional[List[float]] = None
     keywords: Optional[List[str]] = None
     rank: Optional[float] = None
+    category: Optional[str] = None # Added for display purposes, will be populated via join
