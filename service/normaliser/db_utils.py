@@ -103,6 +103,11 @@ def create_category_if_not_exists(cur: PgCursor, category_name: str) -> int:
     """, (category_name,))
     return cur.fetchone()['id']
 
+def get_existing_categories(cur: PgCursor) -> List[str]:
+    """Fetches all existing category names from the g_categories table."""
+    cur.execute("SELECT name FROM g_categories ORDER BY name;")
+    return [row['name'] for row in cur.fetchall()]
+
 def create_golden_record(
     cur: PgCursor,
     ean: str,

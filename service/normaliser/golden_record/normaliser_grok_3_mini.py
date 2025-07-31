@@ -16,7 +16,8 @@ from openai import OpenAI
 from ..db_utils import (
     get_db_connection,
     create_golden_record,
-    mark_chain_products_as_processed
+    mark_chain_products_as_processed,
+    get_existing_categories
 )
 
 # Import EAN filter list
@@ -46,7 +47,13 @@ def normalize_product_with_ai(
     units: list[Optional[str]]
 ) -> Optional[Dict[str, Any]]:
     """Sends product name variations and other aggregated data to the AI and gets a structured JSON response."""
+    conn: Optional[PgConnection] = None
     try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        existing_categories = get_existing_categories(cur)
+        conn.close() # Close connection after fetching categories
+
         # Consolidate lists into a single input for the AI
         input_data = {
             "name_variations": name_variations,
@@ -56,14 +63,14 @@ def normalize_product_with_ai(
         }
 
         full_prompt = [
-            get_ai_normalization_prompt(),
+            get_ai_normalization_prompt(existing_categories), # Pass existing categories
             json.dumps(input_data)
         ]
         
         response = client.chat.completions.create(
             model=grok_text_model_name,
             messages=[
-                {"role": "system", "content": get_ai_normalization_prompt()},
+                {"role": "system", "content": get_ai_normalization_prompt(existing_categories)}, # Pass existing categories
                 {"role": "user", "content": json.dumps(input_data)}
             ],
             temperature=0.7, # Adjust as needed
@@ -79,6 +86,9 @@ def normalize_product_with_ai(
         if hasattr(e, 'response') and hasattr(e.response, 'text'):
             print(f"Grok-3-mini API error response text: {e.response.text}")
         return None
+    finally:
+        if conn:
+            conn.close()
 
 def process_eans_batch(eans_to_process: List[str]) -> None:
     """

@@ -1,10 +1,12 @@
-def get_ai_normalization_prompt() -> str:
+def get_ai_normalization_prompt(existing_categories: list[str]) -> str:
     """
     Returns the master system prompt for the AI. This prompt instructs the AI
     to act as a data normalization engine, handling complex cases like assortments
     and generating all necessary fields for the golden record.
     """
-    return """
+    categories_list_str = ", ".join([f'"{cat}"' for cat in existing_categories])
+    
+    return f"""
 You are an expert data enrichment and normalization AI for a Croatian e-commerce platform. Your primary task is to analyze a list of different name variations for a single product (identified by a common EAN) and create a single, canonical "golden record" in a structured JSON format. This record will be used to power both semantic vector search and keyword-based hybrid search.
 
 You will be given an array of raw product names, along with aggregated brands, categories, and units from the source data. Use all provided information to create the golden record.
@@ -14,7 +16,9 @@ You will be given an array of raw product names, along with aggregated brands, c
 1.  **Analyze all provided name variations** to understand the product's core identity, ignoring retailer-specific formatting like ALL CAPS, extra punctuation, or different word orders.
 2.  **Identify and extract the `brand`**. If no brand is explicitly mentioned, or if the provided brands are inconsistent, return `null`. Prioritize brands from the `brands` input array if consistent.
 3.  **Create a single, user-friendly `canonical_name`** that is clean and suitable for display to customers. For assortments, use a general name like "Product Asortiman". Do NOT include unit measurement or it's value like 350g, 1l and product brand in the canonical_name.
-4.  **Assign a standardized `category`** from a relevant e-commerce taxonomy. Use your knowledge to pick the most appropriate one (e.g., "Mesni naresci i paštete", "Kućanske potrepštine", "Slatkiši i grickalice"). Prioritize categories from the `categories` input array if consistent.
+4.  **Assign a standardized `category`** from the following predefined list. You MUST choose one of these categories. Do NOT create new categories.
+    Available Categories: [{categories_list_str}]
+    Prioritize categories from the `categories` input array if consistent and present in the available list.
 5.  **Create a `variants` array.** This is a critical step.
     *   If the product is a single item (e.g., "150g" or "1.5l"), the array should contain one object.
     *   If it is a multi-pack (e.g., "4x100g"), the array should contain one object representing the total (e.g., `{"unit": "g", "value": 400, "piece_count": 4}`).
