@@ -439,7 +439,11 @@ async def _import_single_chain_data(
         else:
             await _perform_import_logic()
         
-        status = ImportStatus.SUCCESS
+        if total_prices > 0:
+            status = ImportStatus.SUCCESS
+        else:
+            status = ImportStatus.FAILED
+            error_message = "No new prices were imported."
 
     except asyncio.TimeoutError:
         logger.warning(f"Import for chain {chain_name} timed out after {timeout} seconds. Marking as FAILED.")
