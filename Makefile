@@ -73,6 +73,18 @@ rebuild-api: ## Rebuild and restart only the API service
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
+rebuild-metrics: ## Rebuild and restart only the Grafana and Prometheus services
+	@echo "Building and restarting Grafana and Prometheus services. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
+	else \
+		mkdir -p logs; \
+		> $(DOCKER_BUILD_LOG_FILE); \
+	fi
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate grafana prometheus >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+	@echo "Grafana and Prometheus services rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
+	@docker compose ps
+
 rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation. Use EXCLUDE_VOLUMES="vol1,vol2" to preserve volumes.
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes "$(EXCLUDE_VOLUMES)"; \
@@ -108,6 +120,9 @@ dev-fresh-start: ## Perform a fast fresh start for development, using sample dat
 
 	@echo "Import last db dump"
 	$(MAKE) restore-database
+
+	@echo "Applying base schema from psql.sql..."
+	docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -f /app/service/db/psql.sql
 
 	@echo "Applying database migrations..."
 	$(MAKE) migrate-db

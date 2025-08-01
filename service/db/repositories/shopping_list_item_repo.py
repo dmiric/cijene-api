@@ -66,7 +66,7 @@ class ShoppingListItemRepository(BaseRepository):
                 gp.canonical_name AS product_name,
                 gp.ean,
                 gp.brand,
-                gp.category,
+                gp.category_id,
                 gp.variants::jsonb, -- Explicitly cast to jsonb
                 gp.is_generic_product,
                 gp.seasonal_start_month,
@@ -157,7 +157,7 @@ class ShoppingListItemRepository(BaseRepository):
                 gp.canonical_name AS product_name,
                 gp.ean,
                 gp.brand,
-                gp.category,
+                gp.category_id,
                 gp.variants,
                 gp.is_generic_product,
                 gp.seasonal_start_month,

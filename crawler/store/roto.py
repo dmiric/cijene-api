@@ -5,6 +5,7 @@ import logging
 import re
 from typing import NamedTuple
 from urllib.parse import urlparse
+from csv import DictReader # Added DictReader import
 
 from bs4 import BeautifulSoup
 

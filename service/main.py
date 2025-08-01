@@ -5,7 +5,7 @@ import sys # Import sys for stdout
 
 from decimal import Decimal # Import Decimal
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -26,6 +26,7 @@ from service.routers.auth import router as auth_router # New import for authenti
 from service.config import get_settings
 from service.db.base import database_container, get_db_session # Import from base.py
 from service.db.psql import PostgresDatabase # Keep this import for type hinting in settings.get_db()
+from prometheus_client import generate_latest, Counter, Histogram
 
 app = FastAPI(
     title="Cijene API",
@@ -49,6 +50,31 @@ async def shutdown_event():
     """Shutdown event handler to close the database connection."""
     if database_container.db:
         await database_container.db.close()
+
+# Prometheus Metrics
+REQUEST_COUNT = Counter(
+    'http_requests_total', 'Total HTTP Requests',
+    ['method', 'endpoint', 'status_code']
+)
+REQUEST_LATENCY = Histogram(
+    'http_request_duration_seconds', 'HTTP Request Latency',
+    ['method', 'endpoint']
+)
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    endpoint = request.url.path
+    method = request.method
+
+    with REQUEST_LATENCY.labels(method=method, endpoint=endpoint).time():
+        response = await call_next(request)
+    
+    REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=response.status_code).inc()
+    return response
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    return PlainTextResponse(content=generate_latest().decode("utf-8"), media_type="text/plain")
 
 # Custom JSON serializer for Decimal objects
 def json_decimal_encoder(obj):
