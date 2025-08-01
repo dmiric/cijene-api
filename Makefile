@@ -398,6 +398,15 @@ logs-crawler-console: ## Continuously display console output from logs/crawler_c
 		tail -f './logs/crawler_console.log'; \
 	fi
 
+logs-hetzener-worker: ## Open the last log file for the Hetzner worker with nano on the server where this command is run
+	@echo "Opening the latest Hetzner worker log file..."
+	@if [ "$(IS_WINDOWS)" = "true" ]; then \
+		$latestLog = Get-ChildItem -Path 'logs/hetzner-worker' -Filter 'hetzner_worker*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; \
+		if ($latestLog) { nano "$($latestLog.FullName)" } else { echo "No hetzner-worker logs found in logs/hetzner-worker/."; }; \
+	else \
+		cd /home/dmiric/pricemice/logs/hetzner-worker && nano $$(ls -t hetzner-worker-*.log 2>/dev/null | head -n 1); \
+	fi
+
 ## SSH Commands
 hetzner-worker-ssh: ## SSH into the Hetzner worker VPS
 	ssh -i $(SSH_KEY_PATH) root@$(WORKER_PRIMARY_IP)
