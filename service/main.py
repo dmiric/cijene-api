@@ -21,6 +21,7 @@ from service.routers.v2.user_locations import router as v2_user_locations_router
 from service.routers.v2.ai_tools import router as v2_ai_tools_router # New import
 from service.routers.v2.shopping_lists import router as v2_shopping_lists_router # New import
 from service.routers.v2.shopping_list_items import router as v2_shopping_list_items_router # New import
+from service.routers.v2.dashboard import router as v2_dashboard_router # New import for dashboard router
 from service.routers.auth import router as auth_router # New import for authentication router
 from service.config import get_settings
 from service.db.base import database_container, get_db_session # Import from base.py
@@ -78,6 +79,7 @@ app.include_router(v2_user_locations_router, prefix="/v2") # New router
 app.include_router(v2_ai_tools_router, prefix="/v2") # New router
 app.include_router(v2_shopping_lists_router, prefix="/v2")
 app.include_router(v2_shopping_list_items_router, prefix="/v2")
+app.include_router(v2_dashboard_router, prefix="/v2") # Include the new dashboard router
 app.include_router(auth_router, prefix="/auth") # Include the new authentication router
 
 

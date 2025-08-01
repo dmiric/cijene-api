@@ -100,7 +100,7 @@ jobs:
         username: ${{ secrets.SSH_USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          sudo timedatectl set-timezone Europe/Paris
+          sudo timedatectl set-timezone UTC
           sudo timedatectl set-ntp true
           echo "Server time and NTP synchronization configured."
 

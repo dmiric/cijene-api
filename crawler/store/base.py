@@ -146,6 +146,7 @@ class BaseCrawler:
     def parse_price(
         price_str: str | None,
         required: bool = True,
+        column_name: str | None = None,
     ) -> Decimal | None:
         """
         Parse a price string.
@@ -192,7 +193,7 @@ class BaseCrawler:
 
         if not price_str:
             if required:
-                raise ValueError("Price is required")
+                raise ValueError(f"Price is required for column '{column_name}'")
             else:
                 return None
 
@@ -204,9 +205,9 @@ class BaseCrawler:
             # Convert to Decimal and round to 2 decimal places
             return Decimal(price_str).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         except (ValueError, TypeError, InvalidOperation):
-            logger.warning(f"Failed to parse price: {price_str}")
+            logger.warning(f"Failed to parse price: {price_str} for column '{column_name}'")
             if required:
-                raise ValueError(f"Invalid price format: {price_str}")
+                raise ValueError(f"Invalid price format: {price_str} for column '{column_name}'")
             else:
                 return None
 
@@ -269,11 +270,12 @@ class BaseCrawler:
         Parse a single row of CSV data into a Product object.
         """
         data = {}
+        logger.debug(f"Parsing CSV row: {row}")
 
         for field, (column, is_required) in self.PRICE_MAP.items():
             value = row.get(column)
             try:
-                data[field] = self.parse_price(value, is_required)
+                data[field] = self.parse_price(value, is_required, column)
             except ValueError as err:
                 logger.warning(
                     f"Failed to parse {field} from {column}: {err}",
@@ -284,7 +286,7 @@ class BaseCrawler:
         for field, (column, is_required) in self.FIELD_MAP.items():
             value = row.get(column, "").strip()
             if not value and is_required:
-                raise ValueError(f"Missing required field: {field}")
+                raise ValueError(f"Missing required field: {field} (column: {column})")
             data[field] = value
 
         data = self.fix_product_data(data)
