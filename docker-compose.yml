@@ -85,12 +85,14 @@ services:
       - "9091:9091"
     command:
       - '--web.listen-address=:9091'
+    networks:
+      - monitoring-network
 
   prometheus:
     container_name: pricemice-prometheus-1
     image: prom/prometheus:latest
     ports:
-      - "127.0.0.1:9090:9090"
+      - "9090:9090"
     volumes:
       - ./prometheus:/etc/prometheus
     command:
@@ -98,6 +100,8 @@ services:
     depends_on:
       - api
       - pushgateway # Added dependency on pushgateway
+    networks:
+      - monitoring-network
 
   grafana:
     container_name: pricemice-grafana-1

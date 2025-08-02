@@ -9,38 +9,60 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
-  - job_name: dockerlogs
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          __path__: /var/lib/docker/containers/*/*log
-    pipeline_stages:
-      - docker: {}
-      - drop:
-          source: "__meta_docker_container_name"
-          expression: "/promtail|loki|grafana|prometheus|pushgateway|db|pgadmin|backup|api/" # Add api to drop list for this job
-    relabel_configs:
-      - source_labels: ["__meta_docker_container_name"]
-        target_label: "container_name"
-      - source_labels: ["__meta_docker_container_id"]
-        target_label: "container_id"
+  - job_name: docker
 
-  - job_name: api-logs # This job name will be overridden by relabel_configs
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          __path__: /var/lib/docker/containers/*/*log
+    # ADD THIS PIPELINE
     pipeline_stages:
+      # Stage 1: Get the log stream from the Docker daemon.
       - docker: {}
+
+      # Stage 2: Parse the JSON wrapper from the Docker log driver.
+      #          We extract the actual log message into an internal field named 'output'.
+      - json:
+          expressions:
+            output: log
+
+      # Stage 3: We overwrite the original log line with ONLY the content
+      #          of the 'output' field. This will show us in Grafana
+      #          exactly what the logfmt parser would receive.
+      - output:
+          source: output
+
+    # Use Docker Service Discovery instead of static_configs
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        # If you only want to scrape containers on the same host as Promtail,
+        # you can add a filter. This is often a good idea.
+        # filters:
+        #  - name: label
+        #    values: ["logging=promtail"]
+
     relabel_configs:
-      - source_labels: ["__meta_docker_container_name"]
-        regex: "^pricemice-api-1$"
-        action: keep
-      - source_labels: ["__meta_docker_container_name"]
-        target_label: "job" # Set job label to container name
-      - source_labels: ["__meta_docker_container_name"]
-        target_label: "container_name"
-      - source_labels: ["__meta_docker_container_id"]
-        target_label: "container_id"
+      # --- Stage 1: Filter out containers we don't want to scrape ---
+
+      # Drop Promtail, Loki, and other infra containers by name
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(promtail|loki|grafana|prometheus|pushgateway|db|pgadmin|backup)'
+        action: drop
+
+      # --- Stage 2: Set the job label for the special 'api' container ---
+
+      # For the api container, change the job label from "docker" to its container name.
+      # This rule must come BEFORE the generic label mapping.
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(pricemice-api-1)' # Match the specific container name
+        target_label: 'job'
+        replacement: '${1}' # Use the matched name as the job label
+
+      # --- Stage 3: Map Docker metadata to Loki labels for ALL remaining containers ---
+
+      # Copy the container name to a "container" label
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+        replacement: '${1}'
+
+      # Copy the container id to a "container_id" label
+      - source_labels: ['__meta_docker_container_id']
+        target_label: 'container_id'
