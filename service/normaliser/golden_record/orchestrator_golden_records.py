@@ -38,7 +38,7 @@ def get_min_max_product_ids() -> Optional[tuple[int, int]]:
         if conn:
             conn.close()
 
-def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: int):
+def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: int, pushgateway_url: str): # Added pushgateway_url
     """
     Runs a single golden record creator worker process.
     """
@@ -49,13 +49,14 @@ def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: i
         "--normalizer-type", normalizer_type.replace('-', '_'),
         "--embedder-type", embedder_type,
         "--start-id", str(start_id),
-        "--limit", str(limit)
+        "--limit", str(limit),
+        "--pushgateway-url", pushgateway_url # Pass pushgateway_url
     ]
     print(f"Launching worker: {' '.join(command)}")
     process = subprocess.Popen(command, stdout=sys.stdout, stderr=sys.stderr)
     return process
 
-def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_workers: int, batch_size: int, max_products_to_do: Optional[int] = None):
+def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_workers: int, batch_size: int, max_products_to_do: Optional[int] = None, pushgateway_url: str = "http://pushgateway:9091"): # Added pushgateway_url with default
     """
     Orchestrates the golden record creation phase by distributing product ID ranges to multiple workers.
     """
@@ -89,7 +90,7 @@ def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_wor
                 print(f"No more products to process within the limit ({max_products_to_do}). Stopping orchestration.")
                 break
 
-        process = run_worker(normalizer_type, embedder_type, current_start_id, actual_limit)
+        process = run_worker(normalizer_type, embedder_type, current_start_id, actual_limit, pushgateway_url) # Pass pushgateway_url
         processes.append(process)
         products_processed_count += actual_limit # Increment by the actual limit of the batch
         current_start_id += batch_size
@@ -114,10 +115,12 @@ if __name__ == "__main__":
                         help="Number of product IDs to cover per worker batch.")
     parser.add_argument("--max-products-to-do", type=int,
                         help="Maximum number of products to process. Defaults to 100.")
+    parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"), # Added pushgateway URL argument
+                        help="URL of the Prometheus Pushgateway.")
     args = parser.parse_args()
 
     # Calculate default max_products_to_do if not provided
     if args.max_products_to_do is None:
         args.max_products_to_do = 100
 
-    orchestrate_golden_records(args.normalizer_type, args.embedder_type, args.num_workers, args.batch_size, args.max_products_to_do)
+    orchestrate_golden_records(args.normalizer_type, args.embedder_type, args.num_workers, args.batch_size, args.max_products_to_do, args.pushgateway_url) # Pass pushgateway_url

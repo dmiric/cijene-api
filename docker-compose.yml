@@ -33,6 +33,7 @@ services:
       # DB_DSN is now defined directly in .env
       REDIRECT_URL: http://localhost:8000/docs
       PYTHONUTF8: "1"
+      PROMETHEUS_PUSHGATEWAY_URL: http://pushgateway:9091 # Added Pushgateway URL
     depends_on:
       db:
         condition: service_healthy
@@ -95,6 +96,15 @@ services:
         condition: service_healthy
     command: [ "tail", "-f", "/dev/null" ]
 
+  pushgateway:
+    # Added Pushgateway service
+    container_name: pricemice-pushgateway-1
+    image: prom/pushgateway:latest
+    ports:
+      - "9091:9091"
+    command:
+      - '--web.listen-address=:9091'
+
   prometheus:
     container_name: pricemice-prometheus-1
     image: prom/prometheus:latest
@@ -106,6 +116,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
     depends_on:
       - api
+      - pushgateway # Added dependency on pushgateway
 
   grafana:
     container_name: pricemice-grafana-1

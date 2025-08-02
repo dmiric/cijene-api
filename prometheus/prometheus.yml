@@ -5,3 +5,7 @@ scrape_configs:
   - job_name: 'fastapi_app'
     static_configs:
       - targets: ['api:8000'] # 'api' is the service name in docker-compose
+  - job_name: 'pushgateway' # New job for Pushgateway
+    honor_labels: true # Important: tells Prometheus to not overwrite labels pushed by clients
+    static_configs:
+      - targets: ['pushgateway:9091'] # 'pushgateway' is the service name in docker-compose
