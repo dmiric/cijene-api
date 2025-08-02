@@ -1,0 +1,46 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: dockerlogs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          __path__: /var/lib/docker/containers/*/*log
+    pipeline_stages:
+      - docker: {}
+      - drop:
+          source: "__meta_docker_container_name"
+          expression: "/promtail|loki|grafana|prometheus|pushgateway|db|pgadmin|backup|api/" # Add api to drop list for this job
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: "container_name"
+      - source_labels: ["__meta_docker_container_id"]
+        target_label: "container_id"
+
+  - job_name: api-logs # This job name will be overridden by relabel_configs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          __path__: /var/lib/docker/containers/*/*log
+    pipeline_stages:
+      - docker: {}
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "^pricemice-api-1$"
+        action: keep
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: "job" # Set job label to container name
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: "container_name"
+      - source_labels: ["__meta_docker_container_id"]
+        target_label: "container_id"

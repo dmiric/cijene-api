@@ -1,11 +1,4 @@
 services:
-  db:
-    extends:
-      service: db
-      file: docker-compose.yml
-    ports:
-      - "5432:5432" # Expose DB port for local access
-
   api:
     extends:
       service: api
@@ -26,11 +19,23 @@ services:
         max-file: "5"
 
   crawler:
-    extends:
-      service: crawler
-      file: docker-compose.yml
+    container_name: pricemice-crawler-1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
     environment:
-      DEBUG: "true" # Enable debug for local development
+      # DB_DSN is now defined directly in .env
+      PYTHONUTF8: "1"
+      API_KEY: ${API_KEY}
+      BASE_URL: ${BASE_URL}
+    depends_on:
+      - db
+    volumes:
+      - ./crawler_output:/app/output # Mount crawler output for direct access
+      - .:/app # Mount the entire project directory
+    command: [ "tail", "-f", "/dev/null" ]
 
   pgadmin:
     extends:
@@ -64,7 +69,6 @@ services:
       - "8025:8025" # Web UI
 
 volumes:
-  crawler_data: {}
   pgadmin_data: {}
   db_data: {}
   db_backups: {}

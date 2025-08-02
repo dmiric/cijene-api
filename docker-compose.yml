@@ -43,25 +43,6 @@ services:
       - .:/app # Mount the entire project directory
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Add --reload for development
 
-  crawler:
-    container_name: pricemice-crawler-1
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - ./.env
-    environment:
-      # DB_DSN is now defined directly in .env
-      PYTHONUTF8: "1"
-      API_KEY: ${API_KEY}
-      BASE_URL: ${BASE_URL}
-    depends_on:
-      - db
-    volumes:
-      - ./crawler_output:/app/output # Mount crawler output for direct access
-      - .:/app # Mount the entire project directory
-    command: [ "tail", "-f", "/dev/null" ]
-
   pgadmin:
     container_name: pricemice-pgadmin-1
     image: dpage/pgadmin4
@@ -135,8 +116,43 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
     depends_on:
       - prometheus
+      - loki # Added dependency on loki
+    networks:
+      - monitoring-network
+
+  loki:
+    container_name: pricemice-loki-1
+    image: grafana/loki:latest
+    user: root # Added this line
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+      - ./loki/local-config.yaml:/etc/loki/local-config.yaml # Mount Loki configuration
+    networks:
+      - monitoring-network
+
+  promtail:
+    container_name: pricemice-promtail-1
+    image: grafana/promtail:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers # Promtail needs access to Docker container logs
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+    networks:
+      - monitoring-network
 
 volumes:
   db_data:
   pgadmin_data:
   db_backups:
+  loki_data:
+
+
+networks:
+  monitoring-network:
+    driver: bridge

@@ -28,11 +28,6 @@ WORKER_PRIMARY_IP = os.getenv("WORKER_PRIMARY_IP")
 SERVER_IP = os.getenv("SERVER_IP")
 PROJECT_DIR_ON_VPS = "/opt/cijene-api"
 API_BASE_URL = f"http://{SERVER_IP}:8000/v1" # Assuming API is accessible on port 8000
-JOB_COMMANDS = [
-    "make build-worker",
-    "make crawl",
-    "make import-data",
-]
 
 # --- Hetzner Cloud Client ---
 client = hcloud.Client(token=HCLOUD_TOKEN)

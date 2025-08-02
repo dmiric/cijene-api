@@ -39,38 +39,41 @@ help: ## Display this help message
 ## Docker & Build Commands
 rebuild: ## Rebuild and restart all Docker containers
 	@echo "Building and restarting Docker containers. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
-	else \
-		mkdir -p logs; \
-		> $(DOCKER_BUILD_LOG_FILE); \
-	fi
+ifeq ($(IS_WINDOWS),true)
+	powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+else
+	mkdir -p logs; \
+	> $(DOCKER_BUILD_LOG_FILE); \
+	docker compose -f docker-compose.yml up -d --build --force-recreate >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+endif
 	@echo "Docker containers rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
 rebuild-api: ## Rebuild and restart only the API service
 	@echo "Building and restarting API service. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
-	else \
-		mkdir -p logs; \
-		> $(DOCKER_BUILD_LOG_FILE); \
-	fi
+ifeq ($(IS_WINDOWS),true)
+	powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
 	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+else
+	mkdir -p logs; \
+	> $(DOCKER_BUILD_LOG_FILE); \
+	docker compose -f docker-compose.yml up -d --build --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+endif
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
-rebuild-metrics: ## Rebuild and restart only the Grafana, Prometheus, and Pushgateway services
-	@echo "Building and restarting Grafana, Prometheus, and Pushgateway services. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
-	else \
-		mkdir -p logs; \
-		> $(DOCKER_BUILD_LOG_FILE); \
-	fi
-	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate grafana prometheus pushgateway >> $(DOCKER_BUILD_LOG_FILE) 2>&1
-	@echo "Grafana, Prometheus, and Pushgateway services rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
+rebuild-metrics: ## Rebuild and restart only the Grafana, Prometheus, Pushgateway, Loki, and Promtail services
+	@echo "Building and restarting Grafana, Prometheus, Pushgateway, Loki, and Promtail services. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
+ifeq ($(IS_WINDOWS),true)
+	powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --force-recreate grafana prometheus pushgateway loki promtail >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+else
+	mkdir -p logs; \
+	> $(DOCKER_BUILD_LOG_FILE); \
+	docker compose -f docker-compose.yml up -d --build --force-recreate grafana prometheus pushgateway loki promtail >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+endif
+	@echo "Grafana, Prometheus, Pushgateway, Loki, and Promtail services rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
 rebuild-everything: ## Stop, remove all Docker containers and volumes, restart Docker, and rebuild all services with confirmation. Use EXCLUDE_VOLUMES="vol1,vol2" to preserve volumes.
@@ -387,13 +390,6 @@ logs-api: ## Display full logs for the API service
 logs-crawler: ## Display logs for the Crawler service and save to ./logs/crawler.log (empties file first)
 	mkdir -p logs && > ./logs/crawler.log && docker compose -f docker-compose.yml -f docker-compose.local.yml logs crawler > ./logs/crawler.log
 
-logs-tail: ## Continuously display logs from ./logs/api.log
-	@if [ "$(IS_WINDOWS)" = "true" ]; then \
-		pwsh.exe -Command "Get-Content -Path './logs/api.log' -Wait"; \
-	else \
-		tail -f './logs/api.log'; \
-	fi
-
 logs-crawler-console: ## Continuously display console output from logs/crawler_console.log
 	@if [ "$(IS_WINDOWS)" = "true" ]; then \
 		pwsh.exe -Command "Get-Content -Path './logs/crawler_console.log' -Wait"; \
@@ -437,9 +433,3 @@ download-database-dump: ## Download the latest full database dump from the remot
 	@echo "Downloading $(REMOTE_DUMP_FILE) from $(SSH_USER)@$(SSH_IP) to local backups/..."
 	ssh-add ~/.ssh/github_actions_deploy_key; scp "$(SSH_USER)"@"$(SSH_IP)":"$(REMOTE_DUMP_FILE)" ./backups/
 	@echo "Database dump downloaded successfully to local backups/."
-
-gpush: ## Add all changes, commit with a message, and push to the remote repository. Usage: make gpush M="Your commit message"
-	@if [ -z "$(M)" ]; then echo "Error: M is required. Usage: make gpush M=\"Your commit message\""; exit 1; fi
-	git add .
-	git commit -m "$(M)"
-	git push
