@@ -1,0 +1,89 @@
+// alloy/alloy-config.alloy
+
+// -----------------------------------------------------------------------------
+// DISCOVERY & RELABELING
+// -----------------------------------------------------------------------------
+
+discovery.docker "all_containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "filtered_containers" {
+  targets = discovery.docker.all_containers.targets
+
+  // Rule 1: Drop infrastructure containers.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(promtail|loki|grafana|prometheus|pushgateway|db|pgadmin|backup|alloy)"
+    action        = "drop"
+  }
+
+  // --- FINAL FIX ---
+  // Rule 2: Construct the __path__ label for loki.source.file to use.
+  // This is the most critical rule. It takes the container ID and builds the
+  // full path to its log file. THIS MUST COME BEFORE OTHER RULES THAT USE THE ID.
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    regex         = "(.*)" // Capture the full container ID
+    target_label  = "__path__"
+    replacement   = "/var/lib/docker/containers/$1/$1-json.log"
+  }
+
+  // Rule 3: Set a special 'job' label for the 'api' container.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(pricemice-api-1)"
+    target_label  = "job"
+    replacement   = "$1"
+  }
+
+  // Rule 4: Create the 'container' label from the container name.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+
+  // Rule 5: Create the 'container_id' label.
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "container_id"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// LOG SCRAPING & PROCESSING
+// -----------------------------------------------------------------------------
+
+loki.source.file "container_logs" {
+  targets    = discovery.relabel.filtered_containers.output
+  forward_to = [loki.process.docker_pipeline.receiver]
+}
+
+loki.process "docker_pipeline" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.docker {}
+
+  stage.json {
+    expressions = {
+      output = "log",
+    }
+  }
+
+  stage.output {
+    source = "output"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// WRITING TO LOKI
+// -----------------------------------------------------------------------------
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {}
+}

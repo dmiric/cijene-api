@@ -137,14 +137,18 @@ services:
     networks:
       - monitoring-network
 
-  promtail:
-    container_name: pricemice-promtail-1
-    image: grafana/promtail:latest
+  alloy:
+    container_name: pricemice-alloy-1
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.alloy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /var/lib/docker/containers:/var/lib/docker/containers # Promtail needs access to Docker container logs
-      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
-    command: -config.file=/etc/promtail/promtail-config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers # Alloy needs access to Docker container logs
+      - ./alloy/alloy-config.alloy:/etc/alloy/config.alloy
+      - alloy_data:/tmp/alloy-data # For Alloy's positions file
+    ports:
+      - "9080:9080"
     depends_on:
       - loki
     networks:
@@ -152,6 +156,7 @@ services:
 
 volumes:
   db_data:
+  alloy_data:
   pgadmin_data:
   db_backups:
   loki_data:

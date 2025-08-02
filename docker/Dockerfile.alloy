@@ -1,0 +1,8 @@
+# docker/Dockerfile.alloy
+FROM grafana/alloy:latest
+
+# Set the entrypoint to the alloy executable
+ENTRYPOINT ["/bin/alloy"]
+
+# Set the default command to run alloy with the configuration file
+CMD ["run", "/etc/alloy/config.alloy"]
