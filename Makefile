@@ -36,18 +36,6 @@ QUERY=limun
 help: ## Display this help message
 	@grep -E '^(## .*$$|[a-zA-Z_-]+:.*?## .*$$)' $(MAKEFILE_LIST) | sort | sed -E 's/^(## .*)$$/\x1b[33m\1\x1b[0m\n/;s/^(.*?):.*?## (.*)$$/\x1b[36m\1\x1b[0m              \2/'
 
-## Brand new start:
-## For development use make dev-csv-start
-## make rebuild-everything
-## make migrate-db
-## make crawl
-## make import-data
-## make enrich-data
-## make geocode-stores
-## make enrich CSV_FILE=./backups/users.csv TYPE=users
-## make enrich CSV_FILE=./backups/user_locations.csv TYPE=user-locations
-## make migrate-db
-
 ## Docker & Build Commands
 rebuild: ## Rebuild and restart all Docker containers
 	@echo "Building and restarting Docker containers. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
@@ -258,8 +246,8 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	fi
 	@echo "Database restore process completed successfully."
 
-pgtunnel: ## Create an SSH tunnel to access PGAdmin locally on port 5060, Prometheus on port 9090, and Grafana on port 3000
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9090:localhost:9090 -L 3000:localhost:3000 $(SSH_USER)@$(SSH_IP)
+pgtunnel: ## Create an SSH tunnel to access PGAdmin, Prometheus, and Grafana on alternative local ports
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9091:localhost:9090 -L 3001:localhost:3000 $(SSH_USER)@$(SSH_IP)
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 ifeq ($(IS_WINDOWS),true)

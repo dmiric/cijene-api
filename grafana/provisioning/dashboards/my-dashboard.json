@@ -363,7 +363,7 @@
                     },
                     "disableTextWrap": false,
                     "editorMode": "code",
-                    "expr": "sum(rate(golden_record_processing_time_seconds_count{}[15m]))",
+                    "expr": "sum(rate(golden_record_processing_time_seconds_sum{}[$__rate_interval]))/sum(rate(golden_record_processing_time_seconds_count{}[$__rate_interval]))",
                     "fullMetaSearch": false,
                     "includeNullMetadata": true,
                     "legendFormat": "",
