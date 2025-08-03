@@ -5,10 +5,15 @@ on:
     branches:
       - main
 
+# Use environment variables to keep image names consistent and DRY
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+  REPO_NAME: ${{ github.event.repository.name }}
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -19,68 +24,71 @@ jobs:
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        registry: ghcr.io
-        username: ${{ secrets.CR_USERNAME }}
+        registry: ${{ env.REGISTRY }}
+        username: ${{ env.IMAGE_OWNER }}
         password: ${{ secrets.CR_TOKEN }}
 
-    - name: Extract metadata (tags) for Docker
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=sha,format=long
-          type=raw,value=latest,enable={{is_default_branch}}
+    # ===================================================================
+    # Build and push each custom service as a separate image
+    # ===================================================================
 
-    - name: Build and push Docker images
+    - name: Build and Push API Image
       uses: docker/build-push-action@v5
       with:
         context: .
+        file: ./Dockerfile # Dockerfile for the API
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        platforms: linux/amd64 # Specify target platform to avoid unnecessary multi-platform builds
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/api:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/api:latest
+        platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Configure Hetzner Worker Cron Job
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Build and Push DB Image
+      uses: docker/build-push-action@v5
       with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Remove any existing hetzner-worker cron jobs to prevent duplicates
-          (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
-          # Add the new cron job: run every hour from 6 AM to 10 AM UTC
-          # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
-          (crontab -l 2>/dev/null; echo "0 8-12 * * * cd /home/dmiric/pricemice && mkdir -p logs/hetzner-worker && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
-          echo "Cron job for hetzner-worker configured."
+        context: .
+        file: ./Dockerfile.postgres # Dockerfile for the DB
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/db:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/db:latest
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
-    - name: Configure Golden Record Orchestrator Cron Job
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Build and Push Alloy Image
+      uses: docker/build-push-action@v5
       with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Remove any existing golden-record-orchestrator cron jobs to prevent duplicates
-          (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
-          # Add the new cron job: run every hour at the 30-minute mark
-          # Escaping: \$ for cron to evaluate date command, \\\\% for cron to interpret % literally
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
-          echo "Cron job for golden-record-orchestrator configured."
+        context: .
+        file: ./docker/Dockerfile.alloy # Dockerfile for Alloy
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/alloy:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/alloy:latest
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
-    - name: Configure Swap Space
+    # ===================================================================
+    # CONSOLIDATED SECTION: Configure server in a single, efficient step
+    # ===================================================================
+    - name: Configure Server (Timezone, Swap, and Cron Jobs)
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          # Configure swap space if not already present
+          # --- Set Server Timezone ---
+          echo "--> Configuring server time and NTP synchronization..."
+          sudo timedatectl set-timezone UTC
+          sudo timedatectl set-ntp true
+          
+          # --- Configure Swap Space ---
+          echo "--> Checking/Configuring swap space..."
           if ! grep -q "swapfile" /proc/swaps; then
-            echo "Configuring swap space..."
             sudo fallocate -l 4G /swapfile
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile
@@ -93,43 +101,54 @@ jobs:
             echo "Swap space already configured."
           fi
 
-    - name: Set Server Timezone
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          sudo timedatectl set-timezone UTC
-          sudo timedatectl set-ntp true
-          echo "Server time and NTP synchronization configured."
-
-    - name: Configure Price Calculation Cron Job
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Remove any existing price-calculation cron jobs to prevent duplicates
+          # --- Configure Cron Jobs ---
+          echo "--> Configuring cron jobs..."
+          # Hetzner Worker
+          (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
+          (crontab -l 2>/dev/null; echo "0 8-12 * * * cd /home/dmiric/pricemice && mkdir -p logs/hetzner-worker && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker/hetzner-worker-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          
+          # Golden Record Orchestrator
+          (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          
+          # Price Calculation
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
-          # Add the new cron job: run every hour at the 50-minute mark
           (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && make calculate-prices NUM_WORKERS=1 BATCH_SIZE=1000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
-          echo "Cron job for price-calculation configured."
+          
+          echo "All cron jobs configured."
 
-    - name: Deploy Application
+    # ===================================================================
+    # REPLACED SECTION: Deploy using pre-built images and override file
+    # ===================================================================
+    - name: Deploy Application with Pre-built Images
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
+          echo "--> Starting deployment..."
           cd ${{ secrets.APP_PATH }}
-          git pull origin main # Pull the latest code from the main branch
-          docker compose pull
-          docker compose build db # Rebuild the db service to apply Dockerfile changes
-          docker compose stop api || true # Stop the API container if it's running (ignore errors if not running)
-          docker compose rm -f api || true # Remove the API container (ignore errors if not existing)
-          docker compose up -d --remove-orphans --force-recreate # Force recreate to ensure new image is used
-          make migrate-db # Apply database migrations
-          docker image prune -f # Clean up old images
+          
+          echo "--> Pulling latest compose files from git..."
+          git pull origin main
+
+          echo "--> Logging into GitHub Container Registry..."
+          echo ${{ secrets.CR_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ env.IMAGE_OWNER }} --password-stdin
+          
+          echo "--> Setting image tag for this deployment..."
+          export IMAGE_TAG=${{ github.sha }}
+
+          echo "--> Pulling new container images: ${{ env.IMAGE_TAG }}"
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull
+
+          echo "--> Restarting services with new images..."
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+
+          echo "--> Applying database migrations..."
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T api python service/db/migrate.py
+
+          echo "--> Cleaning up old Docker images..."
+          docker image prune -af
+
+          echo "--> Deployment successful!"

@@ -6,6 +6,7 @@ services:
     volumes:
       - ./service:/app/service # Mount service directory for live code changes
       - ./backups:/app/backups # Mount backups directory for enrichment CSVs
+      - .:/app # Mount the entire project directory
     environment:
       DEBUG: "true" # Enable debug for local development
       SMTP_SERVER: "mailhog" # Point to MailHog service
