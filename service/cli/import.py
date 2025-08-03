@@ -659,60 +659,6 @@ async def main():
                     with zipfile.ZipFile(zip_file, "r") as zip_ref:
                         zip_ref.extractall(unzip_target_dir)
 
-                    tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock))
-            else:
-                logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
-                # Fallback to looking for subdirectories if no zips found
-                chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
-                if not chain_dirs:
-                    logger.warning(f"No chain directories found in {path_arg}")
-                    return
-                for chain_dir in chain_dirs:
-                    tasks.append(_import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None, semaphore, args.timeout, price_computation_lock))
-
-            if tasks:
-                logger.info(f"Starting import for {len(tasks)} chains concurrently from path: {path_arg} (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
-                await asyncio.gather(*tasks, return_exceptions=True) # Run tasks concurrently, collect exceptions
-                logger.info("All import tasks completed (or encountered exceptions) for the provided path.")
-        else:
-            price_date = datetime.now()
-            logger.info(f"No path provided, assuming today's date: {price_date.date()}")
-            logger.info("Checking for successful crawl runs to import...")
-            successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
-            if not successful_crawl_runs:
-                logger.info("No new successful crawl runs found to import.")
-                return
-
-            tasks = []
-            for crawl_run in successful_crawl_runs:
-                crawl_run_id = crawl_run["id"]
-                chain_name = crawl_run["chain_name"]
-                crawl_date = crawl_run["crawl_date"]
-
-                date_str = crawl_date.strftime("%Y-%m-%d")
-                chain_zip_path = Path(f"/app/crawler_output/{date_str}/{chain_name}.zip")
-
-                logger.info(f"Attempting to import data for chain '{chain_name}' from crawl run ID {crawl_run_id} from zip: {chain_zip_path}")
-
-                if not chain_zip_path.is_file():
-                    logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
-                    await db.import_runs.add_import_run(
-                        chain_name=chain_name,
-                        import_date=crawl_date,
-                        crawl_run_id=crawl_run_id,
-                        status=ImportStatus.FAILED,
-                        error_message="Chain zip file not found",
-                    )
-                    continue
-
-                # Use a temporary directory to handle extraction and cleanup
-                unzip_target_dir = Path(TemporaryDirectory(prefix=f"import_{chain_name}_").name)
-                
-                logger.debug(f"Extracting archive {chain_zip_path} to {unzip_target_dir}")
-                with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                    # Assuming the zip contains the CSVs at the root
-                    zip_ref.extractall(unzip_target_dir)
-
                 tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock))
             else:
                 logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
@@ -728,7 +674,13 @@ async def main():
                 logger.info(f"Starting import for {len(tasks)} chains concurrently from path: {path_arg} (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
                 await asyncio.gather(*tasks, return_exceptions=True) # Run tasks concurrently, collect exceptions
                 logger.info("All import tasks completed (or encountered exceptions) for the provided path.")
-        else:
+        # This 'else' block was causing the SyntaxError. It was a duplicate of the outer 'else' block.
+        # The logic for handling no path provided should be part of the main 'else' block.
+        # Removed the duplicate 'else' block and its content.
+        # The original intent was likely to handle the case where no path is provided,
+        # which is already covered by the outer 'else' block.
+        # The duplicate code was causing the SyntaxError.
+        else: # This 'else' corresponds to 'if args.path:'
             price_date = datetime.now()
             logger.info(f"No path provided, assuming today's date: {price_date.date()}")
             logger.info("Checking for successful crawl runs to import...")
