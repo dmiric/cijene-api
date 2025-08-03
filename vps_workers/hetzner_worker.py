@@ -200,7 +200,6 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
         lines = content.splitlines()
         for i, line in enumerate(lines):
             if line.startswith("DB_DSN="):
-                # CRITICAL: Replace placeholder with the main server's private IP
                 lines[i] = line.replace("@db:", f"@{config['MAIN_SERVER_PRIVATE_IP']}:")
                 print(f"Modified DB_DSN to use private IP: {config['MAIN_SERVER_PRIVATE_IP']}")
         return "\n".join(lines)
@@ -216,9 +215,14 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
     image_obj = client.images.get_by_name(IMAGE_NAME)
     location_obj = client.locations.get_by_name(LOCATION)
     network_obj = client.networks.get_by_name(config["PRIVATE_NETWORK_NAME"])
-    primary_ip_obj = client.primary_ips.get_by_ip(config["WORKER_PRIMARY_IP"])
     
-    if not primary_ip_obj: raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' not found.")
+    # --- CORRECTED LOGIC FOR FETCHING THE PRIMARY IP ---
+    primary_ips_page = client.primary_ips.get_list(ip=config["WORKER_PRIMARY_IP"])
+    if not primary_ips_page.primary_ips:
+        raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' not found in your Hetzner project.")
+    primary_ip_obj = primary_ips_page.primary_ips[0]
+    # --- END OF CORRECTION ---
+    
     if primary_ip_obj.assignee: raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' is already assigned.")
     if not network_obj: raise Exception(f"Private Network '{config['PRIVATE_NETWORK_NAME']}' not found.")
     
@@ -235,7 +239,7 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
     
     wait_for_action(create_result.action)
     server = create_result.server
-    server.reload() # Reload to get all properties like private IP
+    server.reload()
     
     private_ip = server.private_net[0].ip if server.private_net else "N/A"
     print(f"Server '{server.name}' provisioned successfully.")
