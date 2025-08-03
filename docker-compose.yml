@@ -19,6 +19,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - monitoring-network
 
   api:
     container_name: pricemice-api-1
@@ -42,6 +44,8 @@ services:
       - ./crawler_output:/app/crawler_output # Mount crawler output for direct access
       - .:/app # Mount the entire project directory
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Add --reload for development
+    networks:
+      - monitoring-network
 
   pgadmin:
     container_name: pricemice-pgadmin-1
@@ -63,6 +67,8 @@ services:
       - ./pgadmin/servers.json:/pgadmin4/servers.json
       - db_backups:/var/lib/pgadmin/backups
       - ./pgadmin/preferences.json:/pgadmin4/preferences.json
+    networks:
+      - monitoring-network
 
   backup:
     container_name: pricemice-backup-1
@@ -76,6 +82,8 @@ services:
       db:
         condition: service_healthy
     command: [ "tail", "-f", "/dev/null" ]
+    networks:
+      - monitoring-network
 
   pushgateway:
     # Added Pushgateway service
