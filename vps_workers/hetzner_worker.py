@@ -276,8 +276,8 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
         job_commands = [
             "make build-worker",
             f"make crawl CHAIN={','.join(chains_to_process)}",
-            f"make import-data DATE={date.today().strftime('%Y-%m-%d')}",
-            "make enrich-data", "make geocode-stores",
+            f"make import-data DATE={date.today().strftime('%Y-%m-%d')}", 
+            "make geocode-stores",
         ]
         for command in job_commands:
             run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {command}", f"Job: {command}")
