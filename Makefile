@@ -214,6 +214,12 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
 	$(eval TIMESTAMP := $(shell date +%Y%m%d_%H%M%S))
 	@echo "Ensuring backup service is running..."
+	# Export variables needed by docker-compose.prod.yml
+	export IMAGE_OWNER=$(IMAGE_OWNER); \
+	export REPO_NAME=$(REPO_NAME); \
+	export LOWER_IMAGE_OWNER=$(LOWER_IMAGE_OWNER); \
+	export LOWER_REPO_NAME=$(LOWER_REPO_NAME); \
+	export IMAGE_TAG=latest; \
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backup
 	# Add a short delay to ensure the container is fully up
 	sleep 5
