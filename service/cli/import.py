@@ -23,47 +23,6 @@ logger = logging.getLogger("importer")
 # The db object will be initialized inside the main() function.
 db: Any = None # Optional: Use a type hint for better static analysis
 
-# Prometheus Metrics (will be initialized per-push)
-# We define the metric constructors globally, but instantiate them with a local registry
-# within _import_single_chain_data to ensure isolated pushes.
-
-# Define metric constructors
-IMPORTS_TOTAL_CONSTRUCTOR = lambda registry: Counter(
-    'importer_imports_total',
-    'Total number of import runs initiated',
-    ['chain_name', 'status'],
-    registry=registry
-)
-IMPORT_ERRORS_TOTAL_CONSTRUCTOR = lambda registry: Counter(
-    'importer_import_errors_total',
-    'Total number of errors during import runs',
-    ['chain_name', 'error_type'],
-    registry=registry
-)
-IMPORT_DURATION_SECONDS_CONSTRUCTOR = lambda registry: Summary(
-    'importer_import_duration_seconds',
-    'Time spent importing data for a chain',
-    ['chain_name', 'status'],
-    registry=registry
-)
-IMPORTED_STORES_COUNT_CONSTRUCTOR = lambda registry: Gauge(
-    'importer_imported_stores_count',
-    'Number of stores imported in a run',
-    ['chain_name'],
-    registry=registry
-)
-IMPORTED_PRODUCTS_COUNT_CONSTRUCTOR = lambda registry: Gauge(
-    'importer_imported_products_count',
-    'Number of products imported in a run',
-    ['chain_name'],
-    registry=registry
-)
-IMPORTED_PRICES_COUNT_CONSTRUCTOR = lambda registry: Gauge(
-    'importer_imported_prices_count',
-    'Number of prices imported in a run',
-    ['chain_name'],
-    registry=registry
-)
 
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:
@@ -538,7 +497,6 @@ async def _import_single_chain_data(
             pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL")
             if pushgateway_url:
                 job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
-                
                 # Delete existing metrics for this job before pushing new ones
                 try:
                     from prometheus_client import delete_from_gateway
