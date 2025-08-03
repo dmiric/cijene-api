@@ -8,6 +8,15 @@ export SSH_IP
 export WORKER_PRIMARY_IP # Added for hetzner-worker-ssh
 export PYTHONUNBUFFERED
 
+# --- Docker Image Variables ---
+# IMPORTANT: Replace 'your-github-username' and 'your-repo-name' with your actual GitHub username and repository name.
+# These are used for building and pulling Docker images from GitHub Container Registry (ghcr.io).
+IMAGE_OWNER ?= dmiric
+REPO_NAME ?= cijene-api
+LOWER_IMAGE_OWNER := $(shell echo $(IMAGE_OWNER) | tr '[:upper:]' '[:lower:]')
+LOWER_REPO_NAME := $(shell echo $(REPO_NAME) | tr '[:upper:]' '[:lower:]')
+# --- End Docker Image Variables ---
+
 # A helper variable to detect the OS
 ifeq ($(OS),Windows_NT)
    	IS_WINDOWS := true
