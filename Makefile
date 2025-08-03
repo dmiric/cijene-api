@@ -184,7 +184,7 @@ calculate-prices: ## Orchestrate price calculation. Usage: make calculate-prices
 ifeq ($(IS_WINDOWS),true)
 	docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 else
-	docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
+	docker compose -f docker-compose.yml -f -f docker-compose.prod.yml run --rm --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers $(NUM_WORKERS) --batch-size $(BATCH_SIZE)
 endif
 
 update-best-offers: ## Orchestrate best offer updates. Usage: make update-best-offers [NUM_WORKERS=N] [BATCH_SIZE=M]

@@ -110,11 +110,11 @@ jobs:
           
           # Golden Record Orchestrator
           (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           
           # Price Calculation
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
-          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && make calculate-prices NUM_WORKERS=1 BATCH_SIZE=1000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && docker compose -f docker-compose.yml -f -f docker-compose.prod.yml run --rm --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           
           echo "All cron jobs configured."
 
