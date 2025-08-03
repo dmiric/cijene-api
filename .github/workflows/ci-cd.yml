@@ -140,13 +140,13 @@ jobs:
           export IMAGE_TAG=${{ github.sha }}
 
           echo "--> Pulling new container images: ${{ env.IMAGE_TAG }}"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 
           echo "--> Restarting services with new images..."
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
 
           echo "--> Applying database migrations..."
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T api python service/db/migrate.py
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T api python service/db/migrate.py
 
           echo "--> Cleaning up old Docker images..."
           docker image prune -af
