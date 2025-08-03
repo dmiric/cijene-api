@@ -590,6 +590,8 @@ async def main():
         format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
     )
 
+    print(f"DEBUG: PROMETHEUS_PUSHGATEWAY_URL used by import.py: {os.getenv('PROMETHEUS_PUSHGATEWAY_URL')}")
+
     # --- FIX 1: Add a delay to avoid a race condition with the crawler job ---
     # This gives the database a moment to finish writes and release locks from the previous step.
     DELAY_SECONDS = 3
