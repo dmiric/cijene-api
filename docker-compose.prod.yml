@@ -8,11 +8,11 @@
 
 services:
   db:
-    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/db:${IMAGE_TAG:-latest}
+    image: ghcr.io/dmiric/cijene-api/db:latest
     build: null
 
   api:
-    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/api:${IMAGE_TAG:-latest}
+    image: ghcr.io/dmiric/cijene-api/api:latest
     build: null
     volumes:
       - ./.env:/app/.env
@@ -20,5 +20,5 @@ services:
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
 
   alloy:
-    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/alloy:${IMAGE_TAG:-latest}
+    image: ghcr.io/dmiric/cijene-api/alloy:latest
     build: null
