@@ -199,11 +199,28 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
 
     if "DB_DSN=" in content:
         lines = content.splitlines()
+        
+        # Resolve DB_DSN variables from the current environment
+        postgres_user = os.getenv("POSTGRES_USER")
+        postgres_password = os.getenv("POSTGRES_PASSWORD")
+        postgres_db = os.getenv("POSTGRES_DB")
+        main_server_private_ip = config['MAIN_SERVER_PRIVATE_IP']
+
+        resolved_db_dsn = f"postgresql://{postgres_user}:{postgres_password}@{main_server_private_ip}:5432/{postgres_db}"
+        print(f"Resolved DB_DSN for remote .env: {resolved_db_dsn}")
+
+        found_db_dsn = False
         for i, line in enumerate(lines):
             if line.startswith("DB_DSN="):
-                lines[i] = line.replace("@db:", f"@{config['MAIN_SERVER_PRIVATE_IP']}:")
-        print(f"Modified DB_DSN to use private IP: {config['MAIN_SERVER_PRIVATE_IP']}")
+                lines[i] = f"DB_DSN={resolved_db_dsn}"
+                found_db_dsn = True
+                print(f"Replaced DB_DSN in remote .env: {resolved_db_dsn}")
+                break
         
+        if not found_db_dsn:
+            lines.append(f"DB_DSN={resolved_db_dsn}")
+            print(f"Added DB_DSN to remote .env: {resolved_db_dsn}")
+
         # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's private IP
         prometheus_pushgateway_url = f"http://{config['MAIN_SERVER_PRIVATE_IP']}:9091"
         
