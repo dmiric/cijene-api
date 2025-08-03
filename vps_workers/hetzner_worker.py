@@ -145,6 +145,7 @@ def validate_and_get_config() -> Dict[str, Any]:
         "MAIN_SERVER_PRIVATE_IP": os.getenv("SERVER_PRIVATE_IP"),
     }
 
+    # PROMETHEUS_PUSHGATEWAY_URL will be derived from SERVER_IP, so it's not a direct env var
     missing_vars = [key for key, value in config.items() if not value]
     if missing_vars:
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file.")
@@ -202,6 +203,12 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
             if line.startswith("DB_DSN="):
                 lines[i] = line.replace("@db:", f"@{config['MAIN_SERVER_PRIVATE_IP']}:")
                 print(f"Modified DB_DSN to use private IP: {config['MAIN_SERVER_PRIVATE_IP']}")
+        
+        # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's public IP
+        prometheus_pushgateway_url = f"http://{config['SERVER_IP']}:9091"
+        lines.append(f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}")
+        print(f"Added PROMETHEUS_PUSHGATEWAY_URL to remote .env: {prometheus_pushgateway_url}")
+
         return "\n".join(lines)
     return content
 

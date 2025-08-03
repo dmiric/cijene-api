@@ -10,17 +10,59 @@ from pathlib import Path
 import shutil # Import shutil for directory removal
 from tempfile import TemporaryDirectory
 from time import time
+import os
 from typing import Any, Dict, List, Optional
+
+from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway
 
 from service.config import get_settings
 from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
 
-      
-# Corrected Code
 logger = logging.getLogger("importer")
 
 # The db object will be initialized inside the main() function.
 db: Any = None # Optional: Use a type hint for better static analysis
+
+# Prometheus Metrics
+registry = CollectorRegistry()
+
+IMPORTS_TOTAL = Counter(
+    'importer_imports_total',
+    'Total number of import runs initiated',
+    ['chain_name', 'status'],
+    registry=registry
+)
+IMPORT_ERRORS_TOTAL = Counter(
+    'importer_import_errors_total',
+    'Total number of errors during import runs',
+    ['chain_name', 'error_type'],
+    registry=registry
+)
+IMPORT_DURATION_SECONDS = Summary(
+    'importer_import_duration_seconds',
+    'Time spent importing data for a chain',
+    ['chain_name', 'status'],
+    registry=registry
+)
+IMPORTED_STORES_COUNT = Gauge(
+    'importer_imported_stores_count',
+    'Number of stores imported in a run',
+    ['chain_name'],
+    registry=registry
+)
+IMPORTED_PRODUCTS_COUNT = Gauge(
+    'importer_imported_products_count',
+    'Number of products imported in a run',
+    ['chain_name'],
+    registry=registry
+)
+IMPORTED_PRICES_COUNT = Gauge(
+    'importer_imported_prices_count',
+    'Number of prices imported in a run',
+    ['chain_name'],
+    registry=registry
+)
+
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:
     """
@@ -466,6 +508,28 @@ async def _import_single_chain_data(
             elapsed_time=elapsed_time,
         )
         logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
+
+        # Update Prometheus metrics
+        IMPORTS_TOTAL.labels(chain_name=chain_name, status=status.value).inc()
+        IMPORT_DURATION_SECONDS.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
+        IMPORTED_STORES_COUNT.labels(chain_name=chain_name).set(total_stores)
+        IMPORTED_PRODUCTS_COUNT.labels(chain_name=chain_name).set(total_products)
+        IMPORTED_PRICES_COUNT.labels(chain_name=chain_name).set(total_prices)
+        if status == ImportStatus.FAILED:
+            IMPORT_ERRORS_TOTAL.labels(chain_name=chain_name, error_type="import_failed").inc()
+
+        # Push metrics to Pushgateway
+        try:
+            pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL")
+            if pushgateway_url:
+                job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
+                push_to_gateway(pushgateway_url, job=job_name, registry=registry)
+                logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
+            else:
+                logger.warning("PROMETHEUS_PUSHGATEWAY_URL not set, skipping pushing metrics to Pushgateway.")
+        except Exception as e:
+            logger.error(f"Error pushing metrics to Pushgateway for chain {chain_name}: {e}", exc_info=True)
+
         # Delete the unzipped directory if it was created by this process
         if chain_data_path.is_dir() and chain_data_path.name == chain_name: # Ensure it's an unzipped directory, not the original source
             try:
