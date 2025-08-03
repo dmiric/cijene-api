@@ -16,48 +16,6 @@ from .db_utils import (
 # Load environment variables
 load_dotenv()
 
-def delete_old_prices_and_chain_products() -> None:
-    """
-    Deletes prices and chain_prices older than 5 days,
-    and then deletes chain_products that no longer have associated prices.
-    """
-    conn: Optional[PgConnection] = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        print("Deleting prices older than 3 days...")
-        cur.execute("DELETE FROM prices WHERE price_date < CURRENT_DATE - INTERVAL '3 days';")
-        print(f"Deleted {cur.rowcount} old price entries.")
-
-        print("Deleting chain_prices older than 3 days...")
-        cur.execute("DELETE FROM chain_prices WHERE price_date < CURRENT_DATE - INTERVAL '3 days';")
-        print(f"Deleted {cur.rowcount} old chain_price entries.")
-
-        print("Deleting chain_products with no associated prices...")
-        cur.execute("""
-            DELETE FROM chain_products cp
-            WHERE NOT EXISTS (SELECT 1 FROM prices p WHERE p.chain_product_id = cp.id)
-              AND NOT EXISTS (SELECT 1 FROM chain_prices c_p WHERE c_p.chain_product_id = cp.id);
-        """)
-        print(f"Deleted {cur.rowcount} old chain_product entries.")
-
-        print("Deleting g_prices older than 3 days...")
-        cur.execute("DELETE FROM g_prices WHERE price_date < CURRENT_DATE - INTERVAL '3 days';")
-        print(f"Deleted {cur.rowcount} old g_price entries.")
-
-        conn.commit()
-        print("Old price and chain_product data cleanup complete.")
-
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        print(f"Error during old price and chain_product cleanup: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-
 def process_prices_batch(start_id: int, limit: int) -> None:
     """
     Processes a batch of products from g_products based on product_id range,
@@ -185,7 +143,6 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, required=True, help="Number of product_ids to cover in this batch.")
     args = parser.parse_args()
 
-    delete_old_prices_and_chain_products()
     print(f"Starting Price Calculator Service for batch (start_id={args.start_id}, limit={args.limit})...")
     process_prices_batch(args.start_id, args.limit)
     print("Price Calculator Service finished.")
