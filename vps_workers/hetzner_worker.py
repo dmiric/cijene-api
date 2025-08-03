@@ -2,7 +2,8 @@
 # run the data ingestion job, and then spin down the VPS.
 
 import hcloud
-from hcloud.servers.domain import ServerCreatePublicNetwork, BoundServer
+from hcloud.servers.domain import ServerCreatePublicNetwork
+from hcloud.servers.client import BoundServer
 from hcloud.actions.domain import ActionFailedException
 import paramiko
 import time
