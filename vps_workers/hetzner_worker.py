@@ -202,10 +202,10 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
         for i, line in enumerate(lines):
             if line.startswith("DB_DSN="):
                 lines[i] = line.replace("@db:", f"@{config['MAIN_SERVER_PRIVATE_IP']}:")
-                print(f"Modified DB_DSN to use private IP: {config['MAIN_SERVER_PRIVATE_IP']}")
+        print(f"Modified DB_DSN to use private IP: {config['MAIN_SERVER_PRIVATE_IP']}")
         
-        # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's public IP
-        prometheus_pushgateway_url = f"http://{config['SERVER_IP']}:9091"
+        # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's private IP
+        prometheus_pushgateway_url = f"http://{config['MAIN_SERVER_PRIVATE_IP']}:9091"
         
         # Check if PROMETHEUS_PUSHGATEWAY_URL already exists and replace it
         found_pushgateway_url = False
