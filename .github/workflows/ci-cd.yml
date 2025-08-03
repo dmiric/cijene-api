@@ -10,6 +10,9 @@ env:
   REGISTRY: ghcr.io
   IMAGE_OWNER: ${{ github.repository_owner }}
   REPO_NAME: ${{ github.event.repository.name }}
+  # Convert owner and repo name to lowercase for Docker image tags
+  LOWER_IMAGE_OWNER: ${{ github.repository_owner | toLower }}
+  LOWER_REPO_NAME: ${{ github.event.repository.name | toLower }}
 
 jobs:
   build-and-deploy:
@@ -39,8 +42,8 @@ jobs:
         file: ./Dockerfile # Dockerfile for the API
         push: true
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/api:${{ github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/api:latest
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/api:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/api:latest
         platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -52,8 +55,8 @@ jobs:
         file: ./Dockerfile.postgres # Dockerfile for the DB
         push: true
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/db:${{ github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/db:latest
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/db:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/db:latest
         platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -65,8 +68,8 @@ jobs:
         file: ./docker/Dockerfile.alloy # Dockerfile for Alloy
         push: true
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/alloy:${{ github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_NAME }}/alloy:latest
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/alloy:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_OWNER }}/${{ env.LOWER_REPO_NAME }}/alloy:latest
         platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max

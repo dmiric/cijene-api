@@ -6,15 +6,13 @@
 #   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # ===================================================================
 
-version: '3.8'
-
 services:
   db:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/db:${IMAGE_TAG:-latest}
+    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/db:${IMAGE_TAG:-latest}
     build: null
 
   api:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/api:${IMAGE_TAG:-latest}
+    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/api:${IMAGE_TAG:-latest}
     build: null
     volumes:
       - ./.env:/app/.env
@@ -22,5 +20,5 @@ services:
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
 
   alloy:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/alloy:${IMAGE_TAG:-latest}
+    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/alloy:${IMAGE_TAG:-latest}
     build: null
