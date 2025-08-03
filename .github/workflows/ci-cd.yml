@@ -114,7 +114,7 @@ jobs:
           
           # Price Calculation
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
-          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && docker compose -f docker-compose.yml -f -f docker-compose.prod.yml run --rm --name pricemice-calc-prices-1 --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-calc-prices-1 --env DEBUG=false api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           
           echo "All cron jobs configured."
 
