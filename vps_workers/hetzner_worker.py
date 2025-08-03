@@ -206,8 +206,20 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
         
         # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's public IP
         prometheus_pushgateway_url = f"http://{config['SERVER_IP']}:9091"
-        lines.append(f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}")
-        print(f"Added PROMETHEUS_PUSHGATEWAY_URL to remote .env: {prometheus_pushgateway_url}")
+        
+        # Check if PROMETHEUS_PUSHGATEWAY_URL already exists and replace it
+        found_pushgateway_url = False
+        for i, line in enumerate(lines):
+            if line.startswith("PROMETHEUS_PUSHGATEWAY_URL="):
+                lines[i] = f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}"
+                found_pushgateway_url = True
+                print(f"Replaced PROMETHEUS_PUSHGATEWAY_URL in remote .env: {prometheus_pushgateway_url}")
+                break
+        
+        # If not found, append it
+        if not found_pushgateway_url:
+            lines.append(f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}")
+            print(f"Added PROMETHEUS_PUSHGATEWAY_URL to remote .env: {prometheus_pushgateway_url}")
 
         return "\n".join(lines)
     return content
