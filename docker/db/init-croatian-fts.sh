@@ -3,6 +3,11 @@
 # It will be executed automatically by the postgres container on first startup.
 set -e
 
+-- Ensure the pgvector extension is created
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS vector;
+EOSQL
+
 echo "--- CONFIGURING CROATIAN FULL-TEXT SEARCH ---"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
