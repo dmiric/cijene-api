@@ -10,6 +10,16 @@ services:
   db:
     image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/db:${IMAGE_TAG:-latest}
     build: null
+    command: >
+      bash -c "
+        until pg_isready -h localhost -p 5432 -U $$POSTGRES_USER; do
+          echo 'Waiting for PostgreSQL to be ready...'
+          sleep 2
+        done;
+        psql -v ON_ERROR_STOP=1 --username \"$$POSTGRES_USER\" --dbname \"$$POSTGRES_DB\" -c 'CREATE EXTENSION IF NOT EXISTS vector;';
+        # Keep the container running indefinitely
+        tail -f /dev/null
+      "
 
   api:
     image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/api:${IMAGE_TAG:-latest}
