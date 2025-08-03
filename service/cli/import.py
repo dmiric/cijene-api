@@ -512,6 +512,8 @@ async def _import_single_chain_data(
         # Update Prometheus metrics
         IMPORTS_TOTAL.labels(chain_name=chain_name, status=status.value).inc()
         IMPORT_DURATION_SECONDS.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
+        
+        logger.debug(f"Setting metrics for {chain_name}: stores={total_stores}, products={total_products}, prices={total_prices}")
         IMPORTED_STORES_COUNT.labels(chain_name=chain_name).set(total_stores)
         IMPORTED_PRODUCTS_COUNT.labels(chain_name=chain_name).set(total_products)
         IMPORTED_PRICES_COUNT.labels(chain_name=chain_name).set(total_prices)
