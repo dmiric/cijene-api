@@ -13,7 +13,7 @@ from time import time
 import os
 from typing import Any, Dict, List, Optional
 
-from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway
+from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway, delete_from_gateway
 
 from service.config import get_settings
 from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
@@ -22,7 +22,6 @@ logger = logging.getLogger("importer")
 
 # The db object will be initialized inside the main() function.
 db: Any = None # Optional: Use a type hint for better static analysis
-
 
 
 async def read_csv(file_path: Path) -> List[Dict[str, str]]:
@@ -474,12 +473,42 @@ async def _import_single_chain_data(
         local_registry = CollectorRegistry()
 
         # Instantiate metrics with the local registry
-        imports_total = IMPORTS_TOTAL_CONSTRUCTOR(local_registry)
-        import_errors_total = IMPORT_ERRORS_TOTAL_CONSTRUCTOR(local_registry)
-        import_duration_seconds = IMPORT_DURATION_SECONDS_CONSTRUCTOR(local_registry)
-        imported_stores_count = IMPORTED_STORES_COUNT_CONSTRUCTOR(local_registry)
-        imported_products_count = IMPORTED_PRODUCTS_COUNT_CONSTRUCTOR(local_registry)
-        imported_prices_count = IMPORTED_PRICES_COUNT_CONSTRUCTOR(local_registry)
+        imports_total = Counter(
+            'importer_imports_total',
+            'Total number of import runs initiated',
+            ['chain_name', 'status'],
+            registry=local_registry
+        )
+        import_errors_total = Counter(
+            'importer_import_errors_total',
+            'Total number of errors during import runs',
+            ['chain_name', 'error_type'],
+            registry=local_registry
+        )
+        import_duration_seconds = Summary(
+            'importer_import_duration_seconds',
+            'Time spent importing data for a chain',
+            ['chain_name', 'status'],
+            registry=local_registry
+        )
+        imported_stores_count = Gauge(
+            'importer_imported_stores_count',
+            'Number of stores imported in a run',
+            ['chain_name'],
+            registry=local_registry
+        )
+        imported_products_count = Gauge(
+            'importer_imported_products_count',
+            'Number of products imported in a run',
+            ['chain_name'],
+            registry=local_registry
+        )
+        imported_prices_count = Gauge(
+            'importer_imported_prices_count',
+            'Number of prices imported in a run',
+            ['chain_name'],
+            registry=local_registry
+        )
 
         # Update Prometheus metrics using the local instances
         imports_total.labels(chain_name=chain_name, status=status.value).inc()
@@ -499,7 +528,6 @@ async def _import_single_chain_data(
                 job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
                 # Delete existing metrics for this job before pushing new ones
                 try:
-                    from prometheus_client import delete_from_gateway
                     delete_from_gateway(pushgateway_url, job=job_name)
                     logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
                 except Exception as e:
@@ -632,6 +660,60 @@ async def main():
                         zip_ref.extractall(unzip_target_dir)
 
                     tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock))
+            else:
+                logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
+                # Fallback to looking for subdirectories if no zips found
+                chain_dirs = [d.resolve() for d in path_arg.iterdir() if d.is_dir()]
+                if not chain_dirs:
+                    logger.warning(f"No chain directories found in {path_arg}")
+                    return
+                for chain_dir in chain_dirs:
+                    tasks.append(_import_single_chain_data(chain_dir.name, chain_dir, price_date, None, None, semaphore, args.timeout, price_computation_lock))
+
+            if tasks:
+                logger.info(f"Starting import for {len(tasks)} chains concurrently from path: {path_arg} (concurrency: {args.concurrency}, timeout: {args.timeout}s)...")
+                await asyncio.gather(*tasks, return_exceptions=True) # Run tasks concurrently, collect exceptions
+                logger.info("All import tasks completed (or encountered exceptions) for the provided path.")
+        else:
+            price_date = datetime.now()
+            logger.info(f"No path provided, assuming today's date: {price_date.date()}")
+            logger.info("Checking for successful crawl runs to import...")
+            successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
+            if not successful_crawl_runs:
+                logger.info("No new successful crawl runs found to import.")
+                return
+
+            tasks = []
+            for crawl_run in successful_crawl_runs:
+                crawl_run_id = crawl_run["id"]
+                chain_name = crawl_run["chain_name"]
+                crawl_date = crawl_run["crawl_date"]
+
+                date_str = crawl_date.strftime("%Y-%m-%d")
+                chain_zip_path = Path(f"/app/crawler_output/{date_str}/{chain_name}.zip")
+
+                logger.info(f"Attempting to import data for chain '{chain_name}' from crawl run ID {crawl_run_id} from zip: {chain_zip_path}")
+
+                if not chain_zip_path.is_file():
+                    logger.error(f"Chain zip file not found for crawl run ID {crawl_run_id} at {chain_zip_path}. Skipping import.")
+                    await db.import_runs.add_import_run(
+                        chain_name=chain_name,
+                        import_date=crawl_date,
+                        crawl_run_id=crawl_run_id,
+                        status=ImportStatus.FAILED,
+                        error_message="Chain zip file not found",
+                    )
+                    continue
+
+                # Use a temporary directory to handle extraction and cleanup
+                unzip_target_dir = Path(TemporaryDirectory(prefix=f"import_{chain_name}_").name)
+                
+                logger.debug(f"Extracting archive {chain_zip_path} to {unzip_target_dir}")
+                with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                    # Assuming the zip contains the CSVs at the root
+                    zip_ref.extractall(unzip_target_dir)
+
+                tasks.append(_import_single_chain_data(chain_name_from_zip, unzip_target_dir, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock))
             else:
                 logger.warning(f"No zip files found in directory {path_arg}. Looking for subdirectories instead.")
                 # Fallback to looking for subdirectories if no zips found
