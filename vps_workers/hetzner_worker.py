@@ -216,14 +216,16 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
     location_obj = client.locations.get_by_name(LOCATION)
     network_obj = client.networks.get_by_name(config["PRIVATE_NETWORK_NAME"])
     
-    # --- CORRECTED LOGIC FOR FETCHING THE PRIMARY IP ---
     primary_ips_page = client.primary_ips.get_list(ip=config["WORKER_PRIMARY_IP"])
     if not primary_ips_page.primary_ips:
         raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' not found in your Hetzner project.")
     primary_ip_obj = primary_ips_page.primary_ips[0]
-    # --- END OF CORRECTION ---
     
-    if primary_ip_obj.assignee: raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' is already assigned.")
+    # --- CORRECTED LOGIC FOR CHECKING IP ASSIGNMENT ---
+    if primary_ip_obj.assignee_id is not None: 
+        raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' is already assigned.")
+    # --- END OF CORRECTION ---
+
     if not network_obj: raise Exception(f"Private Network '{config['PRIVATE_NETWORK_NAME']}' not found.")
     
     print("All necessary Hetzner resources located.")
@@ -258,7 +260,7 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
     print(f"Attempting SSH connection to {config['WORKER_PRIMARY_IP']}...")
     for i in range(15):
         try:
-            ssh_client.connect(hostname=config["WORKER_PRIMARY_IP"], username="root", pkey=private_key, timeout=10)
+            ssh_client.connect(hostname=config['WORKER_PRIMARY_IP'], username="root", pkey=private_key, timeout=10)
             print("SSH connection established.")
             break
         except Exception as e:
