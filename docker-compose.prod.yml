@@ -32,3 +32,7 @@ services:
   alloy:
     image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/alloy:${IMAGE_TAG:-latest}
     build: null
+
+  backup:
+    image: ghcr.io/${LOWER_IMAGE_OWNER}/${LOWER_REPO_NAME}/db:${IMAGE_TAG:-latest}
+    build: null

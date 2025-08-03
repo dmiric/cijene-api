@@ -205,7 +205,7 @@ dump-tables: ## Dump specified database tables to the db_backups volume and copy
 dump-database: ## Dump the entire database to a gzipped backup file in the db_backups volume and copy to local backups directory
 	$(eval TIMESTAMP := $(shell date +%Y%m%d_%H%M%S))
 	@echo "Ensuring backup service is running..."
-	docker compose up -d backup
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backup
 	# Add a short delay to ensure the container is fully up
 	sleep 5
 	@echo "Checking backup service logs for startup issues..."
@@ -213,7 +213,7 @@ dump-database: ## Dump the entire database to a gzipped backup file in the db_ba
 	@echo "Listing all Docker containers for debugging..."
 	docker ps -a
 	@echo "Executing dump script inside container..."
-	docker compose exec backup bash /scripts/dump_database.sh $(TIMESTAMP)
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backup bash /scripts/dump_database.sh $(TIMESTAMP)
 	mkdir -p backups
 	$(eval BACKUP_CONTAINER_NAME := pricemice-backup-1) # Explicitly define container name
 	@echo "DEBUG: Using backup container name: $(BACKUP_CONTAINER_NAME)"
