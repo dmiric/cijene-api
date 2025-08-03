@@ -252,7 +252,7 @@ restore-database: ## Restore the entire database from a gzipped backup file. Usa
 	@echo "Database restore process completed successfully."
 
 pgtunnel: ## Create an SSH tunnel to access PGAdmin, Prometheus, and Grafana on alternative local ports
-	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9091:localhost:9090 -L 3001:localhost:3000 $(SSH_USER)@$(SSH_IP)
+	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9095:localhost:9090 -L 9096:localhost:9091 -L 3001:localhost:3000 $(SSH_USER)@$(SSH_IP)
 
 geocode-stores: ## Geocode stores in the database that are missing latitude/longitude
 ifeq ($(IS_WINDOWS),true)
