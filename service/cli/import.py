@@ -23,40 +23,42 @@ logger = logging.getLogger("importer")
 # The db object will be initialized inside the main() function.
 db: Any = None # Optional: Use a type hint for better static analysis
 
-# Prometheus Metrics
-registry = CollectorRegistry()
+# Prometheus Metrics (will be initialized per-push)
+# We define the metric constructors globally, but instantiate them with a local registry
+# within _import_single_chain_data to ensure isolated pushes.
 
-IMPORTS_TOTAL = Counter(
+# Define metric constructors
+IMPORTS_TOTAL_CONSTRUCTOR = lambda registry: Counter(
     'importer_imports_total',
     'Total number of import runs initiated',
     ['chain_name', 'status'],
     registry=registry
 )
-IMPORT_ERRORS_TOTAL = Counter(
+IMPORT_ERRORS_TOTAL_CONSTRUCTOR = lambda registry: Counter(
     'importer_import_errors_total',
     'Total number of errors during import runs',
     ['chain_name', 'error_type'],
     registry=registry
 )
-IMPORT_DURATION_SECONDS = Summary(
+IMPORT_DURATION_SECONDS_CONSTRUCTOR = lambda registry: Summary(
     'importer_import_duration_seconds',
     'Time spent importing data for a chain',
     ['chain_name', 'status'],
     registry=registry
 )
-IMPORTED_STORES_COUNT = Gauge(
+IMPORTED_STORES_COUNT_CONSTRUCTOR = lambda registry: Gauge(
     'importer_imported_stores_count',
     'Number of stores imported in a run',
     ['chain_name'],
     registry=registry
 )
-IMPORTED_PRODUCTS_COUNT = Gauge(
+IMPORTED_PRODUCTS_COUNT_CONSTRUCTOR = lambda registry: Gauge(
     'importer_imported_products_count',
     'Number of products imported in a run',
     ['chain_name'],
     registry=registry
 )
-IMPORTED_PRICES_COUNT = Gauge(
+IMPORTED_PRICES_COUNT_CONSTRUCTOR = lambda registry: Gauge(
     'importer_imported_prices_count',
     'Number of prices imported in a run',
     ['chain_name'],
@@ -509,23 +511,43 @@ async def _import_single_chain_data(
         )
         logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
 
-        # Update Prometheus metrics
-        IMPORTS_TOTAL.labels(chain_name=chain_name, status=status.value).inc()
-        IMPORT_DURATION_SECONDS.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
+        # Create a new registry for this push to ensure isolated metrics
+        local_registry = CollectorRegistry()
+
+        # Instantiate metrics with the local registry
+        imports_total = IMPORTS_TOTAL_CONSTRUCTOR(local_registry)
+        import_errors_total = IMPORT_ERRORS_TOTAL_CONSTRUCTOR(local_registry)
+        import_duration_seconds = IMPORT_DURATION_SECONDS_CONSTRUCTOR(local_registry)
+        imported_stores_count = IMPORTED_STORES_COUNT_CONSTRUCTOR(local_registry)
+        imported_products_count = IMPORTED_PRODUCTS_COUNT_CONSTRUCTOR(local_registry)
+        imported_prices_count = IMPORTED_PRICES_COUNT_CONSTRUCTOR(local_registry)
+
+        # Update Prometheus metrics using the local instances
+        imports_total.labels(chain_name=chain_name, status=status.value).inc()
+        import_duration_seconds.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
         
         logger.debug(f"Setting metrics for {chain_name}: stores={total_stores}, products={total_products}, prices={total_prices}")
-        IMPORTED_STORES_COUNT.labels(chain_name=chain_name).set(total_stores)
-        IMPORTED_PRODUCTS_COUNT.labels(chain_name=chain_name).set(total_products)
-        IMPORTED_PRICES_COUNT.labels(chain_name=chain_name).set(total_prices)
+        imported_stores_count.labels(chain_name=chain_name).set(total_stores)
+        imported_products_count.labels(chain_name=chain_name).set(total_products)
+        imported_prices_count.labels(chain_name=chain_name).set(total_prices)
         if status == ImportStatus.FAILED:
-            IMPORT_ERRORS_TOTAL.labels(chain_name=chain_name, error_type="import_failed").inc()
+            import_errors_total.labels(chain_name=chain_name, error_type="import_failed").inc()
 
-        # Push metrics to Pushgateway
+        # Push metrics to Pushgateway using the local registry
         try:
             pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL")
             if pushgateway_url:
                 job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
-                push_to_gateway(pushgateway_url, job=job_name, registry=registry)
+                
+                # Delete existing metrics for this job before pushing new ones
+                try:
+                    from prometheus_client import delete_from_gateway
+                    delete_from_gateway(pushgateway_url, job=job_name)
+                    logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
+                except Exception as e:
+                    logger.warning(f"Could not clear existing metrics for job {job_name} from Pushgateway: {e}")
+
+                push_to_gateway(pushgateway_url, job=job_name, registry=local_registry)
                 logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
             else:
                 logger.warning("PROMETHEUS_PUSHGATEWAY_URL not set, skipping pushing metrics to Pushgateway.")
