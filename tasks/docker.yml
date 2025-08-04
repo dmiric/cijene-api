@@ -1,0 +1,93 @@
+# ./tasks/docker.yml
+version: '3'
+
+# Variables specific to this file can be defined here.
+vars:
+  # Create a map for OS-specific compose files. This cleans up commands.
+  COMPOSE_FILES_LOCAL: '-f docker-compose.yml -f docker-compose.local.yml'
+  COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
+  COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
+
+tasks:
+  rebuild:
+    desc: 'Rebuild and restart all Docker containers (logs to {{.DOCKER_BUILD_LOG_FILE}})'
+    cmds:
+      - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
+      - >
+        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate
+        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
+      - echo "Docker containers rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
+      - docker compose ps
+
+  rebuild-api:
+    desc: 'Rebuild and restart only the API service'
+    cmds:
+      - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
+      - >
+        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate api
+        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
+      - echo "API service rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
+      - docker compose ps
+
+  rebuild-metrics:
+    desc: 'Rebuild and restart only the metrics services'
+    cmds:
+      - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
+      - >
+        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate
+        grafana prometheus pushgateway loki promtail
+        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
+      - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
+      - docker compose ps
+
+  rebuild-everything:
+    desc: 'Stops, removes containers/volumes, and rebuilds everything. Usage: task docker:rebuild-everything -- [EXCLUDE_VOLUMES="..."]'
+    cmds:
+      - cmd: 'pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes "{{.EXCLUDE_VOLUMES}}"'
+        platform: [windows]
+      - cmd: 'bash ./scripts/rebuild.sh --exclude="{{.EXCLUDE_VOLUMES}}"'
+        platform: [linux, darwin]
+
+  build-worker:
+    desc: 'Rebuild the worker services (api, crawler)'
+    cmds:
+      - docker compose {{.COMPOSE_FILES_WORKER}} down --remove-orphans > /dev/null 2>&1
+      - docker compose {{.COMPOSE_FILES_WORKER}} up -d --build --force-recreate > /dev/null 2>&1
+
+  prune:
+    desc: 'Stop all containers and perform a deep clean of the Docker system.'
+    cmds:
+      - echo "Stopping all running project containers..."
+      - docker compose down
+      - echo "Pruning Docker system. This is an interactive command."
+      - docker system prune -a --volumes
+
+  # --- Development Lifecycle Tasks ---
+  dev-csv-start:
+    desc: 'Fast fresh start for dev, using CSV backups.'
+    deps:
+      - task: docker:rebuild-everything
+      - task: db:migrate
+    cmds:
+      - echo "Enriching from CSV backups..."
+      - task: data:enrich
+        vars: { TYPE: chains, CSV_FILE: ./backups/chains.csv }
+      - task: data:enrich
+        vars: { TYPE: all-user-data, CSV_FILE: ./backups/users.csv, USER_LOCATIONS_CSV_FILE: ./backups/user_locations.csv }
+      # ... add other enrich tasks similarly ...
+      - echo "Running tests..."
+      - task: test:api
+      - echo "Development CSV start completed."
+
+  dev-fresh-start:
+    desc: 'Fast fresh start for dev, using last DB dump.'
+    deps:
+      - task: docker:rebuild-everything
+      - task: db:restore
+    cmds:
+      - echo "Applying base schema..."
+      - >
+        docker compose {{.COMPOSE_FILES_LOCAL}} exec -T db
+        psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -f /app/service/db/psql.sql
+      - task: db:migrate
+      - echo "Development fresh start completed."

@@ -1,0 +1,52 @@
+# ./tasks/db.yml
+version: '3'
+
+tasks:
+  migrate:
+    desc: 'Apply database migrations'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api python service/db/migrate.py
+
+  dump-tables:
+    desc: 'Dump specified tables to local ./backups/ directory'
+    cmds:
+      - docker exec pricemice-backup-1 find /backups -type f -delete
+      - docker exec pricemice-backup-1 /scripts/backup_tables.sh
+      - mkdir -p backups
+      - docker cp pricemice-backup-1:/backups/. ./backups/
+
+  dump:
+    desc: 'Dump the entire database to a local backup file'
+    vars:
+      TIMESTAMP: '{{now | date "20060102_150405"}}'
+    cmds:
+      - echo "Ensuring backup service is running..."
+      - docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backup
+      - sleep 5
+      - echo "Executing dump script..."
+      - docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backup bash /scripts/dump_database.sh {{.TIMESTAMP}}
+      - mkdir -p backups
+      - echo "Copying dump file to local backups/..."
+      - docker cp pricemice-backup-1:/tmp/full_db_{{.TIMESTAMP}}.sql.gz ./backups/full_db_{{.TIMESTAMP}}.sql.gz
+
+  restore:
+    desc: 'Restore database from a backup. Usage: task db:restore -- [TIMESTAMP=...]'
+    cmds:
+      - cmd: 'pwsh -File ./scripts/copy_dump_to_container.ps1 "{{.TIMESTAMP}}" ... && pwsh -File ./scripts/restore_database.ps1 "{{.TIMESTAMP}}" ...'
+        platform: [windows]
+      - cmd: 'bash ./scripts/copy_dump_to_container.sh "{{.TIMESTAMP}}" && bash ./scripts/restore_database.sh "{{.TIMESTAMP}}"'
+        platform: [linux, darwin]
+
+  csv-export:
+    desc: 'Export specified tables to CSV files in the backups/ folder'
+    cmds:
+      - |
+        set -e
+        mkdir -p backups
+        echo "Exporting tables to CSV..."
+        for table in chains g_products g_prices g_product_best_offers stores; do
+          echo "Exporting $table.csv..."
+          docker compose exec db psql -U {{.POSTGRES_USER}} -d {{.POSTGS_DB}} -c "\COPY $table TO '/tmp/$table.csv' WITH (FORMAT CSV, HEADER, ENCODING 'UTF8');"
+          docker compose cp db:/tmp/$table.csv ./backups/$table.csv
+        done
+        echo "All specified tables exported to CSV."

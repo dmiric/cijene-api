@@ -1,0 +1,52 @@
+# ./tasks/remote.yml
+version: '3'
+
+tasks:
+  ssh-server:
+    desc: 'SSH into the main VPS server with port forwarding'
+    cmds:
+      - ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 {{.SSH_USER}}@{{.SSH_IP}}
+
+  pgtunnel:
+    desc: 'Create an SSH tunnel for PGAdmin, Prometheus, and Grafana'
+    cmds:
+      - ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9095:localhost:9090 -L 9096:localhost:9091 -L 3001:localhost:3000 {{.SSH_USER}}@{{.SSH_IP}}
+
+  upload-dump:
+    desc: 'Upload the latest database dump to the remote server'
+    cmds:
+      - |
+        set -e
+        LATEST_DUMP_FILE=$(ls -t backups/full_db_*.sql.gz 2>/dev/null | head -n 1)
+        if [ -z "$LATEST_DUMP_FILE" ]; then
+          echo "Error: No dump file found in backups/. Run 'task db:dump' first."
+          exit 1
+        fi
+        echo "Uploading $LATEST_DUMP_FILE..."
+        ssh-add ~/.ssh/github_actions_deploy_key
+        scp "$LATEST_DUMP_FILE" "{{.SSH_USER}}@{{.SSH_IP}}:/home/{{.SSH_USER}}/pricemice/backups/"
+        echo "Upload complete."
+  
+  download-dump:
+    desc: 'Download the latest database dump from the remote server'
+    cmds:
+      - |
+        set -e
+        echo "Downloading latest dump file from remote server..."
+        ssh-add ~/.ssh/github_actions_deploy_key
+        scp "{{.SSH_USER}}@{{.SSH_IP}}:/home/{{.SSH_USER}}/pricemice/backups/full_db_{{.DATE}}*.sql.gz" ./backups/
+        echo "Download complete."
+  
+  hetzner-worker:
+    desc: 'Run the Hetzner VPS orchestration script in a Docker container. Usage: task remote:hetzner-worker -- [TEARDOWN=false]'
+    cmds:
+      - echo "Building hetzner-worker-image..."
+      - docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker .
+      - echo "Running hetzner_worker.py in Docker container..."
+      - >
+        docker run --rm
+        --name hetzner-worker-container
+        -v "{{.PWD}}/.env:/app/.env:ro"
+        -v "{{.SSH_KEY_PATH}}:/app/ssh_key:ro"
+        -e SSH_KEY_PATH=/app/ssh_key
+        hetzner-worker-image python hetzner_worker.py {{if .TEARDOWN | eq "false"}}--no-teardown{{end}}

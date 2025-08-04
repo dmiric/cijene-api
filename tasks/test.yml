@@ -1,0 +1,112 @@
+# ./tasks/test.yml
+version: '3'
+
+tasks:
+  # --- Orchestrator Task ---
+  api:
+    desc: 'Run all pytest integration tests for the API service'
+    deps:
+      - test:auth
+      - test:crawler
+      - test:stores
+      - test:shopping-lists
+      - test:chat-v2
+
+  # --- Individual Test Tasks ---
+  auth:
+    desc: 'Run authentication API integration tests'
+    env:
+      DEBUG: 1
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: '{{.POSTGRES_USER}}'
+      POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
+      POSTGRES_DB: '{{.POSTGRES_DB}}'
+      JWT_SECRET_KEY: '{{.JWT_SECRET_KEY}}'
+      JWT_ALGORITHM: '{{.JWT_ALGORITHM}}'
+      ACCESS_TOKEN_EXPIRE_MINUTES: '{{.ACCESS_TOKEN_EXPIRE_MINUTES}}'
+      REFRESH_TOKEN_EXPIRE_DAYS: '{{.REFRESH_TOKEN_EXPIRE_DAYS}}'
+      SMTP_SERVER: '{{.SMTP_SERVER}}'
+      SMTP_PORT: '{{.SMTP_PORT}}'
+      SMTP_USERNAME: '{{.SMTP_USERNAME}}'
+      SMTP_PASSWORD: '{{.SMTP_PASSWORD}}'
+      SENDER_EMAIL: '{{.SENDER_EMAIL}}'
+      EMAIL_VERIFICATION_BASE_URL: '{{.EMAIL_VERIFICATION_BASE_URL}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_auth.py
+  
+  crawler:
+    desc: 'Run crawler API integration tests'
+    env:
+      DEBUG: 1
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: '{{.POSTGRES_USER}}'
+      POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
+      POSTGRES_DB: '{{.POSTGRES_DB}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_crawler.py
+
+  stores:
+    desc: 'Run stores API integration tests'
+    env:
+      DEBUG: 1
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: '{{.POSTGRES_USER}}'
+      POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
+      POSTGRES_DB: '{{.POSTGRES_DB}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_stores.py
+
+  shopping-lists:
+    desc: 'Run shopping lists API integration tests'
+    env:
+      DEBUG: 1
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: '{{.POSTGRES_USER}}'
+      POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
+      POSTGRES_DB: '{{.POSTGRES_DB}}'
+      JWT_SECRET_KEY: '{{.JWT_SECRET_KEY}}'
+      JWT_ALGORITHM: '{{.JWT_ALGORITHM}}'
+      ACCESS_TOKEN_EXPIRE_MINUTES: '{{.ACCESS_TOKEN_EXPIRE_MINUTES}}'
+      REFRESH_TOKEN_EXPIRE_DAYS: '{{.REFRESH_TOKEN_EXPIRE_DAYS}}'
+      SMTP_SERVER: '{{.SMTP_SERVER}}'
+      SMTP_PORT: '{{.SMTP_PORT}}'
+      SMTP_USERNAME: '{{.SMTP_USERNAME}}'
+      SMTP_PASSWORD: '{{.SMTP_PASSWORD}}'
+      SENDER_EMAIL: '{{.SENDER_EMAIL}}'
+      EMAIL_VERIFICATION_BASE_URL: '{{.EMAIL_VERIFICATION_BASE_URL}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_shopping_lists.py
+
+  chat-v2:
+    desc: 'Run chat v2 API integration tests. Usage: task test:chat-v2 -- [QUERY="..."]'
+    env:
+      DEBUG: 1
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: '{{.POSTGRES_USER}}'
+      POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
+      POSTGRES_DB: '{{.POSTGRES_DB}}'
+      JWT_SECRET_KEY: '{{.JWT_SECRET_KEY}}'
+      JWT_ALGORITHM: '{{.JWT_ALGORITHM}}'
+      ACCESS_TOKEN_EXPIRE_MINUTES: '{{.ACCESS_TOKEN_EXPIRE_MINUTES}}'
+      REFRESH_TOKEN_EXPIRE_DAYS: '{{.REFRESH_TOKEN_EXPIRE_DAYS}}'
+      SMTP_SERVER: '{{.SMTP_SERVER}}'
+      SMTP_PORT: '{{.SMTP_PORT}}'
+      SMTP_USERNAME: '{{.SMTP_USERNAME}}'
+      SMTP_PASSWORD: '{{.SMTP_PASSWORD}}'
+      SENDER_EMAIL: '{{.SENDER_EMAIL}}'
+      EMAIL_VERIFICATION_BASE_URL: '{{.EMAIL_VERIFICATION_BASE_URL}}'
+      API_KEY: '{{.API_KEY}}'
+      GOOGLE_API_KEY: '{{.GOOGLE_API_KEY}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_chat_v2.py -s --query="{{.QUERY}}"
+  
+  # --- Logging Tasks ---
+  logs-api:
+    desc: 'Follow logs for the API service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs -f api

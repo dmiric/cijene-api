@@ -1,0 +1,67 @@
+# ./tasks/data.yml
+version: '3'
+
+vars:
+  COMPOSE_CMD_WIN: 'docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm'
+  COMPOSE_CMD_UNIX: 'docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false'
+  COMPOSE_CMD_UNIX_PROD: 'docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --env DEBUG=false'
+
+tasks:
+  crawl:
+    desc: 'Crawl data for specified chains. Usage: task data:crawl -- [CHAIN=lidl,kaufland]'
+    cmds:
+      - mkdir -p ./output/{{.DATE}}
+      - cmd: '{{.COMPOSE_CMD_WIN}} crawler python crawler/cli/crawl.py {{if .CHAIN}}--chain {{.CHAIN}}{{end}}'
+        platform: [windows]
+      - cmd: '{{.COMPOSE_CMD_UNIX}} crawler python crawler/cli/crawl.py {{if .CHAIN}}--chain {{.CHAIN}}{{end}}'
+        platform: [linux, darwin]
+
+  import:
+    desc: 'Import crawled data. Usage: task data:import -- [DATE=YYYY-MM-DD] [DEBUG=1]'
+    cmds:
+      - cmd: '{{.COMPOSE_CMD_WIN}} crawler python service/cli/import.py {{if .DEBUG}}--debug{{end}} {{if .DATE}}/app/crawler_output/{{.DATE}}{{end}}'
+        platform: [windows]
+      - cmd: '{{.COMPOSE_CMD_UNIX}} api python service/cli/import.py {{if .DEBUG}}--debug{{end}} {{if .DATE}}/app/crawler_output/{{.DATE}}{{end}}'
+        platform: [linux, darwin]
+
+  normalize-golden-records:
+    desc: 'Orchestrate golden record creation. Usage: task data:normalize-golden-records -- [NORMALIZER_TYPE=gemini|grok] [EMBEDDER_TYPE=gemini]'
+    preconditions:
+      - sh: 'test -n "{{.NORMALIZER_TYPE}}"'
+        msg: "NORMALIZER_TYPE is required."
+      - sh: 'test -n "{{.EMBEDDER_TYPE}}"'
+        msg: "EMBEDDER_TYPE is required."
+    cmds:
+      - cmd: '{{.COMPOSE_CMD_WIN}} api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type {{.NORMALIZER_TYPE}} --embedder-type {{.EMBEDDER_TYPE}} --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [windows]
+      - cmd: '{{.COMPOSE_CMD_UNIX}} api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type {{.NORMALIZER_TYPE}} --embedder-type {{.EMBEDDER_TYPE}} --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [linux, darwin]
+
+  calculate-prices:
+    desc: 'Orchestrate price calculation. Usage: task data:calculate-prices -- [NUM_WORKERS=N] [BATCH_SIZE=M]'
+    cmds:
+      - cmd: '{{.COMPOSE_CMD_WIN}} api python -m service.normaliser.orchestrator_prices --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [windows]
+      - cmd: '{{.COMPOSE_CMD_UNIX_PROD}} api python -m service.normaliser.orchestrator_prices --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [linux, darwin]
+  
+  update-best-offers:
+    desc: 'Orchestrate best offers update. Usage: task data:update-best-offers -- [NUM_WORKERS=N] [BATCH_SIZE=M]'
+    cmds:
+      - cmd: '{{.COMPOSE_CMD_WIN}} api python -m service.normaliser.orchestrator_best_offers --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [windows]
+      - cmd: '{{.COMPOSE_CMD_UNIX_PROD}} api python -m service.normaliser.orchestrator_best_offers --num-workers {{.NUM_WORKERS}} --batch-size {{.BATCH_SIZE}}'
+        platform: [linux, darwin]
+  
+  enrich:
+    desc: 'Enrich data from a CSV file. Usage: task data:enrich -- [CSV_FILE=path] [TYPE=products|...]'
+    preconditions:
+      - sh: 'test -n "{{.CSV_FILE}}"'
+        msg: "CSV_FILE variable is required."
+      - sh: 'test -n "{{.TYPE}}"'
+        msg: "TYPE variable is required."
+    cmds:
+      - >
+        docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm
+        api python service/cli/enrich.py --type {{.TYPE}} {{.CSV_FILE}}
+        {{if .USER_LOCATIONS_CSV_FILE}}--user-locations-csv-file {{.USER_LOCATIONS_CSV_FILE}}{{end}}

@@ -1,0 +1,37 @@
+# ./Taskfile.yml
+version: '3'
+
+# Automatically load variables from the .env file. This replaces 'include .env'.
+dotenv: ['.env']
+
+# Global variables available to ALL included tasks.
+vars:
+  # Values from .env are already loaded, but you can define defaults here
+  # for variables that might not be in .env.
+  IMAGE_OWNER: dmiric
+  REPO_NAME: cijene-api
+  EXCLUDE_VOLUMES: 'cijene-api-clone_crawler_data,cijene-api-clone_pgadmin_data'
+  API_KEY: 'ec7cc315-c434-4c1f-aab7-3dba3545d113'
+  QUERY: limun
+  NUM_WORKERS: 1
+  BATCH_SIZE: 50
+  SSH_KEY_PATH: '~/.ssh/github_actions_deploy_key' # Default SSH key path
+  # Taskfile equivalent of `$(shell date +%Y-%m-%d)`
+  DATE: '{{now | date "2006-01-02"}}'
+  DOCKER_BUILD_LOG_FILE: 'logs/docker-build.log'
+
+# Include the other task files and assign them a namespace.
+includes:
+  docker: ./tasks/docker.yml
+  data: ./tasks/data.yml
+  db: ./tasks/db.yml
+  test: ./tasks/test.yml
+  remote: ./tasks/remote.yml
+
+tasks:
+  default:
+    desc: 'Lists all available tasks from all included files.'
+    cmds:
+      # CORRECT - This runs the command "task --list" in the shell
+      - task --list
+    silent: true
