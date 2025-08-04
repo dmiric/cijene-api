@@ -31,9 +31,6 @@ class UserRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG user_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
@@ -565,7 +562,6 @@ class UserRepository(BaseRepository):
         users_data is expected to be a list of tuples:
         (user_uuid, is_active, created_at, name, email, api_key)
         """
-        self.debug_print(f"add_many_users: Adding {len(users_data)} users.")
         if not users_data:
             return 0
 
@@ -583,7 +579,6 @@ class UserRepository(BaseRepository):
                 records=users_records,
                 columns=['id', 'is_active', 'created_at', 'deleted_at']
             )
-            self.debug_print(f"add_many_users: Inserted {users_inserted} user core records.")
 
             # Insert into 'user_personal_data' table
             # Dynamically adjust columns based on whether api_key is None
@@ -601,7 +596,6 @@ class UserRepository(BaseRepository):
                     records=personal_data_records,
                     columns=['user_id', 'name', 'email', 'api_key', 'last_login', 'updated_at']
                 )
-            self.debug_print(f"add_many_users: Inserted {personal_data_inserted} user personal data records.")
             return users_inserted # Return count of core user records inserted
 
     

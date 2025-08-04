@@ -22,9 +22,6 @@ class GoldenProductRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG golden_product_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
@@ -72,7 +69,6 @@ class GoldenProductRepository(BaseRepository):
         if not store_ids:
             raise ValueError("store_ids cannot be empty for this function.")
 
-        self.debug_print(f"get_g_products_hybrid_search_with_prices: query={query}, store_ids={store_ids}, sort_by={sort_by}")
 
         params = [query]
         param_counter = 2
@@ -180,7 +176,6 @@ class GoldenProductRepository(BaseRepository):
         Queries g_prices for a specific product across a list of stores, ordered by price.
         If store_ids is None or empty, it queries for all stores.
         """
-        self.debug_print(f"get_g_product_prices_by_location: product_id={product_id}, store_ids={store_ids}")
         async with self._get_conn() as conn:
             query = """
                 SELECT
@@ -217,8 +212,6 @@ class GoldenProductRepository(BaseRepository):
 
             query += " ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC"
 
-            self.debug_print(f"get_g_product_prices_by_location: Executing Query!!!")
-            self.debug_print(f"get_g_product_prices_by_location: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
         
@@ -226,7 +219,6 @@ class GoldenProductRepository(BaseRepository):
         """
         Retrieves a single golden product by its EAN.
         """
-        self.debug_print(f"get_g_product_by_ean: ean={ean}")
         query = """
             SELECT gp.id, gp.ean, gp.canonical_name, gp.brand, gp.category_id, cat.name AS category_name, gp.base_unit_type,
                    gp.variants, gp.text_for_embedding, gp.keywords, gp.is_generic_product,
@@ -244,7 +236,6 @@ class GoldenProductRepository(BaseRepository):
                     try:
                         row_dict["embedding"] = json.loads(row_dict["embedding"])
                     except json.JSONDecodeError:
-                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
                         row_dict["embedding"] = None
                 
                 # Create Category object and assign to GProductWithId
@@ -262,7 +253,6 @@ class GoldenProductRepository(BaseRepository):
         Retrieves a single product's details from g_products, potentially joining with g_product_best_offers,
         with selectable fields.
         """
-        self.debug_print(f"get_g_product_details: product_id={product_id}")
 
         fields_to_select = list(PRODUCT_FULL_FIELDS) # Default to full fields
 
@@ -315,7 +305,6 @@ class GoldenProductRepository(BaseRepository):
             WHERE gp.id = $1
         """
         async with self._get_conn() as conn:
-            self.debug_print(f"get_g_product_details: Final Query: {query}")
             row = await conn.fetchrow(query, product_id)
             
             if row:
@@ -325,7 +314,6 @@ class GoldenProductRepository(BaseRepository):
                     try:
                         row_dict["embedding"] = json.loads(row_dict["embedding"])
                     except json.JSONDecodeError:
-                        self.debug_print(f"Warning: Could not decode embedding string: {row_dict['embedding']}")
                         row_dict["embedding"] = None
                 return row_dict
             return None
@@ -335,7 +323,6 @@ class GoldenProductRepository(BaseRepository):
         """
         Adds multiple golden products to the g_products table.
         """
-        self.debug_print(f"add_many_g_products: Adding {len(g_products)} products.")
         if not g_products:
             return 0
 
@@ -369,14 +356,12 @@ class GoldenProductRepository(BaseRepository):
                     'seasonal_start_month', 'seasonal_end_month', 'embedding'
                 ]
             )
-            self.debug_print(f"add_many_g_products: Inserted {result} rows.")
             return result
     
     async def add_many_g_prices(self, g_prices: List[GPrice]) -> int:
         """
         Adds multiple golden prices to the g_prices table.
         """
-        self.debug_print(f"add_many_g_prices: Adding {len(g_prices)} prices.")
         if not g_prices:
             return 0
 
@@ -402,14 +387,12 @@ class GoldenProductRepository(BaseRepository):
                     'special_price', 'price_per_kg', 'price_per_l', 'price_per_piece'
                 ]
             )
-            self.debug_print(f"add_many_g_prices: Inserted {result} rows.")
             return result
     
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         """
         Adds multiple golden product best offers to the g_product_best_offers table.
         """
-        self.debug_print(f"add_many_g_product_best_offers: Adding {len(g_offers)} offers.")
         if not g_offers:
             return 0
 
@@ -434,7 +417,6 @@ class GoldenProductRepository(BaseRepository):
                     'best_unit_price_per_piece', 'lowest_price_in_season', 'best_price_store_id', 'best_price_found_at'
                 ]
             )
-            self.debug_print(f"add_many_g_product_best_offers: Inserted {result} rows.")
             return result
 
     async def get_overall_seasonal_best_price_for_generic_product(
@@ -449,7 +431,6 @@ class GoldenProductRepository(BaseRepository):
         Finds the lowest seasonal price for generic products across all chains
         that match the canonical name and category and are currently in season.
         """
-        self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: canonical_name={canonical_name}, category={category}, current_month={current_month}")
         
         async with self._get_conn() as conn:
             query = """
@@ -486,7 +467,5 @@ class GoldenProductRepository(BaseRepository):
             """
             params = [f"%{canonical_name}%", f"%{category}%", current_month, limit, offset]
             
-            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: Executing Query!!!")
-            self.debug_print(f"get_overall_seasonal_best_price_for_generic_product: With Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]

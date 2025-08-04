@@ -4,7 +4,7 @@ from decimal import Decimal
 from datetime import datetime # Import datetime
 import asyncio # Import asyncio for concurrent execution
 from uuid import UUID # Import UUID
-from service.utils.timing import timing_decorator, debug_print # Import the decorator and debug_print
+import structlog # Import structlog
 from service.db.field_configs import (
     USER_LOCATION_AI_FIELDS, # Import AI fields for user locations
     PRODUCT_AI_SEARCH_FIELDS, # Import AI fields for product search
@@ -17,6 +17,7 @@ from service.db.field_configs import (
 from .ai_helpers import pydantic_to_dict, filter_product_fields # A new helper file
 
 db = get_settings().get_db()
+log = structlog.get_logger(__name__) # Initialize structlog logger
 
 # --- Tool Functions ---
 async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -25,7 +26,7 @@ async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any
     existing logic and adds a fix to prevent the 'caption' argument from being
     passed to the underlying search function.
     """
-    debug_print(f"multi_search_tool received queries: {queries}")
+    log.debug("multi_search_tool received queries", queries=queries)
     tasks = []
 
     # 1. Prepare all the asynchronous tasks (This is your existing logic)
@@ -80,7 +81,7 @@ async def multi_search_tool(queries: List[Dict[str, Any]]) -> List[Dict[str, Any
             }
         final_structured_results.append(structured_item)
     
-    debug_print(f"multi_search_tool returning structured results: {final_structured_results}")
+    log.debug("multi_search_tool returning structured results", results=final_structured_results)
     return final_structured_results
 
 async def search_products_tool_v2(
@@ -115,14 +116,14 @@ async def search_products_tool_v2(
             # This function filters for AI-relevant fields. This is correct.
             filtered_products = filter_product_fields(products_with_prices, PRODUCT_AI_SEARCH_FIELDS)
 
-            debug_print(f"search_products_tool_v2 returning with store_ids: {len(filtered_products)} products.")
+            log.debug("search_products_tool_v2 returning with store_ids", num_products=len(filtered_products))
             return pydantic_to_dict({"products": filtered_products})
 
     except Exception as e:
         # Add traceback for better debugging if it happens again
         import traceback
         traceback.print_exc()
-        debug_print(f"search_products_tool_v2 caught exception: {e}")
+        log.error("search_products_tool_v2 caught exception", error=str(e))
         return {"error": str(e)}
     
 async def get_product_details_tool_v2(product_id: int):
@@ -202,7 +203,7 @@ async def get_seasonal_product_deals_tool_v2(
     if offset is None:
         offset = 0
 
-    debug_print(f"Tool Call: get_seasonal_product_deals_tool_v2(canonical_name={canonical_name}, category={category}, current_month={current_month})")
+    log.debug("Tool Call: get_seasonal_product_deals_tool_v2", canonical_name=canonical_name, category=category, current_month=current_month)
     try:
         results = await db.golden_products.get_overall_seasonal_best_price_for_generic_product(
             canonical_name=canonical_name,
@@ -213,7 +214,7 @@ async def get_seasonal_product_deals_tool_v2(
         )
         return pydantic_to_dict({"seasonal_products": results})
     except Exception as e:
-        debug_print(f"Error in get_seasonal_product_deals_tool_v2: {e}")
+        log.error("Error in get_seasonal_product_deals_tool_v2", error=str(e))
         return {"error": str(e)}
 
 from .internal_tools import get_user_locations_tool # Assuming you move the original tool logic here
@@ -224,7 +225,7 @@ async def find_nearby_stores_for_user_tool(user_id: str, radius_meters: Optional
     Finds nearby stores for a given user by first retrieving their primary
     saved location and then searching around that location.
     """
-    debug_print(f"Composite tool 'find_nearby_stores_for_user' called for user {user_id}")
+    log.debug("Composite tool 'find_nearby_stores_for_user' called", user_id=user_id)
     
     # Convert user_id from str to UUID for internal use
     user_id_uuid = UUID(user_id)

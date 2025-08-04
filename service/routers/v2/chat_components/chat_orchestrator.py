@@ -5,14 +5,12 @@ from uuid import UUID, uuid4
 from typing import AsyncGenerator, Optional, List
 from datetime import datetime, timezone
 
-# --- DEBUGGING IMPORT ---
-import sys
+import structlog # Import structlog
 
 from .ai_providers import get_ai_provider, StreamedPart, AbstractAIProvider, to_json_primitive
 from .ai_tools import available_tools
 from service.db.base import Database
 from service.db.models import ChatMessage
-from service.utils.timing import debug_print
 
 
 from .ai_schemas import LocationInfo # Add this import
@@ -27,6 +25,7 @@ class ChatOrchestrator:
         self.location_info = location_info
         self.ignore_session_history = ignore_session_history
         self.history_limit = history_limit
+        self.log = structlog.get_logger(self.__class__.__name__) # Initialize structlog logger
         self.ai_provider: AbstractAIProvider = get_ai_provider(
             db=self.db, user_id=self.user_id, session_id=self.session_id
         )
@@ -49,11 +48,11 @@ class ChatOrchestrator:
                 "is_current_location": True
             }
             locations_to_process.append(loc_dict)
-            print(f"!!! ORCHESTRATOR: Using location from chat request: {loc_dict}", file=sys.stderr, flush=True)
+            self.log.debug("Using location from chat request", location=loc_dict)
         else:
             # Fallback to user's saved locations
             user_locations = await self.db.users.get_user_locations_by_user_id(self.user_id)
-            print(f"!!! ORCHESTRATOR: User Locations: {user_locations}", file=sys.stderr, flush=True)
+            self.log.debug("User Locations", user_locations=user_locations)
             for loc in user_locations:
                 loc_dict = loc.copy()
                 if "user_id" in loc_dict and isinstance(loc_dict["user_id"], UUID):
@@ -81,21 +80,21 @@ class ChatOrchestrator:
         return enriched_locations
     
     async def _load_history(self):
-        print("!!! ORCHESTRATOR: Loading history...", file=sys.stderr, flush=True)
+        self.log.debug("Loading history...")
         if self.ignore_session_history:
             self.history = await self.db.chat.get_latest_chat_messages(self.user_id, self.history_limit)
-            print(f"!!! ORCHESTRATOR: Loaded {len(self.history)} latest messages for user {self.user_id} from DB.", file=sys.stderr, flush=True)
+            self.log.debug("Loaded latest messages for user from DB", num_messages=len(self.history), user_id=self.user_id)
         else:
             self.history = await self.db.chat.get_chat_messages_by_session(self.user_id, self.session_id)
-            print(f"!!! ORCHESTRATOR: Loaded {len(self.history)} messages for session {self.session_id} from DB.", file=sys.stderr, flush=True)
+            self.log.debug("Loaded messages for session from DB", num_messages=len(self.history), session_id=self.session_id)
 
 
     async def _add_and_save_message(self, message: ChatMessage):
         """Appends a message to the in-memory history and saves it to the database."""
-        print(f"!!! ORCHESTRATOR: Adding and saving message from sender '{message.sender}'. ID: {message.id}", file=sys.stderr, flush=True)
+        self.log.debug("Adding and saving message", sender=message.sender, message_id=message.id)
         self.history.append(message)
         await self.db.save_chat_message_from_object(message)
-        print(f"!!! ORCHESTRATOR: Save complete for message ID: {message.id}", file=sys.stderr, flush=True)
+        self.log.debug("Save complete for message", message_id=message.id)
 
     async def stream_response(self, user_message_text: Optional[str]) -> AsyncGenerator[str, None]:
         # --- 1. Initial Setup ---
@@ -124,7 +123,7 @@ class ChatOrchestrator:
         # --- 2. Make a Single API Call with Tools Enabled ---
         ai_history = self.ai_provider.format_history(self.system_instructions, self.history)
         
-        debug_print("[Orchestrator] Making a single API call to determine action (text or tool)...")
+        self.log.debug("Making a single API call to determine action (text or tool)...")
         response_stream = self.ai_provider.generate_stream(ai_history, use_tools=True)
 
         tool_calls_this_turn = []
@@ -136,13 +135,13 @@ class ChatOrchestrator:
                 elif part.type == "tool_call":
                     tool_calls_this_turn.append(part.content)
         except Exception as e:
-            debug_print(f"Exception during initial stream: {e}")
+            self.log.error("Exception during initial stream", error=str(e))
             yield StreamedPart(type="error", content=str(e)).to_sse()
 
         # --- 3. Process the Result of the Single API Call ---
         if tool_calls_this_turn:
             # PATH A: TOOL USE - Execute the tool and we are DONE.
-            debug_print("[Orchestrator] Tool call detected. Executing tool and ending request.")
+            self.log.debug("Tool call detected. Executing tool and ending request.")
 
             model_request_message = ChatMessage(
                 id=uuid4(), 
@@ -182,7 +181,7 @@ class ChatOrchestrator:
 
         elif self.full_ai_response_text:
             # PATH B: GENERAL QUESTION - The AI already gave us the answer.
-            debug_print("[Orchestrator] Text response detected. Saving and ending request.")
+            self.log.debug("Text response detected. Saving and ending request.")
             
             ai_response_message = ChatMessage(
                 id=uuid4(), 
@@ -197,7 +196,7 @@ class ChatOrchestrator:
         
         else:
             # PATH C: AI FREEZE - The AI gave neither text nor tool call.
-            debug_print("[Orchestrator] AI returned an empty stream. Ending request.")
+            self.log.debug("AI returned an empty stream. Ending request.")
             yield StreamedPart(type="error", content="Asistent trenutno nije dostupan. Molimo pokušajte kasnije.").to_sse()
 
         # --- 4. End the Stream ---

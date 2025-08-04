@@ -6,12 +6,6 @@ import inspect # Import inspect
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-def debug_print(message):
-    """
-    A simple debug print function that uses the logger.
-    """
-    logger.debug(message)
-
 def timing_decorator(func):
     """
     A decorator that works with both regular async functions and

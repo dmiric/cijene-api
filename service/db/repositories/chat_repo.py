@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 import sys
 import json
 import pgvector.asyncpg
+import structlog # Import structlog
 from service.utils.timing import timing_decorator # Import the decorator
 
 from service.db.base import BaseRepository # Changed from Database as DBConnectionManager
@@ -30,9 +31,9 @@ class ChatRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG chat_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
+        # ==================== 2. INITIALIZE A LOGGER ====================
+        # Replace the custom debug_print with a proper structlog logger
+        self.log = structlog.get_logger(self.__class__.__name__)
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
@@ -88,12 +89,12 @@ class ChatRepository(BaseRepository):
                     json.dumps(message.tool_outputs) if message.tool_outputs else None,
                     message.ai_response,
                 )
-                self.debug_print(f"Saved chat message: {message.id} (Sender: {message.sender})")
+                self.log.debug("Saved chat message", message_id=message.id, sender=message.sender)
             except asyncpg.exceptions.PostgresError as e:
-                self.debug_print(f"ERROR: PostgresError saving chat message object {message.id}: {e}")
+                self.log.error("PostgresError saving chat message object", message_id=message.id, error=str(e))
                 raise
             except Exception as e:
-                self.debug_print(f"ERROR: Unexpected error saving chat message object {message.id}: {e}")
+                self.log.error("Unexpected error saving chat message object", message_id=message.id, error=str(e))
                 raise 
         
     
@@ -121,7 +122,7 @@ class ChatRepository(BaseRepository):
                     try:
                         tool_calls_data = json.loads(tool_calls_data)
                     except json.JSONDecodeError:
-                        self.debug_print(f"Error decoding tool_calls string from DB: {tool_calls_data}")
+                        self.log.error("Error decoding tool_calls string from DB", tool_calls_data=tool_calls_data)
                         tool_calls_data = None
 
                 tool_outputs_data = row["tool_outputs"]
@@ -129,7 +130,7 @@ class ChatRepository(BaseRepository):
                     try:
                         tool_outputs_data = json.loads(tool_outputs_data)
                     except json.JSONDecodeError:
-                        self.debug_print(f"Error decoding tool_outputs string from DB: {tool_outputs_data}")
+                        self.log.error("Error decoding tool_outputs string from DB", tool_outputs_data=tool_outputs_data)
                         tool_outputs_data = None
 
                 chat_messages.append(
@@ -171,7 +172,7 @@ class ChatRepository(BaseRepository):
                     try:
                         tool_calls_data = json.loads(tool_calls_data)
                     except json.JSONDecodeError:
-                        self.debug_print(f"Error decoding tool_calls string from DB: {tool_calls_data}")
+                        self.log.error("Error decoding tool_calls string from DB", tool_calls_data=tool_calls_data)
                         tool_calls_data = None
 
                 tool_outputs_data = row["tool_outputs"]
@@ -179,7 +180,7 @@ class ChatRepository(BaseRepository):
                     try:
                         tool_outputs_data = json.loads(tool_outputs_data)
                     except json.JSONDecodeError:
-                        self.debug_print(f"Error decoding tool_outputs string from DB: {tool_outputs_data}")
+                        self.log.error("Error decoding tool_outputs string from DB", tool_outputs_data=tool_outputs_data)
                         tool_outputs_data = None
 
                 chat_messages.append(

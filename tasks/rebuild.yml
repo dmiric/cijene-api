@@ -1,4 +1,4 @@
-# ./tasks/docker.yml
+# ./tasks/rebuild.yml
 version: '3'
 
 # Variables specific to this file can be defined here.

@@ -22,7 +22,7 @@ vars:
 
 # Include the other task files and assign them a namespace.
 includes:
-  docker: ./tasks/rebuild.yml
+  rebuild: ./tasks/rebuild.yml
   data: ./tasks/data.yml
   db: ./tasks/db.yml
   test: ./tasks/test.yml

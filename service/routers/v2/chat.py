@@ -11,10 +11,11 @@ from service.routers.v2.chat_components.initial_context import INITIAL_SYSTEM_IN
 # --- We no longer need to import get_ai_provider here ---
 from .chat_components.chat_orchestrator import ChatOrchestrator
 from .chat_components.ai_schemas import ChatRequest
-from service.utils.timing import debug_print
+import structlog # Import structlog
 
 router = APIRouter(tags=["AI Chat V2"], dependencies=[Depends(verify_authentication)])
 db = get_settings().get_db()
+log = structlog.get_logger(__name__) # Initialize structlog logger
 
 async def get_chat_context(auth: RequireAuth = Depends(verify_authentication)) -> dict:
     """Dependency to prepare common chat context."""
@@ -38,8 +39,8 @@ async def event_stream_post(
     """Handles a new or continuing chat conversation via POST."""
     session_id = chat_request.session_id or uuid4()
     user_id = context["user_id"]
-    debug_print(f"[chat.py] Received chat request for user_id: {user_id}, session_id: {session_id}, ignore_session_history: {chat_request.ignore_session_history}")
-    debug_print(f"[chat.py] Chat request details: message_text='{chat_request.message_text}', location_info={chat_request.location_info}")
+    log.debug("Received chat request", user_id=user_id, session_id=session_id, ignore_session_history=chat_request.ignore_session_history)
+    log.debug("Chat request details", message_text=chat_request.message_text, location_info=chat_request.location_info)
     
     orchestrator = ChatOrchestrator(
         user_id=user_id,

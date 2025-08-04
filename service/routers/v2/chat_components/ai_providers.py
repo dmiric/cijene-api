@@ -12,10 +12,8 @@ from .ai_helpers import convert_protobuf_to_dict
 from .ai_schemas import gemini_tools
 from service.db.models import ChatMessage
 from service.db.base import Database
-from service.utils.timing import debug_print
 from service.config import get_settings
-
-import sys
+import structlog # Import structlog
 
 class StreamedPart:
     def __init__(self, type: str, content: Any):
@@ -28,6 +26,8 @@ def to_json_primitive(value):
     if isinstance(value, (dict, list)):
         return json.loads(json.dumps(value, default=str))
     return value
+
+log = structlog.get_logger(__name__) # Initialize structlog logger
 
 class AbstractAIProvider(ABC):
     @abstractmethod
@@ -48,10 +48,10 @@ class GeminiProvider(AbstractAIProvider):
         self.db = db
         self.user_id = user_id
         self.session_id = session_id
-        debug_print("GeminiProvider initialized.")
+        log.debug("GeminiProvider initialized.")
 
     def format_history(self, system_instructions: list[str], history: list[ChatMessage]) -> list:
-        debug_print("--- PROVIDER: Starting format_history ---")
+        log.debug("Starting format_history")
         ai_history = []
         full_instructions = "\n".join(system_instructions)
         if full_instructions.strip():
@@ -84,14 +84,14 @@ class GeminiProvider(AbstractAIProvider):
             if parts:
                 ai_history.append(genai.types.Content(parts=parts, role=role))
         
-        debug_print(f"--- PROVIDER: format_history finished. Final history for API:\n{ai_history}\n---")
+        log.debug("format_history finished. Final history for API", ai_history=ai_history)
         return ai_history
 
     async def generate_stream(self, history: list, use_tools: bool = True) -> AsyncGenerator[StreamedPart, None]:
-        print("--- PROVIDER: Starting generate_stream ---", file=sys.stderr, flush=True)
+        log.debug("Starting generate_stream")
         try:
             if use_tools:
-                debug_print("[Provider] Calling API with tool configuration.")
+                log.debug("Calling API with tool configuration.")
                 config_with_tools = genai.types.GenerateContentConfig(tools=gemini_tools)
                 streaming_response = await gemini_client.aio.models.generate_content_stream(
                     model=get_settings().gemini_text_model,
@@ -99,7 +99,7 @@ class GeminiProvider(AbstractAIProvider):
                     config=config_with_tools
                 )
             else:
-                debug_print("[Provider] Calling API WITHOUT config for pure text generation.")
+                log.debug("Calling API WITHOUT config for pure text generation.")
                 streaming_response = await gemini_client.aio.models.generate_content_stream(
                     model=get_settings().gemini_text_model,
                     contents=history
@@ -108,22 +108,20 @@ class GeminiProvider(AbstractAIProvider):
             chunk_count = 0
             async for raw_chunk in streaming_response:
                 chunk_count += 1
-                print(f"!!! PROVIDER: Received raw chunk #{chunk_count} from API.", file=sys.stderr, flush=True)
-                # print(f"!!! PROVIDER: Raw chunk content: {raw_chunk}", file=sys.stderr, flush=True)
+                log.debug("Received raw chunk from API", chunk_number=chunk_count, raw_chunk=raw_chunk)
                 parsed_parts = self._parse_chunk_and_convert(raw_chunk)
                 if parsed_parts:
-                    print(f"!!! PROVIDER: Parsed {len(parsed_parts)} part(s) from chunk.", file=sys.stderr, flush=True)
+                    log.debug("Parsed part(s) from chunk", num_parts=len(parsed_parts))
                     for part in parsed_parts:
                         yield part
                 else:
-                    print("!!! PROVIDER: Chunk was empty or contained no parsable parts.", file=sys.stderr, flush=True)
+                    log.debug("Chunk was empty or contained no parsable parts.")
 
             if chunk_count == 0:
-                print("!!! PROVIDER WARNING: The API returned 0 chunks. The stream was empty.", file=sys.stderr, flush=True)
+                log.warning("The API returned 0 chunks. The stream was empty.")
                 
         except Exception as e:
-            print(f"!!! PROVIDER ERROR in generate_stream: {e}", file=sys.stderr, flush=True)
-            debug_print(f"ERROR within GeminiProvider.generate_stream: {type(e).__name__}: {e}")
+            log.error("Error in generate_stream", error=str(e), exception_type=type(e).__name__)
             yield StreamedPart(type="error", content=str(e))
 
     def _parse_chunk_and_convert(self, chunk: Any) -> list[StreamedPart]:
@@ -131,7 +129,7 @@ class GeminiProvider(AbstractAIProvider):
         Parses a raw chunk from the API and converts its parts into StreamedPart objects.
         This version correctly handles BOTH text and function_call parts.
         """
-        print(f"!!! PROVIDER: Parsing chunk: {chunk} from API.", file=sys.stderr, flush=True)
+        log.debug("Parsing chunk from API", chunk=chunk)
         parts = []
         if not hasattr(chunk, 'candidates') or not chunk.candidates:
             return parts
@@ -144,15 +142,15 @@ class GeminiProvider(AbstractAIProvider):
                 # --- THIS IS THE FIX ---
                 if part.text:
                     # If the part has text, create a 'text' StreamedPart.
-                    print(f"!!! PROVIDER: Found text part: '{part.text}'", file=sys.stderr, flush=True)
+                    log.debug("Found text part", text=part.text)
                     parts.append(StreamedPart(type="text", content=part.text))
                 
                 elif part.function_call:
                     # If the part has a function call, create a 'tool_call' StreamedPart.
-                    print(f"!!! PROVIDER: Found function_call part.", file=sys.stderr, flush=True)
+                    log.debug("Found function_call part.")
                     tool_call_dict = convert_protobuf_to_dict(part.function_call)
                     parts.append(StreamedPart(type="tool_call", content=tool_call_dict))
                 # --- END OF FIX ---
 
-        print(f"!!! PROVIDER: Parsed {len(parts)} parts from chunk.", file=sys.stderr, flush=True)
+        log.debug("Parsed parts from chunk", num_parts=len(parts))
         return parts

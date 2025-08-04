@@ -47,9 +47,6 @@ class ProductRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG product_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
@@ -295,7 +292,6 @@ class ProductRepository(BaseRepository):
         """
 
         async with self._get_conn() as conn:
-            self.debug_print(f"search_products: Query: {query_sql}")
             rows = await conn.fetch(query_sql)
             return [ProductWithId(**row) for row in rows]
 
@@ -310,7 +306,6 @@ class ProductRepository(BaseRepository):
         Get computed chain prices across all chains for specified products
         on a given date, with selectable fields.
         """
-        self.debug_print(f"get_product_prices: product_ids={product_ids}, date={date}, store_ids={store_ids}, fields={fields}")
 
         if fields is None:
             fields_to_select = PRODUCT_PRICE_AI_FIELDS # Default to AI fields for this common AI tool
@@ -360,8 +355,6 @@ class ProductRepository(BaseRepository):
                 query += " AND p.store_id = ANY($3)"
                 params.append(store_ids)
             
-            self.debug_print(f"get_product_prices: Query: {query}")
-            self.debug_print(f"get_product_prices: Params: {params}")
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 

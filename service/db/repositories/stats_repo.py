@@ -29,9 +29,6 @@ class StatsRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG stats_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
