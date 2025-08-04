@@ -9,7 +9,7 @@ import os
 import asyncpg
 
 # When running tests inside the Docker container, 'api' is the service hostname
-BASE_URL = "http://api:8000/v1" # Note: This is v1 endpoint
+BASE_URL = "http://api:8000/v2/" # Changed to v2 endpoint with trailing slash
 HEALTH_URL = "http://api:8000/health"
 
 # Database connection details from .env
@@ -21,7 +21,7 @@ DB_NAME = os.getenv("POSTGRES_DB")
 
 # Base URL for the API (without /v1) for login endpoint
 API_ROOT_URL = "http://api:8000"
-BASE_URL = f"{API_ROOT_URL}/v1" # Note: This is v1 endpoint
+BASE_URL = f"{API_ROOT_URL}/v2/" # Changed to v2 endpoint with trailing slash
 HEALTH_URL = f"{API_ROOT_URL}/health"
 
 # Test user credentials
@@ -95,9 +95,18 @@ async def test_user_credentials(db_connection: asyncpg.Connection):
     # Clean up user from DB
     print(f"Cleaning up test user: {TEST_USER_EMAIL}")
     try:
-        await db_connection.execute("DELETE FROM users WHERE email = $1;", TEST_USER_EMAIL)
-        await db_connection.execute("DELETE FROM user_personal_data WHERE email = $1;", TEST_USER_EMAIL)
-        print(f"Cleaned up user {TEST_USER_EMAIL}.")
+        # First, get the user_id from user_personal_data
+        user_record = await db_connection.fetchrow(
+            "SELECT user_id FROM user_personal_data WHERE email = $1;",
+            TEST_USER_EMAIL
+        )
+        if user_record:
+            user_id_to_delete = user_record["user_id"]
+            # Delete from the users table, which will cascade to user_personal_data
+            await db_connection.execute("DELETE FROM users WHERE id = $1;", user_id_to_delete)
+            print(f"Cleaned up user {TEST_USER_EMAIL} (ID: {user_id_to_delete}).")
+        else:
+            print(f"User {TEST_USER_EMAIL} not found for cleanup.")
     except Exception as e:
         print(f"Error cleaning up user {TEST_USER_EMAIL}: {e}")
 
@@ -119,7 +128,7 @@ async def authenticated_client(test_user_credentials: dict):
         print(f"Successfully obtained JWT token for {test_user_credentials['email']}")
 
     headers = {"Authorization": f"Bearer {access_token}"}
-    async with httpx.AsyncClient(base_url=BASE_URL, headers=headers) as client:
+    async with httpx.AsyncClient(base_url=BASE_URL, headers=headers, follow_redirects=True) as client:
         yield client
 
 @pytest.fixture(scope="function")
@@ -213,7 +222,7 @@ async def test_list_nearby_stores_success(
     radius_meters = 1000 # 1 km radius, should include the store
 
     response = await authenticated_client.get(
-        f"/stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}"
+        f"{BASE_URL}stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}"
     )
     assert response.status_code == 200
     data = response.json()
@@ -226,7 +235,7 @@ async def test_list_nearby_stores_success(
     )
     assert found_store is not None
     assert found_store["chain_code"] == setup_test_store["chain_code"]
-    assert found_store["code"] == setup_test_store["store_code"]
+    assert found_store["name"] == setup_test_store["store_code"]
     assert "distance_meters" in found_store
     assert isinstance(found_store["distance_meters"], (float, int, Decimal)) # Ensure it's a number
     assert float(found_store["distance_meters"]) <= radius_meters # Distance should be within radius
@@ -246,7 +255,7 @@ async def test_list_nearby_stores_no_results(
     radius_meters = 1000 # 1 km radius
 
     response = await authenticated_client.get(
-        f"/stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}"
+        f"{BASE_URL}stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}"
     )
     assert response.status_code == 200
     data = response.json()
@@ -267,7 +276,7 @@ async def test_list_nearby_stores_filter_by_chain(
     chain_code = setup_test_store["chain_code"]
 
     response = await authenticated_client.get(
-        f"/stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}&chain_code={chain_code}"
+        f"{BASE_URL}stores/nearby/?lat={query_lat}&lon={query_lon}&radius_meters={radius_meters}&chain_code={chain_code}"
     )
     assert response.status_code == 200
     data = response.json()
@@ -293,18 +302,18 @@ async def test_list_nearby_stores_invalid_params(
     """
     # Missing lat
     response = await authenticated_client.get(
-        f"/stores/nearby/?lon=15.0&radius_meters=1000"
+        f"{BASE_URL}stores/nearby/?lon=15.0&radius_meters=1000"
     )
     assert response.status_code == 422 # Unprocessable Entity
 
     # Missing lon
     response = await authenticated_client.get(
-        f"/stores/nearby/?lat=45.0&radius_meters=1000"
+        f"{BASE_URL}stores/nearby/?lat=45.0&radius_meters=1000"
     )
     assert response.status_code == 422
 
-    # Missing radius_meters
+    # Missing radius_meters (should default to 5000, so expect 200 OK)
     response = await authenticated_client.get(
-        f"/stores/nearby/?lat=45.0&lon=15.0"
+        f"{BASE_URL}stores/nearby/?lat=45.0&lon=15.0"
     )
-    assert response.status_code == 422
+    assert response.status_code == 200

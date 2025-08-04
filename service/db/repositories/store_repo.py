@@ -10,6 +10,7 @@ from typing import (
 from datetime import date, datetime
 from decimal import Decimal
 import sys
+import structlog # Import structlog
 from service.utils.timing import timing_decorator # Import the decorator
 
 from service.db.base import BaseRepository
@@ -28,9 +29,9 @@ class StoreRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        def debug_print_db(*args, **kwargs):
-            print("[DEBUG store_repo]", *args, file=sys.stderr, **kwargs)
-        self.debug_print = debug_print_db
+        # ==================== 2. INITIALIZE A LOGGER ====================
+        # Replace the custom debug_print with a proper structlog logger
+        self.log = structlog.get_logger(self.__class__.__name__)
 
     async def connect(self, pool: asyncpg.Pool) -> None:
         """
@@ -243,13 +244,13 @@ class StoreRepository(BaseRepository):
         Finds and lists stores within a specified radius of a given lat/lon, with selectable fields.
         Results include chain code and distance from the center point, ordered by distance.
         """
-        self.debug_print(f"get_stores_within_radius received: lat={lat}, lon={lon}, radius_meters={radius_meters}, chain_code={chain_code}, fields={fields}")
+        self.log.debug("get_stores_within_radius received", lat=lat, lon=lon, radius_meters=radius_meters, chain_code=chain_code, fields=fields)
 
         if fields is None:
             fields_to_select = STORE_AI_FIELDS # Default to AI fields for this common AI tool
         else:
             fields_to_select = fields
-        self.debug_print(f"Fields to select in get_stores_within_radius: {fields_to_select}")
+        self.log.debug("Fields to select in get_stores_within_radius", fields_to_select=fields_to_select)
 
         # Basic validation for fields
         valid_fields = set(STORE_AI_FIELDS + ["distance_meters"]) # Include distance for sorting
@@ -274,7 +275,7 @@ class StoreRepository(BaseRepository):
         async with self._get_conn() as conn:
             # Create a geometry point for the center of the search (matching DB column type)
             center_point = f"ST_SetSRID(ST_Point({lon}, {lat}), 4326)::geometry"
-            self.debug_print(f"Generated center_point: {center_point}")
+            self.log.debug("Generated center_point", center_point=center_point)
 
             query = f"""
                 SELECT {select_clause}
@@ -290,8 +291,8 @@ class StoreRepository(BaseRepository):
 
             query += f" ORDER BY ST_Distance(s.location, {center_point})"
 
-            self.debug_print(f"get_stores_within_radius: Final Query: {query}")
-            self.debug_print(f"get_stores_within_radius: Params: {params}")
+            self.log.debug("get_stores_within_radius: Final Query", query=query)
+            self.log.debug("get_stores_within_radius: Params", params=params)
             rows = await conn.fetch(query, *params)
             
             # Convert rows to dictionaries, ensuring all values are JSON-serializable.
