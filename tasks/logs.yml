@@ -1,0 +1,9 @@
+# ./tasks/logs.yml
+version: '3'
+
+tasks:
+  # --- Logging Tasks ---
+  api:
+    desc: 'Follow logs for the API service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs api

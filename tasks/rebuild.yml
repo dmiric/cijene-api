@@ -9,7 +9,7 @@ vars:
   COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
 
 tasks:
-  rebuild:
+  all:
     desc: 'Rebuild and restart all Docker containers (logs to {{.DOCKER_BUILD_LOG_FILE}})'
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
@@ -19,7 +19,7 @@ tasks:
       - echo "Docker containers rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
-  rebuild-api:
+  api:
     desc: 'Rebuild and restart only the API service'
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
@@ -29,7 +29,7 @@ tasks:
       - echo "API service rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
-  rebuild-metrics:
+  metrics:
     desc: 'Rebuild and restart only the metrics services'
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
@@ -39,14 +39,6 @@ tasks:
         >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
       - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
-
-  rebuild-everything:
-    desc: 'Stops, removes containers/volumes, and rebuilds everything. Usage: task docker:rebuild-everything -- [EXCLUDE_VOLUMES="..."]'
-    cmds:
-      - cmd: 'pwsh -File ./scripts/rebuild.ps1 -ExcludeVolumes "{{.EXCLUDE_VOLUMES}}"'
-        platform: [windows]
-      - cmd: 'bash ./scripts/rebuild.sh --exclude="{{.EXCLUDE_VOLUMES}}"'
-        platform: [linux, darwin]
 
   build-worker:
     desc: 'Rebuild the worker services (api, crawler)'
@@ -90,4 +82,6 @@ tasks:
         docker compose {{.COMPOSE_FILES_LOCAL}} exec -T db
         psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -f /app/service/db/psql.sql
       - task: db:migrate
+      - task: data:enrich
+        vars: { TYPE: all-user-data, CSV_FILE: ./backups/users.csv, USER_LOCATIONS_CSV_FILE: ./backups/user_locations.csv }
       - echo "Development fresh start completed."

@@ -3,8 +3,8 @@ version: '3'
 
 vars:
   COMPOSE_CMD_WIN: 'docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm'
-  COMPOSE_CMD_UNIX: 'docker compose -f docker-compose.worker.yml run --rm
-  COMPOSE_CMD_UNIX_PROD: 'docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm
+  COMPOSE_CMD_UNIX: 'docker compose -f docker-compose.worker.yml run --rm'
+  COMPOSE_CMD_UNIX_PROD: 'docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm'
 
 tasks:
   crawl:

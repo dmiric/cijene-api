@@ -104,9 +104,3 @@ tasks:
       GOOGLE_API_KEY: '{{.GOOGLE_API_KEY}}'
     cmds:
       - docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm api pytest tests/test_chat_v2.py -s --query="{{.QUERY}}"
-  
-  # --- Logging Tasks ---
-  logs-api:
-    desc: 'Follow logs for the API service'
-    cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs -f api
