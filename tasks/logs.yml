@@ -7,3 +7,43 @@ tasks:
     desc: 'Follow logs for the API service'
     cmds:
       - docker compose -f docker-compose.yml -f docker-compose.local.yml logs api
+  db:
+    desc: 'Follow logs for the Database service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs db
+  pgadmin:
+    desc: 'Follow logs for the pgAdmin service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs pgadmin
+  backup:
+    desc: 'Follow logs for the Backup service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs backup
+  pushgateway:
+    desc: 'Follow logs for the Pushgateway service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs pushgateway
+  prometheus:
+    desc: 'Follow logs for the Prometheus service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs prometheus
+  grafana:
+    desc: 'Follow logs for the Grafana service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs grafana
+  loki:
+    desc: 'Follow logs for the Loki service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs loki
+  alloy:
+    desc: 'Follow logs for the Alloy service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs alloy
+  crawler:
+    desc: 'Follow logs for the Crawler service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs crawler
+  mailhog:
+    desc: 'Follow logs for the MailHog service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs mailhog

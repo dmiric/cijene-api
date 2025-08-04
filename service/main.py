@@ -185,17 +185,17 @@ def configure_logging():
             "uvicorn": {
                 "handlers": ["default"],
                 "level": log_level,
-                "propagate": False,
+                "propagate": True, # Propagate to root logger for JSON formatting
             },
             "uvicorn.error": {
                 "handlers": ["default"],
                 "level": log_level,
-                "propagate": False,
+                "propagate": True, # Propagate to root logger for JSON formatting
             },
             "uvicorn.access": {
                 "handlers": ["default"],
                 "level": log_level,
-                "propagate": False,
+                "propagate": True, # Propagate to root logger for JSON formatting
             },
         },
     }

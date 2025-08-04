@@ -11,9 +11,6 @@ from service.routers.auth import RequireApiKey # Import RequireApiKey
 router = APIRouter(tags=["Stores"], dependencies=[RequireApiKey]) # Use RequireApiKey
 db = get_settings().get_db()
 
-def debug_print(*args, **kwargs):
-    print("[DEBUG stores]", *args, file=sys.stderr, **kwargs)
-
 class ChainResponse(BaseModel):
     """Chain response schema."""
     id: int

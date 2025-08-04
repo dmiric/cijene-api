@@ -23,8 +23,8 @@
     "panels": [
         {
             "datasource": {
-                "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
             },
             "fieldConfig": {
                 "defaults": {
@@ -37,33 +37,22 @@
                         "axisColorMode": "text",
                         "axisLabel": "",
                         "axisPlacement": "auto",
-                        "barAlignment": 0,
-                        "barWidthFactor": 0.6,
-                        "drawStyle": "bars",
-                        "fillOpacity": 100,
-                        "gradientMode": "hue",
+                        "fillOpacity": 54,
+                        "gradientMode": "none",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
                             "viz": false
                         },
-                        "insertNulls": false,
-                        "lineInterpolation": "linear",
                         "lineWidth": 1,
-                        "pointSize": 5,
                         "scaleDistribution": {
                             "type": "linear"
-                        },
-                        "showPoints": "never",
-                        "spanNulls": false,
-                        "stacking": {
-                            "group": "A",
-                            "mode": "none"
                         },
                         "thresholdsStyle": {
                             "mode": "off"
                         }
                     },
+                    "fieldMinMax": false,
                     "mappings": [],
                     "thresholds": {
                         "mode": "absolute",
@@ -71,15 +60,57 @@
                             {
                                 "color": "green",
                                 "value": 0
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
                             }
                         ]
                     }
                 },
-                "overrides": []
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "error"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "red",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "info"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "semi-dark-green",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "warning"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "orange",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
             },
             "gridPos": {
                 "h": 8,
@@ -87,40 +118,50 @@
                 "x": 0,
                 "y": 0
             },
-            "id": 4,
+            "id": 5,
+            "interval": "5m",
             "options": {
+                "barRadius": 0,
+                "barWidth": 0.9,
+                "fullHighlight": false,
+                "groupWidth": 1,
                 "legend": {
-                    "calcs": [],
+                    "calcs": [
+                        "count"
+                    ],
                     "displayMode": "list",
                     "placement": "bottom",
                     "showLegend": true
                 },
+                "orientation": "auto",
+                "showValue": "auto",
+                "stacking": "normal",
                 "tooltip": {
                     "hideZeros": false,
                     "mode": "single",
                     "sort": "none"
-                }
+                },
+                "xField": "Time",
+                "xTickLabelRotation": 0,
+                "xTickLabelSpacing": 100
             },
             "pluginVersion": "12.2.0-16636675413",
             "targets": [
                 {
-                    "adhocFilters": [],
                     "datasource": {
-                        "type": "prometheus",
-                        "uid": "PBFA97CFB590B2093"
+                        "type": "loki",
+                        "uid": "P8E80F9AEF21F6940"
                     },
+                    "direction": "backward",
                     "editorMode": "code",
-                    "expr": "sum(rate(golden_record_processing_time_seconds_sum{}[$__rate_interval]))/sum(rate(golden_record_processing_time_seconds_count{}[$__rate_interval]))",
-                    "fromExploreMetrics": true,
-                    "instant": true,
-                    "interval": "",
-                    "legendFormat": "golden_record_processing_time_seconds (average)",
-                    "range": true,
+                    "expr": "sum by (level) (\r\n  count_over_time(\r\n    {job=\"pricemice-api-1\"} | json | __error__=\"\" | level != \"\" [$__interval]\r\n  )\r\n)",
+                    "legendFormat": "{{level}}",
+                    "queryType": "range",
                     "refId": "A"
                 }
             ],
-            "title": "New Panel",
-            "type": "timeseries"
+            "title": "Logs",
+            "type": "barchart"
         },
         {
             "datasource": {
@@ -298,6 +339,107 @@
                 }
             ],
             "title": "Failed Requests",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "bars",
+                        "fillOpacity": 100,
+                        "gradientMode": "hue",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 8
+            },
+            "id": 4,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.2.0-16636675413",
+            "targets": [
+                {
+                    "adhocFilters": [],
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "PBFA97CFB590B2093"
+                    },
+                    "editorMode": "code",
+                    "expr": "sum(rate(golden_record_processing_time_seconds_sum{}[$__rate_interval]))/sum(rate(golden_record_processing_time_seconds_count{}[$__rate_interval]))",
+                    "fromExploreMetrics": true,
+                    "instant": true,
+                    "interval": "",
+                    "legendFormat": "golden_record_processing_time_seconds (average)",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "New Panel",
             "type": "timeseries"
         },
         {

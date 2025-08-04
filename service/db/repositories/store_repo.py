@@ -29,8 +29,6 @@ class StoreRepository(BaseRepository):
 
     def __init__(self):
         self.pool = None
-        # ==================== 2. INITIALIZE A LOGGER ====================
-        # Replace the custom debug_print with a proper structlog logger
         self.log = structlog.get_logger(self.__class__.__name__)
 
     async def connect(self, pool: asyncpg.Pool) -> None:
