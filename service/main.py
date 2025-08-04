@@ -1,7 +1,8 @@
-print(">>> Importing main.py")
 from contextlib import asynccontextmanager
 import logging
 import sys # Import sys for stdout
+import structlog # Import structlog
+import json # Import json for structlog's JSON renderer
 
 from decimal import Decimal # Import Decimal
 from fastapi import FastAPI, Request
@@ -121,32 +122,124 @@ async def health_check():
     return {"status": "healthy"}
 
 
-def main():
+import logging.config
+
+def configure_logging():
     log_level = logging.DEBUG if get_settings().debug else logging.INFO
-    
-    # Configure the root logger to ensure all messages are captured
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-    
-    # Clear existing handlers to prevent duplicate output
-    if root_logger.handlers:
-        for handler in root_logger.handlers:
-            root_logger.removeHandler(handler)
+    is_debug = get_settings().debug
 
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
+    # Configure structlog processors
+    # These processors are applied to the event dictionary before rendering
+    # They transform the event dictionary, but do not render it to a string.
+    processors = [
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,  # Add this for better exception info in debug
+        # structlog.processors.JSONRenderer(), # REMOVED: This should be the final step in the formatter
+    ]
 
+    # Configure structlog to use standard library logging
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+            # structlog.processors.JSONRenderer(), # REMOVED: This is handled by the formatter now
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    # Define logging configuration using dictConfig
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "json_formatter": {
+                "()": structlog.stdlib.ProcessorFormatter,
+                "processor": structlog.processors.JSONRenderer(),  # FINAL JSON rendering step
+                "foreign_pre_chain": processors,  # Use the common processors here
+            },
+            "console_formatter": {
+                "()": structlog.stdlib.ProcessorFormatter,
+                "processor": structlog.dev.ConsoleRenderer(),  # FINAL console rendering step
+                "foreign_pre_chain": processors,  # Use the common processors here
+            },
+        },
+        "handlers": {
+            "default": {
+                "level": log_level,
+                "class": "logging.StreamHandler",
+                "formatter": "console_formatter" if is_debug else "json_formatter",
+                "stream": "ext://sys.stdout",  # Explicitly use sys.stdout
+            },
+        },
+        "loggers": {
+            "": {  # root logger
+                "handlers": ["default"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn": {
+                "handlers": ["default"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "handlers": ["default"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["default"],
+                "level": log_level,
+                "propagate": False,
+            },
+        },
+    }
+
+    logging.config.dictConfig(logging_config)
+
+    # ==================== ADD THIS PART ====================
+    # Get a logger instance AFTER configuration is applied
+    log = structlog.get_logger()
+
+    # Log the configuration values using structured key-value pairs
+    log.info(
+        "Logging configured", 
+        debug_mode=is_debug, 
+        log_level=logging.getLevelName(log_level)
+    )
+    # =======================================================
+    log.info("Logger level.", logger_name="uvicorn")
+    log.info("Uvicorn logger configured with structlog.", logger_name="uvicorn")
+    log.info("Uvicorn error logger configured with structlog.", logger_name="uvicorn.error")
+    log.info("Uvicorn access logger configured with structlog.", logger_name="uvicorn.access")
+    log.info("Starting application...")
+
+# Call logging configuration at the module level
+configure_logging()
+
+# The uvicorn.run call should be outside of any function if it's meant to be the entry point
+# when running directly, but since Uvicorn imports 'app', this part is handled by Uvicorn itself.
+# We only need to ensure 'app' is defined and logging is configured.
+# The original uvicorn.run call was inside main(), which is not executed when imported.
+# We remove it as it's not needed for the Uvicorn server.
+# If direct execution is still desired for local testing without docker,
+# a simple uvicorn.run call can be added here, but it's usually handled by a separate script or Makefile.
+
+# The print statement at the end of the file is also removed as it's part of the old main() block.
+
+# This block is added for local development/testing without Docker,
+# allowing direct execution of the script with Uvicorn.
+if __name__ == "__main__":
     uvicorn.run(
         "service.main:app",
         host=get_settings().host,
         port=get_settings().port,
-        log_level=log_level,
-        reload=False, # Disable auto-reloading for stable logs during testing
+        log_config=None,  # Disable Uvicorn's default logging
+        reload=False,  # Disable auto-reloading for stable logs during testing
+        access_log=False  # Explicitly disable Uvicorn's access log, structlog will handle it
     )
-
-
-if __name__ == "__main__":
-    main()
-print("<<< Finished importing in main.py")

@@ -72,6 +72,25 @@ endif
 	@echo "API service rebuilt and restarted. Check $(DOCKER_BUILD_LOG_FILE) for details."
 	@docker compose ps
 
+rebuild-api-no-cache: ## Rebuild and restart only the API service, forcing a no-cache build
+	@echo "Building API service without cache. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
+ifeq ($(IS_WINDOWS),true)
+	powershell -Command "New-Item -ItemType Directory -Force -Path 'logs' | Out-Null; Clear-Content $(DOCKER_BUILD_LOG_FILE)"; \
+	docker compose -f docker-compose.yml -f docker-compose.local.yml build --no-cache api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+else
+	mkdir -p logs; \
+	> $(DOCKER_BUILD_LOG_FILE); \
+	docker compose -f docker-compose.yml build --no-cache api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+endif
+	@echo "Restarting API service..."
+ifeq ($(IS_WINDOWS),true)
+	docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+else
+	docker compose -f docker-compose.yml up -d --force-recreate api >> $(DOCKER_BUILD_LOG_FILE) 2>&1
+endif
+	@echo "API service rebuilt and restarted (no cache). Check $(DOCKER_BUILD_LOG_FILE) for details."
+	@docker compose ps
+
 rebuild-metrics: ## Rebuild and restart only the Grafana, Prometheus, Pushgateway, Loki, and Promtail services
 	@echo "Building and restarting Grafana, Prometheus, Pushgateway, Loki, and Promtail services. Output redirected to $(DOCKER_BUILD_LOG_FILE)..."
 ifeq ($(IS_WINDOWS),true)

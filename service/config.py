@@ -21,7 +21,7 @@ class Settings:
         self.base_url: str = os.getenv("BASE_URL", "https://api.cijene.dev")
         self.host: str = os.getenv("HOST", "0.0.0.0")
         self.port: int = int(os.getenv("PORT", "8000"))
-        self.debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+        self.debug: bool = os.getenv("DEBUG", "false").lower() in ("true", "1", "t")
         self.timezone: str = os.getenv("TIMEZONE", "Europe/Zagreb")
         self.redirect_url: str = os.getenv("REDIRECT_URL", "https://cijene.dev")
 

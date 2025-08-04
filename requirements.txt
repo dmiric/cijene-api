@@ -30,3 +30,4 @@ protobuf
 proto-plus
 google-api-core
 prometheus_client
+structlog
