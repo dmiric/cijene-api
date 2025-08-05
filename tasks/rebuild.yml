@@ -7,6 +7,7 @@ vars:
   COMPOSE_FILES_LOCAL: '-f docker-compose.yml -f docker-compose.local.yml'
   COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
   COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
+  COMPOSE_FILES: '{{ if .OS.IsWindows }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
 
 tasks:
   all:
@@ -14,8 +15,7 @@ tasks:
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
-        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate
-        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
+        docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate
       - echo "Docker containers rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
@@ -24,8 +24,7 @@ tasks:
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
-        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate api
-        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
+        docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate api
       - echo "API service rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
@@ -34,9 +33,8 @@ tasks:
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
-        docker compose {{.COMPOSE_FILES_LOCAL}} up -d --build --force-recreate
+        docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate
         grafana prometheus pushgateway loki alloy node_exporter
-        >> {{.DOCKER_BUILD_LOG_FILE}} 2>&1
       - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
