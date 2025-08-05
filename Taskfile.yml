@@ -11,12 +11,9 @@ vars:
   IMAGE_OWNER: dmiric
   REPO_NAME: cijene-api
   EXCLUDE_VOLUMES: 'cijene-api-clone_crawler_data,cijene-api-clone_pgadmin_data'
-  API_KEY: 'ec7cc315-c434-4c1f-aab7-3dba3545d113'
   QUERY: limun
   NUM_WORKERS: 1
   BATCH_SIZE: 50
-  SSH_KEY_PATH: '~/.ssh/github_actions_deploy_key' # Default SSH key path
-  # Taskfile equivalent of `$(shell date +%Y-%m-%d)`
   DATE: '{{now | date "2006-01-02"}}'
   DOCKER_BUILD_LOG_FILE: 'logs/docker-build.log'
 
