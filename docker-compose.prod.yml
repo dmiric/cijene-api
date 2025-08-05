@@ -18,7 +18,3 @@ services:
       - ./.env:/app/.env
       - ./crawler_output:/app/crawler_output
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
-
-  alloy:
-    image: ghcr.io/dmiric/cijene-api/alloy:latest
-    build: null
