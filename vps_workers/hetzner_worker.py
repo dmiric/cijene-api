@@ -10,10 +10,14 @@ import time
 import os
 import sys
 import argparse
+import logging
+import structlog
 from dotenv import load_dotenv
 import requests
 from datetime import date
 from typing import Optional, List, Dict, Any
+
+from service.main import configure_logging # Import configure_logging
 
 # ==============================================================================
 # --- GLOBAL CONSTANTS ---
@@ -21,6 +25,10 @@ from typing import Optional, List, Dict, Any
 
 # Load environment variables from .env file in the current directory
 load_dotenv()
+
+# Configure logging right after imports
+configure_logging()
+log = structlog.get_logger()
 
 # Static configuration for the worker server
 SERVER_NAME = "cijene-ingestion-worker"
@@ -43,11 +51,11 @@ def get_ssh_key_id(client: hcloud.Client, key_name: str) -> hcloud.ssh_keys.clie
 
 def run_remote_command(ssh_client: paramiko.SSHClient, command: str, description: str, sensitive: bool = False):
     """Executes a command on the remote VPS and prints its output."""
-    print(f"--- Executing Remote Step: {description} ---")
+    log.info("Executing Remote Step", description=description)
     if not sensitive:
-        print(f"COMMAND: {command}")
+        log.info("COMMAND", command=command)
     else:
-        print("COMMAND: [Content is sensitive and not logged]")
+        log.info("COMMAND", command="[Content is sensitive and not logged]")
 
     transport = ssh_client.get_transport()
     channel = transport.open_session()
@@ -56,38 +64,37 @@ def run_remote_command(ssh_client: paramiko.SSHClient, command: str, description
     # Stream stdout and stderr to avoid deadlocks
     while not channel.exit_status_ready():
         if channel.recv_ready():
-            print(channel.recv(1024).decode('utf-8', 'ignore'), end="")
+            log.info("remote_stdout", output=channel.recv(1024).decode('utf-8', 'ignore').strip())
         if channel.recv_stderr_ready():
-            print(channel.recv_stderr(1024).decode('utf-8', 'ignore'), end="", file=sys.stderr)
+            log.error("remote_stderr", output=channel.recv_stderr(1024).decode('utf-8', 'ignore').strip())
         time.sleep(0.1)
 
     exit_status = channel.recv_exit_status()
     if exit_status != 0:
         raise Exception(f"Remote step '{description}' failed with exit status {exit_status}")
-    print(f"--- Remote Step '{description}' completed successfully ---\n")
+    log.info("Remote Step completed successfully", description=description)
 
 def wait_for_action(action: hcloud.actions.client.BoundAction, timeout: int = 180):
     """Waits for a Hetzner Cloud Action to complete by polling its status."""
     start_time = time.time()
-    print(f"Waiting for action '{action.command}' (ID: {action.id}) to complete...", end="", flush=True)
+    log.info("Waiting for action to complete", command=action.command, action_id=action.id)
     while action.status == "running":
         if time.time() - start_time > timeout:
-            print(" TIMEOUT!")
+            log.error("Action TIMEOUT", command=action.command, action_id=action.id)
             raise TimeoutError(f"Action '{action.command}' timed out after {timeout} seconds.")
-        print(".", end="", flush=True)
         time.sleep(5)
         action.reload()
 
     if action.status == "success":
-        print(" SUCCESS!")
+        log.info("Action SUCCESS", command=action.command, action_id=action.id)
     elif action.status == "error":
-        print(" FAILED!")
+        log.error("Action FAILED", command=action.command, action_id=action.id)
         raise ActionFailedException(action=action)
 
 def get_active_chains(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Fetches active chains from the API."""
     url = f"{config['API_BASE_URL']}/chains/"
-    print(f"DEBUG: Fetching active chains from: {url}")
+    log.debug("Fetching active chains from API", url=url)
     headers = {"X-API-Key": config["API_KEY"]}
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -95,14 +102,14 @@ def get_active_chains(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         data = response.json()
         return [chain for chain in data.get("chains", []) if chain.get("active")]
     except requests.exceptions.RequestException as e:
-        print(f"\nERROR: Could not connect to the API at {url}. Details: {e}")
+        log.error("Could not connect to API to fetch active chains", url=url, error=str(e))
         sys.exit(1)
 
 def get_run_status(config: Dict[str, Any], run_type: str, chain_name: str, run_date: date) -> str:
     """Fetches the run status (crawl or import) for a given chain and date."""
     url = f"{config['API_BASE_URL']}/{run_type}/status/{chain_name}/{run_date.strftime('%Y-%m-%d')}"
     headers = {"X-API-Key": config["API_KEY"]}
-    print(f"DEBUG: Checking {run_type} status at: {url}")
+    log.debug("Checking run status", run_type=run_type, chain_name=chain_name, date=run_date.strftime('%Y-%m-%d'), url=url)
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
@@ -121,12 +128,12 @@ def report_crawl_status_via_api(config: Dict[str, Any], chain_name: str, crawl_d
         "status": status, "error_message": error_message, "n_stores": 0,
         "n_products": 0, "n_prices": 0, "elapsed_time": 0.0,
     }
-    print(f"DEBUG: Reporting crawl status '{status}' for {chain_name} to API.")
+    log.debug("Reporting crawl status to API", chain_name=chain_name, status=status)
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(f"ERROR: Failed to report crawl status for {chain_name}: {e}")
+        log.error("Failed to report crawl status", chain_name=chain_name, error=str(e))
 
 # ==============================================================================
 # --- REFACTORED WORKFLOW FUNCTIONS ---
@@ -134,7 +141,7 @@ def report_crawl_status_via_api(config: Dict[str, Any], chain_name: str, crawl_d
 
 def validate_and_get_config() -> Dict[str, Any]:
     """Validates all required environment variables and returns them as a dict."""
-    print("--- Step 1: Validating Environment Configuration ---")
+    log.info("Step 1: Validating Environment Configuration")
     config = {
         "HCLOUD_TOKEN": os.getenv("HCLOUD_TOKEN"),
         "SSH_KEY_PATH": os.getenv("SSH_KEY_PATH"),
@@ -148,18 +155,19 @@ def validate_and_get_config() -> Dict[str, Any]:
     # PROMETHEUS_PUSHGATEWAY_URL will be derived from SERVER_IP, so it's not a direct env var
     missing_vars = [key for key, value in config.items() if not value]
     if missing_vars:
+        log.error("Missing required environment variables", missing_vars=missing_vars)
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file.")
 
     config["API_BASE_URL"] = f"http://{config['SERVER_IP']}:8000/v1"
-    print("Configuration is valid.")
+    log.info("Configuration is valid.")
     return config
 
 def check_for_pending_jobs(config: Dict[str, Any]) -> List[str]:
     """Checks the API for chains that need processing and pre-sets their status."""
-    print("\n--- Step 2: Checking for Pending Jobs ---")
+    log.info("Step 2: Checking for Pending Jobs")
     active_chains = get_active_chains(config)
     if not active_chains:
-        print("No active chains found. Exiting.")
+        log.info("No active chains found. Exiting.")
         sys.exit(0)
 
     chains_to_process = []
@@ -172,16 +180,16 @@ def check_for_pending_jobs(config: Dict[str, Any]) -> List[str]:
         import_status = get_run_status(config, "importer", chain_code, today)
 
         if crawl_status != "success" or import_status != "success":
-            print(f"Chain '{chain_code}' needs processing (Crawl: {crawl_status}, Import: {import_status}).")
+            log.info("Chain needs processing", chain_code=chain_code, crawl_status=crawl_status, import_status=import_status)
             chains_to_process.append(chain_code)
         else:
-            print(f"Chain '{chain_code}' is already complete for today. Skipping.")
+            log.info("Chain is already complete for today. Skipping.", chain_code=chain_code)
 
     if not chains_to_process:
-        print("\nAll active chains are up-to-date. No jobs to run. Exiting.")
+        log.info("All active chains are up-to-date. No jobs to run. Exiting.")
         sys.exit(0)
 
-    print(f"\nJobs found for: {', '.join(chains_to_process)}. Marking as 'failed' pre-emptively.")
+    log.info("Jobs found. Marking as 'failed' pre-emptively.", chains_to_process=chains_to_process)
     for chain_code in chains_to_process:
         report_crawl_status_via_api(config, chain_code, today, "failed", "Crawl initiated by worker.")
     
@@ -189,12 +197,12 @@ def check_for_pending_jobs(config: Dict[str, Any]) -> List[str]:
 
 def prepare_remote_env_content(config: Dict[str, Any]) -> str:
     """Reads the local .env file and modifies the DB_DSN to use the private IP."""
-    print("\n--- Step 3: Preparing Remote Environment Configuration ---")
+    log.info("Step 3: Preparing Remote Environment Configuration")
     try:
         with open(".env", "r") as f:
             content = f.read()
     except FileNotFoundError:
-        print("Warning: .env file not found. Remote configuration may be incomplete.")
+        log.warning(".env file not found. Remote configuration may be incomplete.")
         return ""
 
     if "DB_DSN=" in content:
@@ -207,19 +215,19 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
         main_server_private_ip = config['MAIN_SERVER_PRIVATE_IP']
 
         resolved_db_dsn = f"postgresql://{postgres_user}:{postgres_password}@{main_server_private_ip}:5432/{postgres_db}"
-        print(f"Resolved DB_DSN for remote .env: {resolved_db_dsn}")
+        log.info("Resolved DB_DSN for remote .env", resolved_db_dsn=resolved_db_dsn)
 
         found_db_dsn = False
         for i, line in enumerate(lines):
             if line.startswith("DB_DSN="):
                 lines[i] = f"DB_DSN={resolved_db_dsn}"
                 found_db_dsn = True
-                print(f"Replaced DB_DSN in remote .env: {resolved_db_dsn}")
+                log.info("Replaced DB_DSN in remote .env", resolved_db_dsn=resolved_db_dsn)
                 break
         
         if not found_db_dsn:
             lines.append(f"DB_DSN={resolved_db_dsn}")
-            print(f"Added DB_DSN to remote .env: {resolved_db_dsn}")
+            log.info("Added DB_DSN to remote .env", resolved_db_dsn=resolved_db_dsn)
 
         # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's private IP
         prometheus_pushgateway_url = f"http://{config['MAIN_SERVER_PRIVATE_IP']}:9091"
@@ -230,20 +238,20 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
             if line.startswith("PROMETHEUS_PUSHGATEWAY_URL="):
                 lines[i] = f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}"
                 found_pushgateway_url = True
-                print(f"Replaced PROMETHEUS_PUSHGATEWAY_URL in remote .env: {prometheus_pushgateway_url}")
+                log.info("Replaced PROMETHEUS_PUSHGATEWAY_URL in remote .env", prometheus_pushgateway_url=prometheus_pushgateway_url)
                 break
         
         # If not found, append it
         if not found_pushgateway_url:
             lines.append(f"PROMETHEUS_PUSHGATEWAY_URL={prometheus_pushgateway_url}")
-            print(f"Added PROMETHEUS_PUSHGATEWAY_URL to remote .env: {prometheus_pushgateway_url}")
+            log.info("Added PROMETHEUS_PUSHGATEWAY_URL to remote .env", prometheus_pushgateway_url=prometheus_pushgateway_url)
 
         return "\n".join(lines)
     return content
 
 def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> BoundServer:
     """Gathers resources and creates a new Hetzner server in the private network."""
-    print("\n--- Step 4: Provisioning Worker Server ---")
+    log.info("Step 4: Provisioning Worker Server")
     
     # Gather resources
     ssh_key_obj = get_ssh_key_id(client, SSH_KEY_NAME)
@@ -254,17 +262,21 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
     
     primary_ips_page = client.primary_ips.get_list(ip=config["WORKER_PRIMARY_IP"])
     if not primary_ips_page.primary_ips:
+        log.error("Primary IP not found", ip=config['WORKER_PRIMARY_IP'])
         raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' not found in your Hetzner project.")
     primary_ip_obj = primary_ips_page.primary_ips[0]
     
     # --- CORRECTED LOGIC FOR CHECKING IP ASSIGNMENT ---
     if primary_ip_obj.assignee_id is not None: 
+        log.error("Primary IP is already assigned", ip=config['WORKER_PRIMARY_IP'], assignee_id=primary_ip_obj.assignee_id)
         raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' is already assigned.")
     # --- END OF CORRECTION ---
 
-    if not network_obj: raise Exception(f"Private Network '{config['PRIVATE_NETWORK_NAME']}' not found.")
+    if not network_obj: 
+        log.error("Private Network not found", network_name=config['PRIVATE_NETWORK_NAME'])
+        raise Exception(f"Private Network '{config['PRIVATE_NETWORK_NAME']}' not found.")
     
-    print("All necessary Hetzner resources located.")
+    log.info("All necessary Hetzner resources located.")
 
     # Create server
     create_result = client.servers.create(
@@ -280,28 +292,29 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
     server.reload()
     
     private_ip = server.private_net[0].ip if server.private_net else "N/A"
-    print(f"Server '{server.name}' provisioned successfully.")
-    print(f"-> Public IP: {server.public_net.ipv4.ip}, Private IP: {private_ip}")
+    log.info("Server provisioned successfully", server_name=server.name, public_ip=server.public_net.ipv4.ip, private_ip=private_ip)
     
     return server
 
 def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], remote_env: str):
     """Connects to the server via SSH, sets it up, and runs the data ingestion jobs."""
-    print("\n--- Step 5: Connecting and Running Jobs ---")
+    log.info("Step 5: Connecting and Running Jobs")
     
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     private_key = paramiko.Ed25519Key.from_private_key_file(config["SSH_KEY_PATH"])
 
-    print(f"Attempting SSH connection to {config['WORKER_PRIMARY_IP']}...")
+    log.info("Attempting SSH connection", hostname=config['WORKER_PRIMARY_IP'])
     for i in range(15):
         try:
             ssh_client.connect(hostname=config['WORKER_PRIMARY_IP'], username="root", pkey=private_key, timeout=10)
-            print("SSH connection established.")
+            log.info("SSH connection established.")
             break
         except Exception as e:
-            if i == 14: raise Exception("Could not establish SSH connection after multiple retries.") from e
-            print(f"SSH connection failed ({i+1}/15): {e}. Retrying in 10 seconds...")
+            if i == 14: 
+                log.error("Could not establish SSH connection after multiple retries.", error=str(e))
+                raise Exception("Could not establish SSH connection after multiple retries.") from e
+            log.warning("SSH connection failed. Retrying...", attempt=i+1, max_attempts=15, error=str(e))
             time.sleep(10)
 
     try:
@@ -319,20 +332,23 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
             run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {command}", f"Job: {command}")
     finally:
         ssh_client.close()
-        print("SSH connection closed.")
+        log.info("SSH connection closed.")
 
 def teardown_worker_server(client: hcloud.Client, server: BoundServer):
     """Deletes the specified worker server."""
-    print(f"\n--- Teardown: Deleting server '{server.name}' (ID: {server.id}) ---")
+    log.info("Teardown: Deleting server", server_name=server.name, server_id=server.id)
     try:
         delete_action = server.delete()
         wait_for_action(delete_action)
-        print(f"Server '{server.name}' successfully deleted.")
+        log.info("Server successfully deleted", server_name=server.name)
     except hcloud.APIException as e:
-        if e.code == "not_found": print(f"Server '{server.name}' was already deleted.")
-        else: raise
+        if e.code == "not_found": 
+            log.warning("Server was already deleted.", server_name=server.name)
+        else: 
+            log.error("Hetzner API error during server deletion", error=str(e))
+            raise
     except Exception as e:
-        print(f"ERROR during server deletion: {e}")
+        log.error("Error during server deletion", error=str(e))
         raise
 
 # ==============================================================================
@@ -364,22 +380,19 @@ def main():
         # Step 5: Connect, setup, and run the actual jobs
         connect_and_run_jobs(config, chains_to_process, remote_env)
 
-        print("\n*** WORKER JOB COMPLETED SUCCESSFULLY ***\n")
+        log.info("WORKER JOB COMPLETED SUCCESSFULLY")
 
     except (ValueError, hcloud.APIException, ActionFailedException, Exception) as e:
-        print(f"\n\n--- SCRIPT FAILED ---")
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
+        log.error("SCRIPT FAILED", error=str(e), exc_info=True)
         sys.exit(1)
     finally:
         if server and not args.no_teardown:
             if client: # Ensure client was initialized
                 teardown_worker_server(client, server)
             else:
-                print("Client not initialized, cannot perform teardown. Please check HCLOUD_TOKEN.")
+                log.error("Client not initialized, cannot perform teardown. Please check HCLOUD_TOKEN.")
         elif args.no_teardown:
-            print("\n--- Teardown skipped due to --no-teardown flag. ---")
+            log.info("Teardown skipped due to --no-teardown flag.")
 
 if __name__ == "__main__":
     main()
