@@ -39,6 +39,10 @@ tasks:
     desc: 'Follow logs for the Alloy service'
     cmds:
       - docker compose -f docker-compose.yml -f docker-compose.local.yml logs alloy
+  node_exporter:
+    desc: 'Follow logs for the Node Exporter service'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs node_exporter
   crawler:
     desc: 'Follow logs for the Crawler service'
     cmds:

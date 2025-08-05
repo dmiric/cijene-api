@@ -9,3 +9,6 @@ scrape_configs:
     honor_labels: true # Important: tells Prometheus to not overwrite labels pushed by clients
     static_configs:
       - targets: ['pushgateway:9091'] # 'pushgateway' is the service name in docker-compose
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['node_exporter:9100']
