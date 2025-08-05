@@ -12,12 +12,11 @@ import sys
 import argparse
 import logging
 import structlog
+import json # Import json for structlog's JSON renderer
 from dotenv import load_dotenv
 import requests
 from datetime import date
 from typing import Optional, List, Dict, Any
-
-from service.main import configure_logging # Import configure_logging
 
 # ==============================================================================
 # --- GLOBAL CONSTANTS ---
@@ -25,10 +24,6 @@ from service.main import configure_logging # Import configure_logging
 
 # Load environment variables from .env file in the current directory
 load_dotenv()
-
-# Configure logging right after imports
-configure_logging()
-log = structlog.get_logger()
 
 # Static configuration for the worker server
 SERVER_NAME = "cijene-ingestion-worker"
@@ -351,11 +346,78 @@ def teardown_worker_server(client: hcloud.Client, server: BoundServer):
 # --- MAIN ORCHESTRATOR ---
 # ==============================================================================
 
+def configure_logging():
+    log_level = logging.INFO # Default to INFO for worker
+    is_debug = False # Hardcode to False for worker
+
+    # Configure structlog processors
+    processors = [
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+    ]
+
+    # Configure structlog to use standard library logging
+    structlog.configure(
+        processors=processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    # Define logging configuration using dictConfig
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "json_formatter": {
+                "()": structlog.stdlib.ProcessorFormatter,
+                "processor": structlog.processors.JSONRenderer(),
+                "foreign_pre_chain": processors,
+            },
+            "console_formatter": {
+                "()": structlog.stdlib.ProcessorFormatter,
+                "processor": structlog.dev.ConsoleRenderer(),
+                "foreign_pre_chain": processors,
+            },
+        },
+        "handlers": {
+            "default": {
+                "level": log_level,
+                "class": "logging.StreamHandler",
+                "formatter": "console_formatter" if is_debug else "json_formatter",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "": {  # root logger
+                "handlers": ["default"],
+                "level": log_level,
+                "propagate": False,
+            },
+        },
+    }
+
+    logging.config.dictConfig(logging_config)
+
+    log = structlog.get_logger()
+    log.info(
+        "Logging configured",
+        debug_mode=is_debug,
+        log_level=logging.getLevelName(log_level)
+    )
+
 def main():
     """High-level orchestrator for the data ingestion worker."""
     parser = argparse.ArgumentParser(description="Hetzner VPS worker for data ingestion.")
     parser.add_argument("--no-teardown", action="store_true", help="Do not tear down the server after job completion.")
     args = parser.parse_args()
+
+    # Configure logging at the start of main
+    configure_logging()
+    log = structlog.get_logger()
 
     server: Optional[BoundServer] = None
     client: Optional[hcloud.Client] = None
