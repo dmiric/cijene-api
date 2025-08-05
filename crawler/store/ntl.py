@@ -16,7 +16,7 @@ class NtlCrawler(BaseCrawler):
     """Crawler for NTL store prices."""
 
     CHAIN = "ntl"
-    BASE_URL = "https://www.ntl.hr/cjenici-za-ntl-supermarkete"
+    BASE_URL = "https://ntl.hr/cjenik/"
 
     # Regex to parse store information from the filename
     # Format: Supermarket_Ljudevita Gaja 1_DUGA RESA_10103_263_25052025_07_22_36.csv
@@ -68,7 +68,7 @@ class NtlCrawler(BaseCrawler):
         Extracts store information from a CSV download URL.
 
         Example URL:
-        https://www.ntl.hr/csv_files/Supermarket_Ljudevita Gaja 1_DUGA RESA_10103_263_25052025_07_22_36.csv
+        https://ntl.hr/uploads/csv/Supermarket_Frana Galovica 11A_KRAPINA_10101_1701_05082025_07_19_47.csv
 
         Args:
             url: CSV download URL with store information in the filename
