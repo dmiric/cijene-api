@@ -62,11 +62,6 @@ def normalize_product_with_ai(
             "units": [u for u in units if u is not None] # Filter out None values
         }
 
-        full_prompt = [
-            get_ai_normalization_prompt(existing_categories), # Pass existing categories
-            json.dumps(input_data)
-        ]
-        
         response = client.chat.completions.create(
             model=grok_text_model_name,
             messages=[
