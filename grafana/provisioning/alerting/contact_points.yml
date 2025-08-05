@@ -1,7 +1,22 @@
 apiVersion: 1
 
+# A list of contact points you want to create.
 contactPoints:
-  - name: "damir.miric@gmail.com"
-    type: email
-    settings:
-      addresses: "damir.miric@gmail.com"
+  # The first contact point in the list.
+  - name: 'Primary Email Alerts'  # A user-friendly name that will appear in the Grafana UI.
+    # The `orgId` specifies which organization this belongs to. 1 is the default main org.
+    orgId: 1
+    # The `receivers` block defines the actual notification channels.
+    receivers:
+      # First receiver configuration.
+      - uid: 'email-receiver-01' # A unique identifier for this receiver. It's good practice to set one.
+        type: email # The type of integration. Other examples: 'slack', 'webhook', 'pagerduty'.
+        # Settings specific to the 'email' type.
+        settings:
+          # The email address(es) to send notifications to.
+          # Separate multiple addresses with a comma or semicolon.
+          addresses: 'damir.miric@gmail.com'
+          # Optional: Set to true if you want a single email for all triggered alerts in a batch.
+          singleEmail: false
+
+    
