@@ -403,22 +403,18 @@ def configure_logging():
 
     logging.config.dictConfig(logging_config)
 
-    log = structlog.get_logger()
-    log.info(
-        "Logging configured",
-        debug_mode=is_debug,
-        log_level=logging.getLevelName(log_level)
-    )
+    # The log object initialized here is local to this function.
+    # The global 'log' object will be initialized after this function is called.
+
+# Call logging configuration at the module level
+configure_logging()
+log = structlog.get_logger() # Initialize global log object
 
 def main():
     """High-level orchestrator for the data ingestion worker."""
     parser = argparse.ArgumentParser(description="Hetzner VPS worker for data ingestion.")
     parser.add_argument("--no-teardown", action="store_true", help="Do not tear down the server after job completion.")
     args = parser.parse_args()
-
-    # Configure logging at the start of main
-    configure_logging()
-    log = structlog.get_logger()
 
     server: Optional[BoundServer] = None
     client: Optional[hcloud.Client] = None
