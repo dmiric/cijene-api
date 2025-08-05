@@ -11,6 +11,7 @@ import os
 import sys
 import argparse
 import logging
+import logging.config # Import logging.config
 import structlog
 import json # Import json for structlog's JSON renderer
 from dotenv import load_dotenv
