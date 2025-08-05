@@ -1,16 +1,21 @@
+from dotenv import load_dotenv
+load_dotenv() # Load environment variables at the very top
+
 import argparse
 import os
 import sys
 import subprocess
-import math
+import logging
+import structlog
 from typing import Optional, List
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
-from dotenv import load_dotenv
 
 from service.normaliser.db_utils import get_db_connection
+from service.main import configure_logging # Import configure_logging
 
-# Load environment variables
-load_dotenv()
+# Configure logging right after imports
+configure_logging()
+log = structlog.get_logger()
 
 def get_min_max_product_ids() -> Optional[tuple[int, int]]:
     """
@@ -32,13 +37,13 @@ def get_min_max_product_ids() -> Optional[tuple[int, int]]:
             return None
         return min_id, max_id
     except Exception as e:
-        print(f"Error getting min/max product IDs for golden record creation: {e}", file=sys.stderr)
+        log.error("Error getting min/max product IDs for golden record creation", error=str(e))
         return None
     finally:
         if conn:
             conn.close()
 
-def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: int, pushgateway_url: str): # Added pushgateway_url
+def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: int, pushgateway_url: str):
     """
     Runs a single golden record creator worker process.
     """
@@ -50,27 +55,27 @@ def run_worker(normalizer_type: str, embedder_type: str, start_id: int, limit: i
         "--embedder-type", embedder_type,
         "--start-id", str(start_id),
         "--limit", str(limit),
-        "--pushgateway-url", pushgateway_url # Pass pushgateway_url
+        "--pushgateway-url", pushgateway_url
     ]
-    print(f"Launching worker: {' '.join(command)}")
+    log.info("Launching worker", command=' '.join(command))
     process = subprocess.Popen(command, stdout=sys.stdout, stderr=sys.stderr)
     return process
 
-def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_workers: int, batch_size: int, max_products_to_do: Optional[int] = None, pushgateway_url: str = "http://pushgateway:9091"): # Added pushgateway_url with default
+def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_workers: int, batch_size: int, max_products_to_do: Optional[int] = None, pushgateway_url: str = "http://pushgateway:9091"):
     """
     Orchestrates the golden record creation phase by distributing product ID ranges to multiple workers.
     """
     id_range = get_min_max_product_ids()
     if not id_range:
-        print("No products found needing golden records. Exiting golden record orchestration.", file=sys.stderr)
+        log.info("No products found needing golden records. Exiting golden record orchestration.")
         return
 
     min_product_id, max_product_id = id_range
     
-    print(f"Total product ID range needing golden records: {min_product_id} to {max_product_id}")
-    print(f"Orchestrating golden record creation with {num_workers} workers, each processing a batch of {batch_size} product IDs.")
+    log.info("Total product ID range needing golden records", min_id=min_product_id, max_id=max_product_id)
+    log.info("Orchestrating golden record creation", num_workers=num_workers, batch_size=batch_size)
     if max_products_to_do is not None:
-        print(f"Limiting total products to process to: {max_products_to_do}")
+        log.info("Limiting total products to process", max_products_to_do=max_products_to_do)
 
     processes = []
     current_start_id = min_product_id
@@ -78,7 +83,7 @@ def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_wor
 
     while current_start_id <= max_product_id:
         if max_products_to_do is not None and products_processed_count >= max_products_to_do:
-            print(f"Reached maximum products to process ({max_products_to_do}). Stopping orchestration.")
+            log.info("Reached maximum products to process. Stopping orchestration.", max_products_to_do=max_products_to_do)
             break
 
         actual_limit = batch_size
@@ -87,10 +92,10 @@ def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_wor
             remaining_to_process = max_products_to_do - products_processed_count
             actual_limit = min(batch_size, remaining_to_process)
             if actual_limit <= 0:
-                print(f"No more products to process within the limit ({max_products_to_do}). Stopping orchestration.")
+                log.info("No more products to process within the limit. Stopping orchestration.", max_products_to_do=max_products_to_do)
                 break
 
-        process = run_worker(normalizer_type, embedder_type, current_start_id, actual_limit, pushgateway_url) # Pass pushgateway_url
+        process = run_worker(normalizer_type, embedder_type, current_start_id, actual_limit, pushgateway_url)
         processes.append(process)
         products_processed_count += actual_limit # Increment by the actual limit of the batch
         current_start_id += batch_size
@@ -101,7 +106,7 @@ def orchestrate_golden_records(normalizer_type: str, embedder_type: str, num_wor
             processes = []
     for p in processes: # Wait for any remaining processes
         p.wait()
-    print("Golden Record Creation orchestration finished.")
+    log.info("Golden Record Creation orchestration finished.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Orchestrate golden record creation across multiple workers.")
@@ -115,7 +120,7 @@ if __name__ == "__main__":
                         help="Number of product IDs to cover per worker batch.")
     parser.add_argument("--max-products-to-do", type=int,
                         help="Maximum number of products to process. Defaults to 100.")
-    parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"), # Added pushgateway URL argument
+    parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"),
                         help="URL of the Prometheus Pushgateway.")
     args = parser.parse_args()
 
@@ -123,4 +128,4 @@ if __name__ == "__main__":
     if args.max_products_to_do is None:
         args.max_products_to_do = 100
 
-    orchestrate_golden_records(args.normalizer_type, args.embedder_type, args.num_workers, args.batch_size, args.max_products_to_do, args.pushgateway_url) # Pass pushgateway_url
+    orchestrate_golden_records(args.normalizer_type, args.embedder_type, args.num_workers, args.batch_size, args.max_products_to_do, args.pushgateway_url)

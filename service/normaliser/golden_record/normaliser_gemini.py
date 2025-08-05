@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+import structlog
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
@@ -28,18 +30,26 @@ from .embedding_service import get_embedding
 # Import golden product prompt
 from .golden_product_prompt import get_ai_normalization_prompt
 
-# Load environment variables
-load_dotenv()
+# Initialize structlog logger
+log = structlog.get_logger()
 
-# Configure Google Gemini API
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+# Global client variable, initialized lazily
+_gemini_client = None
+_gemini_text_model = None
 
-# The model for text generation with specific config
-generation_config = {"response_mime_type": "application/json"}
-gemini_text_model = client.generative_models.GenerativeModel(
-    os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
-    generation_config=generation_config
-)
+def _initialize_gemini_client():
+    """Initializes the Google Gemini client and model lazily."""
+    global _gemini_client, _gemini_text_model
+    if _gemini_client is None:
+        load_dotenv() # Load environment variables here, after logging is configured
+        _gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+        # The model for text generation with specific config
+        generation_config = {"response_mime_type": "application/json"}
+        _gemini_text_model = _gemini_client.generative_models.GenerativeModel(
+            os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
+            generation_config=generation_config
+        )
+        log.info("Google Gemini client initialized.")
 
 def normalize_product_with_ai(
     name_variations: list[str],
@@ -48,6 +58,7 @@ def normalize_product_with_ai(
     units: list[Optional[str]]
 ) -> Optional[Dict[str, Any]]:
     """Sends product name variations and other aggregated data to the AI and gets a structured JSON response."""
+    _initialize_gemini_client() # Ensure client is initialized
     try:
         # Consolidate lists into a single input for the AI
         input_data = {
@@ -61,18 +72,18 @@ def normalize_product_with_ai(
             get_ai_normalization_prompt(),
             json.dumps(input_data)
         ]
-        response = gemini_text_model.generate_content(full_prompt)
+        response = _gemini_text_model.generate_content(full_prompt) # Use the global model
         normalized_data = json.loads(response.text)
-        print(f"Received normalized data from Gemini: {normalized_data}") # Debug print
+        log.debug("Received normalized data from Gemini", normalized_data=normalized_data)
         if response.usage_metadata:
             input_tokens = response.usage_metadata.prompt_token_count
             output_tokens = response.usage_metadata.candidates_token_count
-            print(f"Gemini Text Model Usage: Input Tokens={input_tokens}, Output Tokens={output_tokens}")
+            log.info("Gemini Text Model Usage", input_tokens=input_tokens, output_tokens=output_tokens)
         return normalized_data
     except Exception as e:
-        print(f"Error calling Gemini API for normalization: {e}")
+        log.error("Error calling Gemini API for normalization", error=str(e))
         if hasattr(e, 'response') and hasattr(e.response, 'text'):
-            print(f"Gemini API error response text: {e.response.text}")
+            log.error("Gemini API error response text", response_text=e.response.text)
         return None
 
 def process_products_by_id_range(start_id: int, limit: int) -> None:
@@ -110,10 +121,11 @@ def process_products_by_id_range(start_id: int, limit: int) -> None:
         unprocessed_eans = cur.fetchall()
 
         if not unprocessed_eans:
-            print(f"No unprocessed products found for product_id range {start_id} to {start_id + limit - 1}. Exiting.")
+            log.info("No unprocessed products found for product_id range. Exiting.", start_id=start_id, limit=limit)
             return
 
-        print(f"Processing {len(unprocessed_eans)} EANs for product_id range {start_id} to {start_id + limit - 1}...")
+        log.info("Processing EANs for product_id range",
+                 num_eans=len(unprocessed_eans), start_id=start_id, limit=limit)
 
         for record in unprocessed_eans:
             ean = record['ean']
@@ -133,34 +145,34 @@ def process_products_by_id_range(start_id: int, limit: int) -> None:
                         # Transform (AI Call)
                         normalized_data = normalize_product_with_ai(name_variations, brands, categories, units)
                         if not normalized_data:
-                            print(f"Skipping EAN {ean}: AI normalization failed.")
+                            log.info("Skipping EAN: AI normalization failed.", ean=ean)
                             continue
 
                         embedding = get_embedding(normalized_data['text_for_embedding'])
                         if not embedding:
-                            print(f"Skipping EAN {ean}: Embedding generation failed.")
+                            log.info("Skipping EAN: Embedding generation failed.", ean=ean)
                             continue
 
                         # Load (Golden Record)
                         g_product_id = create_golden_record(product_cur, ean, normalized_data, embedding)
                         if not g_product_id:
                             raise Exception(f"Failed to create golden record for EAN {ean}")
-                        print(f"Created golden record for EAN {ean} with ID {g_product_id}")
+                        log.info("Created golden record", ean=ean, g_product_id=g_product_id)
                     else:
                         g_product_id = g_product_id['id']
-                        print(f"Golden record already exists for EAN {ean} with ID {g_product_id}. Skipping normalization.")
+                        log.info("Golden record already exists. Skipping normalization.", ean=ean, g_product_id=g_product_id)
 
                     # Mark as Processed (This now happens after the single best offer update)
                     mark_chain_products_as_processed(product_cur, chain_product_ids)
                     conn.commit()
-                    print(f"Successfully processed EAN {ean} and marked {len(chain_product_ids)} chain_products as processed.")
+                    log.info("Successfully processed EAN and marked chain_products as processed.", ean=ean, num_chain_products=len(chain_product_ids))
                 except Exception as e:
                     conn.rollback()
-                    print(f"Error processing EAN {ean}: {e}. Transaction rolled back.")
+                    log.error("Error processing EAN. Transaction rolled back.", ean=ean, error=str(e))
                     continue # Continue to the next EAN even if one fails
 
     except Exception as e:
-        print(f"An error occurred during the main processing loop: {e}")
+        log.error("An error occurred during the main processing loop", error=str(e))
     finally:
         if conn:
             conn.close()
@@ -171,6 +183,6 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, required=True, help="Number of products to process in this batch.")
     args = parser.parse_args()
 
-    print(f"Starting Gemini Normalizer Service for batch (start_id={args.start_id}, limit={args.limit})...")
+    log.info("Starting Gemini Normalizer Service for batch", start_id=args.start_id, limit=args.limit)
     process_products_by_id_range(args.start_id, args.limit)
-    print("Gemini Normalizer Service finished.")
+    log.info("Gemini Normalizer Service finished.")

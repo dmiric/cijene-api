@@ -1,7 +1,7 @@
 import os
 import json
-from datetime import datetime, date
-from decimal import Decimal
+import logging
+import structlog
 from typing import Optional, List, Dict, Any
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 import argparse
@@ -26,19 +26,24 @@ from ..ean_filters import EAN_FILTER_LIST
 # Import golden product prompt
 from .golden_product_prompt import get_ai_normalization_prompt
 
-# Load environment variables
-load_dotenv()
+# Initialize structlog logger
+log = structlog.get_logger()
 
-# Configure Grok-3-mini API
-client = OpenAI(
-    api_key=os.getenv("XAI_API_KEY"),
-    base_url="https://api.x.ai/v1",
-)
+# Global client variable, initialized lazily
+_grok_client = None
+_grok_text_model_name = None
 
-# The model for text generation with specific config
-# Grok-3-mini does not directly support response_mime_type="application/json" for chat completions
-# We will parse the text response as JSON.
-grok_text_model_name = os.getenv("GROK_TEXT_MODEL", "grok-3-mini")
+def _initialize_grok_client():
+    """Initializes the Grok-3-mini client and model name lazily."""
+    global _grok_client, _grok_text_model_name
+    if _grok_client is None:
+        load_dotenv() # Load environment variables here, after logging is configured
+        _grok_client = OpenAI(
+            api_key=os.getenv("XAI_API_KEY"),
+            base_url="https://api.x.ai/v1",
+        )
+        _grok_text_model_name = os.getenv("GROK_TEXT_MODEL", "grok-3-mini")
+        log.info("Grok-3-mini client initialized.")
 
 def normalize_product_with_ai(
     name_variations: list[str],
@@ -47,12 +52,13 @@ def normalize_product_with_ai(
     units: list[Optional[str]]
 ) -> Optional[Dict[str, Any]]:
     """Sends product name variations and other aggregated data to the AI and gets a structured JSON response."""
+    _initialize_grok_client() # Ensure client is initialized
     conn: Optional[PgConnection] = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         existing_categories = get_existing_categories(cur)
-        conn.close() # Close connection after fetching categories
+        # Removed conn.close() here as it should be handled in the finally block
 
         # Consolidate lists into a single input for the AI
         input_data = {
@@ -62,8 +68,8 @@ def normalize_product_with_ai(
             "units": [u for u in units if u is not None] # Filter out None values
         }
 
-        response = client.chat.completions.create(
-            model=grok_text_model_name,
+        response = _grok_client.chat.completions.create( # Use the global client
+            model=_grok_text_model_name, # Use the global model name
             messages=[
                 {"role": "system", "content": get_ai_normalization_prompt(existing_categories)}, # Pass existing categories
                 {"role": "user", "content": json.dumps(input_data)}
@@ -73,17 +79,17 @@ def normalize_product_with_ai(
         )
         
         normalized_data = json.loads(response.choices[0].message.content)
-        print(f"DEBUG: AI Request Payload: {json.dumps(input_data, indent=2)}")
-        print(f"DEBUG: AI Raw Response: {response.choices[0].message.content}")
+        log.debug("AI Request Payload", payload=input_data)
+        log.debug("AI Raw Response", raw_response=response.choices[0].message.content)
         
         normalized_data = json.loads(response.choices[0].message.content)
-        print(f"Received normalized data from Grok-3-mini: {normalized_data}")
+        log.info("Received normalized data from Grok-3-mini", normalized_data=normalized_data)
 
         return normalized_data
     except Exception as e:
-        print(f"Error calling Grok-3-mini API for normalization: {e}")
+        log.error("Error calling Grok-3-mini API for normalization", error=str(e))
         if hasattr(e, 'response') and hasattr(e.response, 'text'):
-            print(f"Grok-3-mini API error response text: {e.response.text}")
+            log.error("Grok-3-mini API error response text", response_text=e.response.text)
         return None
     finally:
         if conn:
@@ -129,10 +135,10 @@ def process_eans_batch(eans_to_process: List[str]) -> None:
         unprocessed_eans = cur.fetchall()
 
         if not unprocessed_eans:
-            print(f"No unprocessed products found for the provided EANs. Exiting.")
+            log.info("No unprocessed products found for the provided EANs. Exiting.")
             return
 
-        print(f"Processing {len(unprocessed_eans)} EANs from the provided batch...")
+        log.info("Processing EANs from the provided batch", num_eans=len(unprocessed_eans))
 
         for record in unprocessed_eans:
             ean = record['ean']
@@ -152,7 +158,7 @@ def process_eans_batch(eans_to_process: List[str]) -> None:
                         # Transform (AI Call)
                         normalized_data = normalize_product_with_ai(name_variations, brands, categories, units)
                         if not normalized_data:
-                            print(f"Skipping EAN {ean}: AI normalization failed.")
+                            log.info("Skipping EAN: AI normalization failed.", ean=ean)
                             continue
 
                         # Load (Golden Record)
@@ -160,22 +166,22 @@ def process_eans_batch(eans_to_process: List[str]) -> None:
                         g_product_id = create_golden_record(product_cur, ean, normalized_data)
                         if not g_product_id:
                             raise Exception(f"Failed to create golden record for EAN {ean}")
-                        print(f"Created golden record for EAN {ean} with ID {g_product_id}")
+                        log.info("Created golden record", ean=ean, g_product_id=g_product_id)
                     else:
                         g_product_id = g_product_id['id']
-                        print(f"Golden record already exists for EAN {ean} with ID {g_product_id}. Skipping normalization.")
+                        log.info("Golden record already exists. Skipping normalization.", ean=ean, g_product_id=g_product_id)
 
                     # Mark as Processed
                     mark_chain_products_as_processed(product_cur, chain_product_ids)
                     conn.commit()
-                    print(f"Successfully processed EAN {ean} and marked {len(chain_product_ids)} chain_products as processed.")
+                    log.info("Successfully processed EAN and marked chain_products as processed.", ean=ean, num_chain_products=len(chain_product_ids))
                 except Exception as e:
                     conn.rollback()
-                    print(f"Error processing EAN {ean}: {e}. Transaction rolled back.")
+                    log.error("Error processing EAN. Transaction rolled back.", ean=ean, error=str(e))
                     continue # Continue to the next EAN even if one fails
 
     except Exception as e:
-        print(f"An error occurred during the main processing loop: {e}")
+        log.error("An error occurred during the main processing loop", error=str(e))
     finally:
         if conn:
             conn.close()
@@ -188,6 +194,6 @@ if __name__ == "__main__":
     with open(args.eans_file, 'r') as f:
         eans_to_process = json.load(f)
 
-    print(f"Starting Grok-3-mini Normalizer Service for {len(eans_to_process)} EANs from {args.eans_file}...")
+    log.info("Starting Grok-3-mini Normalizer Service", num_eans=len(eans_to_process), eans_file=args.eans_file)
     process_eans_batch(eans_to_process)
-    print("Grok-3-mini Normalizer Service finished.")
+    log.info("Grok-3-mini Normalizer Service finished.")

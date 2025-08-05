@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+import structlog
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
@@ -14,6 +16,9 @@ from psycopg2.extensions import AsIs # Added AsIs for custom adapter
 
 # Load environment variables
 load_dotenv()
+
+# Initialize structlog logger
+log = structlog.get_logger()
 
 def get_db_connection() -> PgConnection:
     """Establishes and returns a database connection."""
@@ -49,11 +54,12 @@ def calculate_unit_prices(
         if piece_count is not None:
             piece_count = Decimal(str(piece_count))
     except Exception as e:
-        print(f"Error converting variant values to Decimal: {e}. Variant: {main_variant}")
+        log.error("Error converting variant values to Decimal", error=str(e), variant=main_variant)
         return {"price_per_kg": None, "price_per_l": None, "price_per_piece": None}
 
     # Prevent division by zero errors
     if (value is None or value <= 0) and (piece_count is None or piece_count <= 0):
+        log.warning("Cannot calculate unit prices: value or piece_count is zero or None.")
         return {"price_per_kg": None, "price_per_l": None, "price_per_piece": None}
 
     # --- Corrected and Explicit Logic ---
@@ -146,15 +152,13 @@ def create_golden_record(
         if result:
             return result['id']
         else:
-            print(f"Warning: INSERT for EAN {ean} returned no ID. This might indicate a silent failure or a unique constraint violation.", file=sys.stderr)
+            log.warning("INSERT for EAN returned no ID. This might indicate a silent failure or a unique constraint violation.", ean=ean)
             return None
     except psycopg2.Error as e:
-        print(f"Database error creating golden record for EAN {ean}: {e.pgcode} - {e.pgerror}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr) # Print full traceback for psycopg2 errors
+        log.error("Database error creating golden record", ean=ean, pgcode=e.pgcode, pgerror=e.pgerror, exc_info=True)
         return None
     except Exception as e:
-        print(f"Unexpected error creating golden record for EAN {ean}: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr) # Print full traceback for unexpected errors
+        log.error("Unexpected error creating golden record", ean=ean, error=str(e), exc_info=True)
         return None
 
 def update_best_offer(
@@ -237,9 +241,10 @@ def update_best_offer(
         """
         
         cur.execute(final_query, tuple(params))
-        print(f"Updated best offer for product {g_product_id} ({update_column}: {current_unit_price}, lowest_in_season: {lowest_price_in_season_param})")
+        log.info("Updated best offer for product", g_product_id=g_product_id, update_column=update_column,
+                 current_unit_price=current_unit_price, lowest_in_season=lowest_price_in_season_param)
     except Exception as e:
-        print(f"Error updating best offer for product {g_product_id}: {e}")
+        log.error("Error updating best offer for product", g_product_id=g_product_id, error=str(e))
 
 def mark_chain_products_as_processed(cur: PgCursor, chain_product_ids: List[int]) -> None:
     """Marks a list of chain_products as processed."""
@@ -250,4 +255,4 @@ def mark_chain_products_as_processed(cur: PgCursor, chain_product_ids: List[int]
             WHERE id = ANY(%s)
         """, (chain_product_ids,))
     except Exception as e:
-        print(f"Error marking chain_products as processed: {e}")
+        log.error("Error marking chain_products as processed", error=str(e))

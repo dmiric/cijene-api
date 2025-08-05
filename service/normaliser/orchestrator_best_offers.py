@@ -1,16 +1,17 @@
+from dotenv import load_dotenv
+load_dotenv() # Load environment variables at the very top
+
 import argparse
 import os
 import sys
 import subprocess
-import math
+import logging
+import structlog
 from typing import Optional, List
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
-from dotenv import load_dotenv
 
 from .db_utils import get_db_connection
-
-# Load environment variables
-load_dotenv()
+from service.main import configure_logging # Import configure_logging
 
 def get_min_max_product_ids() -> Optional[tuple[int, int]]:
     """
@@ -29,7 +30,7 @@ def get_min_max_product_ids() -> Optional[tuple[int, int]]:
             return None
         return min_id, max_id
     except Exception as e:
-        print(f"Error getting min/max product IDs: {e}", file=sys.stderr)
+        log.error("Error getting min/max product IDs", error=str(e))
         return None
     finally:
         if conn:
@@ -46,7 +47,7 @@ def run_worker(start_id: int, limit: int):
         "--start-id", str(start_id),
         "--limit", str(limit)
     ]
-    print(f"Launching worker: {' '.join(command)}")
+    log.info("Launching worker", command=' '.join(command))
     process = subprocess.Popen(command, stdout=sys.stdout, stderr=sys.stderr)
     return process
 
@@ -56,13 +57,13 @@ def orchestrate_best_offers(num_workers: int, batch_size: int):
     """
     id_range = get_min_max_product_ids()
     if not id_range:
-        print("No products found in products table. Exiting best offer orchestration.", file=sys.stderr)
+        log.info("No products found in products table. Exiting best offer orchestration.")
         return
 
     min_product_id, max_product_id = id_range
     
-    print(f"Total product ID range: {min_product_id} to {max_product_id}")
-    print(f"Orchestrating best offer update with {num_workers} workers, each processing a batch of {batch_size} product IDs.")
+    log.info("Total product ID range", min_id=min_product_id, max_id=max_product_id)
+    log.info("Orchestrating best offer update", num_workers=num_workers, batch_size=batch_size)
 
     processes = []
     current_start_id = min_product_id
@@ -78,9 +79,11 @@ def orchestrate_best_offers(num_workers: int, batch_size: int):
             processes = []
     for p in processes: # Wait for any remaining processes
         p.wait()
-    print("Best Offer Update orchestration finished.")
+    log.info("Best Offer Update orchestration finished.")
 
 if __name__ == "__main__":
+    configure_logging() # Configure logging at the start of the script
+    log = structlog.get_logger() # Initialize structlog logger AFTER configuration
     parser = argparse.ArgumentParser(description="Orchestrate best offer updates across multiple workers.")
     parser.add_argument("--num-workers", type=int, default=os.cpu_count() or 1,
                         help="Number of parallel workers to run (defaults to CPU count).")

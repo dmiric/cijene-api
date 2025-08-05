@@ -142,11 +142,7 @@ def configure_logging():
 
     # Configure structlog to use standard library logging
     structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-            # structlog.processors.JSONRenderer(), # REMOVED: This is handled by the formatter now
-        ],
+        processors=processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,

@@ -3,11 +3,13 @@ version: '3'
 
 # Variables specific to this file can be defined here.
 vars:
-  # Create a map for OS-specific compose files. This cleans up commands.
+  # Default environment is 'prod'. Override for local development.
+  ENVIRONMENT: '{{.ENVIRONMENT | default "production"}}'
   COMPOSE_FILES_LOCAL: '-f docker-compose.yml -f docker-compose.local.yml'
   COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
   COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
-  COMPOSE_FILES: '{{ if .OS.IsWindows }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
+  # The logic now depends on the ENVIRONMENT variable, not the OS.
+  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
 
 tasks:
   all:

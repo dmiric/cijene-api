@@ -1,5 +1,7 @@
 import argparse
 import os
+import logging
+import structlog
 from typing import Optional, List, Dict, Any
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 
@@ -12,9 +14,13 @@ from .db_utils import (
     get_db_connection,
     update_best_offer,
 )
+from service.main import configure_logging # Import configure_logging
 
 # Load environment variables
 load_dotenv()
+
+# Initialize structlog logger
+log = structlog.get_logger()
 
 def process_best_offers_batch(start_id: int, limit: int) -> None:
     """
@@ -45,10 +51,11 @@ def process_best_offers_batch(start_id: int, limit: int) -> None:
         products_to_process = cur.fetchall()
 
         if not products_to_process:
-            print(f"No golden products found for product_id range {start_id} to {start_id + limit - 1} for best offer update. Exiting.")
+            log.info("No golden products found for product_id range for best offer update. Exiting.", start_id=start_id, limit=limit)
             return
 
-        print(f"Processing best offers for {len(products_to_process)} golden products in product_id range {start_id} to {start_id + limit - 1}...")
+        log.info("Processing best offers for golden products in product_id range",
+                 num_products=len(products_to_process), start_id=start_id, limit=limit)
 
         for record in products_to_process:
             g_product_id = record['g_product_id']
@@ -79,7 +86,7 @@ def process_best_offers_batch(start_id: int, limit: int) -> None:
                     g_prices_entries = product_cur.fetchall()
 
                     if not g_prices_entries:
-                        print(f"No prices found for g_product_id {g_product_id}. Skipping best offer update.")
+                        log.info("No prices found for g_product_id. Skipping best offer update.", g_product_id=g_product_id)
                         continue
 
                     best_offer_entry = None
@@ -110,27 +117,28 @@ def process_best_offers_batch(start_id: int, limit: int) -> None:
                             seasonal_end_month
                         )
                         conn.commit()
-                        print(f"Successfully updated best offer for g_product_id {g_product_id}.")
+                        log.info("Successfully updated best offer for g_product_id.", g_product_id=g_product_id)
                     else:
-                        print(f"Could not determine best offer for g_product_id {g_product_id}.")
+                        log.info("Could not determine best offer for g_product_id.", g_product_id=g_product_id)
 
                 except Exception as e:
                     conn.rollback()
-                    print(f"Error processing best offer for g_product_id {g_product_id}: {e}. Transaction rolled back.")
+                    log.error("Error processing best offer for g_product_id. Transaction rolled back.", g_product_id=g_product_id, error=str(e))
                     continue # Continue to the next product even if one fails
 
     except Exception as e:
-        print(f"An error occurred during the main best offer update loop: {e}")
+        log.error("An error occurred during the main best offer update loop", error=str(e))
     finally:
         if conn:
             conn.close()
 
 if __name__ == "__main__":
+    configure_logging() # Configure logging at the start of the script
     parser = argparse.ArgumentParser(description="Process a batch of products for best offer update.")
     parser.add_argument("--start-id", type=int, required=True, help="Starting product_id for the batch.")
     parser.add_argument("--limit", type=int, required=True, help="Number of product_ids to cover in this batch.")
     args = parser.parse_args()
 
-    print(f"Starting Best Offer Updater Service for batch (start_id={args.start_id}, limit={args.limit})...")
+    log.info("Starting Best Offer Updater Service for batch", start_id=args.start_id, limit=args.limit)
     process_best_offers_batch(args.start_id, args.limit)
-    print("Best Offer Updater Service finished.")
+    log.info("Best Offer Updater Service finished.")

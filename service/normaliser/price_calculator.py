@@ -1,20 +1,22 @@
+from dotenv import load_dotenv
+load_dotenv() # Load environment variables at the very top
+
 import argparse
 import os
+import logging
+import structlog
 from typing import Optional, List, Dict, Any
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
 
 # Import database utility functions
 from .db_utils import (
     get_db_connection,
     calculate_unit_prices,
 )
-
-# Load environment variables
-load_dotenv()
+from service.main import configure_logging # Import configure_logging
 
 def process_prices_batch(start_id: int, limit: int) -> None:
     """
@@ -55,10 +57,11 @@ def process_prices_batch(start_id: int, limit: int) -> None:
         products_to_process = cur.fetchall()
 
         if not products_to_process:
-            print(f"No golden products found for product_id range {start_id} to {start_id + limit - 1} for price calculation. Exiting.")
+            log.info("No golden products found for product_id range for price calculation. Exiting.", start_id=start_id, limit=limit)
             return
 
-        print(f"Processing prices for {len(products_to_process)} golden products in product_id range {start_id} to {start_id + limit - 1}...")
+        log.info("Processing prices for golden products in product_id range",
+                 num_products=len(products_to_process), start_id=start_id, limit=limit)
 
         for record in products_to_process:
             g_product_id = record['g_product_id']
@@ -125,24 +128,26 @@ def process_prices_batch(start_id: int, limit: int) -> None:
                             price_entry['special_price'] is not None
                         ))
                     conn.commit()
-                    print(f"Successfully processed prices for g_product_id {g_product_id}.")
+                    log.info("Successfully processed prices for g_product_id.", g_product_id=g_product_id)
                 except Exception as e:
                     conn.rollback()
-                    print(f"Error processing prices for g_product_id {g_product_id}: {e}. Transaction rolled back.")
+                    log.error("Error processing prices for g_product_id. Transaction rolled back.", g_product_id=g_product_id, error=str(e))
                     continue # Continue to the next product even if one fails
 
     except Exception as e:
-        print(f"An error occurred during the main price calculation loop: {e}")
+        log.error("An error occurred during the main price calculation loop", error=str(e))
     finally:
         if conn:
             conn.close()
 
 if __name__ == "__main__":
+    configure_logging() # Configure logging at the start of the script
+    log = structlog.get_logger() # Initialize structlog logger AFTER configuration
     parser = argparse.ArgumentParser(description="Process a batch of products for price calculation.")
     parser.add_argument("--start-id", type=int, required=True, help="Starting product_id for the batch.")
-    parser.add_argument("--limit", type=int, required=True, help="Number of product_ids to cover in this batch.")
+    parser.add_argument("--limit", type=int, required=True, help="Number of products to process in this batch.")
     args = parser.parse_args()
 
-    print(f"Starting Price Calculator Service for batch (start_id={args.start_id}, limit={args.limit})...")
+    log.info("Starting Price Calculator Service for batch", start_id=args.start_id, limit=args.limit)
     process_prices_batch(args.start_id, args.limit)
-    print("Price Calculator Service finished.")
+    log.info("Price Calculator Service finished.")

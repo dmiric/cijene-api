@@ -1,15 +1,19 @@
+from dotenv import load_dotenv
+load_dotenv() # Load environment variables at the very top
+
 import argparse
 import os
 import json
 import importlib
 import sys
 import time
+import logging
+import structlog
 from typing import Optional, List, Dict, Any
 from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
 from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway # Modified Prometheus imports
 
 # Import database utility functions
@@ -26,9 +30,11 @@ from service.normaliser.ean_filters import EAN_FILTER_LIST
 
 # Import embedding service
 from .embedding_service import get_embedding
+from service.main import configure_logging # Import configure_logging
 
-# Load environment variables
-load_dotenv()
+# Configure logging right after imports
+configure_logging()
+log = structlog.get_logger()
 
 # Prometheus Metrics
 # Create a registry for this specific job
@@ -124,10 +130,12 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
         GOLDEN_RECORD_BATCH_SIZE.labels(normalizer_type=normalizer_type, embedder_type=embedder_type).set(batch_size_actual)
 
         if not unprocessed_eans:
-            print(f"No unprocessed products found for product_id range {start_id} to {start_id + limit - 1}. Exiting.")
+            log.info("No unprocessed products found for product_id range. Exiting.", start_id=start_id, limit=limit)
             return
 
-        print(f"Processing {batch_size_actual} EANs for golden record creation in product_id range {start_id} to {start_id + limit - 1} using {normalizer_type} AI and {embedder_type} embedder...")
+        log.info("Processing EANs for golden record creation in product_id range",
+                 num_eans=batch_size_actual, start_id=start_id, limit=limit,
+                 normalizer_type=normalizer_type, embedder_type=embedder_type)
 
         for record in unprocessed_eans:
             ean = record['ean']
@@ -148,7 +156,7 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
                         # Transform (AI Call)
                         normalized_data = normalize_product_with_ai(name_variations, brands, categories, units)
                         if not normalized_data:
-                            print(f"Skipping EAN {ean}: AI normalization failed.")
+                            log.info("Skipping EAN: AI normalization failed.", ean=ean)
                             GOLDEN_RECORD_CREATION_ERRORS.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, error_type='ai_normalization_failed').inc()
                             continue
 
@@ -159,13 +167,13 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
                             if not category_id:
                                 category_id = create_category_if_not_exists(product_cur, category_name)
                                 conn.commit() # Commit category creation immediately
-                                print(f"Created new category: {category_name} with ID {category_id}")
+                                log.info("Created new category", category_name=category_name, category_id=category_id)
                         else:
                             category_id = None # Handle cases where category might be missing
 
                         embedding = get_embedding(normalized_data['text_for_embedding'], embedder_type)
                         if not embedding:
-                            print(f"Skipping EAN {ean}: Embedding generation failed.")
+                            log.info("Skipping EAN: Embedding generation failed.", ean=ean)
                             GOLDEN_RECORD_CREATION_ERRORS.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, error_type='embedding_failed').inc()
                             continue
 
@@ -174,34 +182,34 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
                         if not g_product_id:
                             # If create_golden_record returned None, it means the record already exists (due to ON CONFLICT DO NOTHING)
                             # or some other issue. Skip this EAN and continue.
-                            print(f"Skipping EAN {ean}: Failed to create golden record or retrieve existing ID. See db_utils.py for details.", file=sys.stderr)
+                            log.error("Skipping EAN: Failed to create golden record or retrieve existing ID. See db_utils.py for details.", ean=ean)
                             GOLDEN_RECORD_CREATION_ERRORS.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, error_type='create_golden_record_failed').inc()
                             continue
                         else:
-                            print(f"Created golden record for EAN {ean} with ID {g_product_id}")
+                            log.info("Created golden record", ean=ean, g_product_id=g_product_id)
                             GOLDEN_RECORDS_PROCESSED.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, status='created').inc()
                     else:
                         g_product_id = g_product_id['id']
-                        print(f"Golden record already exists for EAN {ean} with ID {g_product_id}. Skipping AI normalization.")
+                        log.info("Golden record already exists. Skipping AI normalization.", ean=ean, g_product_id=g_product_id)
                         GOLDEN_RECORDS_PROCESSED.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, status='skipped_exists').inc()
 
                     # Mark as Processed (This now happens after golden record creation)
                     mark_chain_products_as_processed(product_cur, chain_product_ids)
                     conn.commit()
-                    print(f"Successfully processed EAN {ean} and marked {len(chain_product_ids)} chain_products as processed.")
+                    log.info("Successfully processed EAN and marked chain_products as processed.", ean=ean, num_chain_products=len(chain_product_ids))
                     GOLDEN_RECORDS_PROCESSED.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, status='marked_processed').inc()
 
                     # Push metrics to Pushgateway after each product
                     try:
                         job_name = f"golden_record_creator_{os.getpid()}" # Unique job name for each worker
                         push_to_gateway(os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"), job=job_name, registry=registry)
-                        print(f"Metrics pushed to Pushgateway for EAN {ean}.")
+                        log.info("Metrics pushed to Pushgateway", ean=ean)
                     except Exception as e:
-                        print(f"Error pushing metrics to Pushgateway for EAN {ean}: {e}", file=sys.stderr)
+                        log.error("Error pushing metrics to Pushgateway", ean=ean, error=str(e))
 
                 except Exception as e:
                     conn.rollback()
-                    print(f"Error processing EAN {ean}: {e}. Transaction rolled back.", file=sys.stderr)
+                    log.error("Error processing EAN. Transaction rolled back.", ean=ean, error=str(e))
                     GOLDEN_RECORD_CREATION_ERRORS.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, error_type=type(e).__name__).inc()
                     continue
                 finally:
@@ -209,7 +217,7 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
                     GOLDEN_RECORD_PROCESSING_TIME.labels(normalizer_type=normalizer_type, embedder_type=embedder_type).observe(end_time - start_time)
 
     except Exception as e:
-        print(f"An error occurred during the main golden record creation loop: {e}", file=sys.stderr)
+        log.error("An error occurred during the main golden record creation loop", error=str(e))
         GOLDEN_RECORD_CREATION_ERRORS.labels(normalizer_type=normalizer_type, embedder_type=embedder_type, error_type=type(e).__name__).inc()
     finally:
         if conn:
@@ -223,13 +231,15 @@ if __name__ == "__main__":
                         help="Type of embedder to use (e.g., gemini).")
     parser.add_argument("--start-id", type=int, required=True, help="Starting product_id for the batch.")
     parser.add_argument("--limit", type=int, required=True, help="Number of product_ids to cover in this batch.")
-    parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"), # Added pushgateway URL argument
+    parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"),
                         help="URL of the Prometheus Pushgateway.")
     args = parser.parse_args()
 
-    print(f"Starting Golden Record Creator Service for batch (normalizer={args.normalizer_type}, embedder={args.embedder_type}, start_id={args.start_id}, limit={args.limit})...")
+    log.info("Starting Golden Record Creator Service for batch",
+             normalizer=args.normalizer_type, embedder=args.embedder_type,
+             start_id=args.start_id, limit=args.limit)
     
     # Process the batch
     process_golden_records_batch(args.normalizer_type, args.embedder_type, args.start_id, args.limit)
     
-    print("Golden Record Creator Service finished.")
+    log.info("Golden Record Creator Service finished.")
