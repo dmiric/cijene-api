@@ -58,7 +58,6 @@ def normalize_product_with_ai(
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         existing_categories = get_existing_categories(cur)
-        # Removed conn.close() here as it should be handled in the finally block
 
         # Consolidate lists into a single input for the AI
         input_data = {
@@ -81,9 +80,7 @@ def normalize_product_with_ai(
         normalized_data = json.loads(response.choices[0].message.content)
         log.debug("AI Request Payload", payload=input_data)
         log.debug("AI Raw Response", raw_response=response.choices[0].message.content)
-        
-        normalized_data = json.loads(response.choices[0].message.content)
-        log.info("Received normalized data from Grok-3-mini", normalized_data=normalized_data)
+        log.debug("Received normalized data from Grok-3-mini", normalized_data=normalized_data)
 
         return normalized_data
     except Exception as e:
