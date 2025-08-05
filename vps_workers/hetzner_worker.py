@@ -215,19 +215,17 @@ def prepare_remote_env_content(config: Dict[str, Any]) -> str:
         main_server_private_ip = config['MAIN_SERVER_PRIVATE_IP']
 
         resolved_db_dsn = f"postgresql://{postgres_user}:{postgres_password}@{main_server_private_ip}:5432/{postgres_db}"
-        log.info("Resolved DB_DSN for remote .env", resolved_db_dsn=resolved_db_dsn)
 
         found_db_dsn = False
         for i, line in enumerate(lines):
             if line.startswith("DB_DSN="):
                 lines[i] = f"DB_DSN={resolved_db_dsn}"
                 found_db_dsn = True
-                log.info("Replaced DB_DSN in remote .env", resolved_db_dsn=resolved_db_dsn)
                 break
         
         if not found_db_dsn:
             lines.append(f"DB_DSN={resolved_db_dsn}")
-            log.info("Added DB_DSN to remote .env", resolved_db_dsn=resolved_db_dsn)
+            log.info("Added DB_DSN to remote .env")
 
         # Dynamically set PROMETHEUS_PUSHGATEWAY_URL to the main server's private IP
         prometheus_pushgateway_url = f"http://{config['MAIN_SERVER_PRIVATE_IP']}:9091"
@@ -266,11 +264,9 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
         raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' not found in your Hetzner project.")
     primary_ip_obj = primary_ips_page.primary_ips[0]
     
-    # --- CORRECTED LOGIC FOR CHECKING IP ASSIGNMENT ---
     if primary_ip_obj.assignee_id is not None: 
         log.error("Primary IP is already assigned", ip=config['WORKER_PRIMARY_IP'], assignee_id=primary_ip_obj.assignee_id)
         raise Exception(f"Primary IP '{config['WORKER_PRIMARY_IP']}' is already assigned.")
-    # --- END OF CORRECTION ---
 
     if not network_obj: 
         log.error("Private Network not found", network_name=config['PRIVATE_NETWORK_NAME'])
@@ -287,7 +283,7 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
         start_after_create=True,
     )
     
-    wait_for_action(create_result.action)
+    wait_for_action(create_result.action, 300)
     server = create_result.server
     server.reload()
     

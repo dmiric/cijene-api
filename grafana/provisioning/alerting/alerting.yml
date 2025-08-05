@@ -1,0 +1,11 @@
+apiVersion: 1
+
+alerting:
+  - name: "Hetzner Worker Alerts"
+    type: file
+    options:
+      path: "/etc/grafana/provisioning/alerting/hetzner_worker_alert.yml"
+  - name: "Email Contact Points"
+    type: file
+    options:
+      path: "/etc/grafana/provisioning/alerting/contact_points.yml"

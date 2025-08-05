@@ -1,0 +1,7 @@
+apiVersion: 1
+
+contactPoints:
+  - name: "damir.miric@gmail.com"
+    type: email
+    settings:
+      addresses: "damir.miric@gmail.com"
