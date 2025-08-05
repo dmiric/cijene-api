@@ -83,11 +83,13 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           # --- Set Server Timezone ---
+          #### This code won't run because of the sudo, but it's here as a reminder
           echo "--> Configuring server time and NTP synchronization..."
           sudo timedatectl set-timezone UTC
           sudo timedatectl set-ntp true
           
           # --- Configure Swap Space ---
+          #### This code won't run because of the sudo, but it's here as a reminder
           echo "--> Checking/Configuring swap space..."
           if ! grep -q "swapfile" /proc/swaps; then
             sudo fallocate -l 4G /swapfile
@@ -104,23 +106,14 @@ jobs:
 
           # --- Configure Cron Jobs ---
           echo "--> Configuring cron jobs..."
-          # Hetzner Worker (Old - with log redirection)
-          # (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
-          # (crontab -l 2>/dev/null; echo "0 8-12 * * * cd /home/dmiric/pricemice && mkdir -p logs/hetzner-worker && /usr/bin/make hetzner-worker >> /home/dmiric/pricemice/logs/hetzner-worker/hetzner-worker-$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           # Hetzner Worker (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
           (crontab -l 2>/dev/null; echo "0 8-12 * * * cd /home/dmiric/pricemice && /usr/bin/make hetzner-worker") | crontab -
           
-          # Golden Record Orchestrator (Old - with log redirection)
-          # (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
-          # (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && mkdir -p logs/golden-record && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-golden-record-1 api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 >> /home/dmiric/pricemice/logs/golden-record/golden-record-orchestrator-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           # Golden Record Orchestrator (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
           (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-golden-record-1 api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
           
-          # Price Calculation (Old - with log redirection)
-          # (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
-          # (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && mkdir -p logs/calculate-prices && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-calc-prices-1 --env api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000 >> /home/dmiric/pricemice/logs/calculate-prices/price-calculation-\$(date +\\\\%Y\\\\%m\\\\%d_\\\\%H\\\\%M\\\\%S).log 2>&1") | crontab -
           # Price Calculation (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
           (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-calc-prices-1 --env api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
