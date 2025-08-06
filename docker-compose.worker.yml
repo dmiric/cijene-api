@@ -58,5 +58,6 @@ services:
       - "/etc/alloy/config.alloy"
       # This flag tells Alloy where to store its data inside the container
       - "--storage.path=/data"
-    depends_on:
-      - loki
+
+volumes:
+  alloy_data:
