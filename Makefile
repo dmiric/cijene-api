@@ -39,7 +39,7 @@ API_KEY ?= ec7cc315-c434-4c1f-aab7-3dba3545d113
 # Add a new variable for the query, it will be empty by default
 QUERY=limun
 
-.PHONY: help crawl rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console unzip-crawler-output restore-tables dump-database upload-database-dump restore-database build-worker
+.PHONY: help crawl rebuild rebuild-api import-data search-products logs-api logs-crawler logs-tail pgtunnel ssh-server rebuild-everything logs-crawler-console restore-tables dump-database upload-database-dump restore-database build-worker
 
 ## General Commands
 help: ## Display this help message

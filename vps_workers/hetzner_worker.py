@@ -310,7 +310,7 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
             time.sleep(10)
 
     try:
-        run_remote_command(ssh_client, "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git make", "Install Dependencies")
+        run_remote_command(ssh_client, "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git", "Install Dependencies")
         run_remote_command(ssh_client, f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}", "Git Clone Project")
         run_remote_command(ssh_client, f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{remote_env}\nEOF", "Write .env File", sensitive=True)
         

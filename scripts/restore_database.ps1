@@ -32,7 +32,7 @@ if ([string]::IsNullOrEmpty($TIMESTAMP)) {
     $LATEST_FILE_ON_HOST = Get-ChildItem -Path ".\backups\full_db_*.sql.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
     if (-not $LATEST_FILE_ON_HOST) {
-        Write-Error "No full database backup files found in ./backups/ on the host. Please run 'make dump-database' first or provide a TIMESTAMP."
+        Write-Error "No full database backup files found in ./backups/ on the host."
         exit 1
     }
     # Extract timestamp from filename (e.g., full_db_YYYYMMDD_HHMMSS.sql.gz)

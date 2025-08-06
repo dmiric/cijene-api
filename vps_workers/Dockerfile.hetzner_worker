@@ -13,10 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the worker script
 COPY vps_workers/hetzner_worker.py .
 
-# Copy only the Makefile, as hetzner_worker.py executes 'make crawl'
-# The other project directories (service/db, crawler/cli, etc.) are cloned onto the VPS itself,
-# so they are not needed inside this worker's Docker image.
-COPY Makefile .
-
 # Command to run the script when the container starts
 CMD ["python", "hetzner_worker.py"]
