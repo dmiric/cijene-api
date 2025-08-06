@@ -1,0 +1,133 @@
+// =============================================================================
+// ==           FINAL, CORRECT, AND SIMPLE ALLOY CONFIGURATION              ==
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// DISCOVERY & RELABELING
+// -----------------------------------------------------------------------------
+
+discovery.docker "all_containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "filtered_containers" {
+  targets = discovery.docker.all_containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(worker-alloy-1)"
+    action        = "drop"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    regex         = "(.*)"
+    target_label  = "__path__"
+    replacement   = "/var/lib/docker/containers/$1/$1-json.log"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(worker-api-1)"
+    target_label  = "job"
+    replacement   = "$1"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "container_id"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// LOG SCRAPING & ROUTING
+// -----------------------------------------------------------------------------
+
+loki.source.file "container_logs" {
+  targets = discovery.relabel.filtered_containers.output
+  forward_to = [
+    loki.relabel.api_filter.receiver,
+    loki.relabel.default_filter.receiver,
+  ]
+}
+
+loki.relabel "api_filter" {
+  forward_to = [loki.process.api_pipeline.receiver]
+  rule {
+    source_labels = ["job"]
+    regex         = "worker-api-1"
+    action        = "keep"
+  }
+}
+
+loki.relabel "default_filter" {
+  forward_to = [loki.process.default_pipeline.receiver]
+  rule {
+    source_labels = ["job"]
+    regex         = "worker-api-1"
+    action        = "drop"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// LOG PROCESSING PIPELINES
+// -----------------------------------------------------------------------------
+
+// Pipeline 1: For the 'pricemice-api-1' container ONLY
+// This is the simple, correct, and resilient way to build the pipeline.
+loki.process "api_pipeline" {
+  forward_to = [loki.write.default.receiver]
+
+  // Stage 1: Strip the Docker log header.
+  stage.docker {}
+
+  // Stage 2: Try to parse the log line as JSON.
+  // If parsing fails (e.g., on a plain text line), this stage does nothing
+  // and the original log is passed through without new labels. This is the
+  // desired behavior.
+  stage.json {
+    source      = "log"
+    expressions = {
+      level   = "level",
+      message = "event",
+      logger  = "logger",
+    }
+  }
+
+  // Stage 3: Promote any extracted values to labels.
+  stage.labels {
+    values = {
+      level  = "",
+      logger = "",
+    }
+  }
+
+  // Stage 4: Set the final log line from the 'event' field.
+  // If 'event' was not extracted, this stage does nothing.
+  stage.output {
+    source = "message"
+  }
+}
+
+// Pipeline 2: A simple, default pipeline for all OTHER containers
+loki.process "default_pipeline" {
+  forward_to = [loki.write.default.receiver]
+  stage.docker {}
+  stage.output {
+    source = "log"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// WRITING TO LOKI
+// -----------------------------------------------------------------------------
+
+loki.write "default" {
+  endpoint {
+    url = "http://{{SERVER_PRIVATE_IP}}:3100/loki/api/v1/push"
+  }
+  external_labels = {}
+}

@@ -1,5 +1,6 @@
 services:
   api:
+    container_name: worker-api-1
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,6 +18,7 @@ services:
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Add --reload for development
 
   crawler:
+    container_name: worker-crawler-1
     build:
       context: .
       dockerfile: Dockerfile
@@ -36,3 +38,25 @@ services:
       - ./crawler_output:/app/output # Mount crawler output for direct access
       - .:/app # Mount the entire project directory
     command: [ "tail", "-f", "/dev/null" ]
+
+  alloy:
+    container_name: worker-alloy-1
+    # THIS IS THE CRITICAL LINE THAT MUST BE CORRECT
+    image: grafana/alloy:v1.1.0
+    restart: unless-stopped
+    volumes:
+      # Mount the Docker socket as read-only for better security
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Your config file needs access to the host log paths. Mount as read-only.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # Your Alloy config file
+      - ./vps_workers\alloy-config.alloy:/etc/alloy/config.alloy
+      # A persistent volume for Alloy's data (like log positions)
+      - alloy_data:/data
+    command:
+      - "run"
+      - "/etc/alloy/config.alloy"
+      # This flag tells Alloy where to store its data inside the container
+      - "--storage.path=/data"
+    depends_on:
+      - loki
