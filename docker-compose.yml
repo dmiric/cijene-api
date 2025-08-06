@@ -39,10 +39,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      tempo:
+        # Add dependency on tempo
+        condition: service_healthy
     volumes:
       - ./.env:/app/.env
       - ./crawler_output:/app/crawler_output
-    command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
+    command: [ "sh", "-c", "sleep 5 && python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
     networks:
       - monitoring-network
 
@@ -104,6 +107,7 @@ services:
       - ./prometheus:/etc/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.enable-remote-write-receiver'
     depends_on:
       - api
       - pushgateway # Added dependency on pushgateway
@@ -128,6 +132,7 @@ services:
     depends_on:
       - prometheus
       - loki # Added dependency on loki
+      - tempo # Added dependency on tempo
     networks:
       - monitoring-network
 
@@ -168,13 +173,38 @@ services:
     networks:
       - monitoring-network
 
+  tempo:
+    container_name: pricemice-tempo-1
+    image: grafana/tempo:2.8.1
+    user: root # Added this line to fix permission denied error
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml
+      - tempo_data:/data/tempo
+    ports:
+      - "14268:14268" # Jaeger gRPC
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "3200:3200" # Tempo HTTP (for readiness, metrics, etc.)
+    healthcheck:
+      # Use wget, which is a standard utility, to check the readiness endpoint.
+      # This is often more reliable than app-specific CLIs.
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s # Increased start period just to be safe
+    networks:
+      - monitoring-network
+
 volumes:
   db_data:
   alloy_data:
   pgadmin_data:
   db_backups:
   loki_data:
-
+  tempo_data:
+    # New volume for Tempo
 
 networks:
   monitoring-network:

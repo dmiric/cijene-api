@@ -1,0 +1,60 @@
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_bytes: 5000000
+  max_block_duration: 5m
+  complete_block_timeout: 10s
+
+compactor:
+  compaction:
+    compaction_window: 1h
+    max_block_bytes: 50000000
+    block_retention: 24h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /data/tempo/blocks
+    wal:
+      path: /data/tempo/wal
+
+metrics_generator:
+  ring:
+    kvstore:
+      store: memberlist
+  storage:
+    path: /data/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /data/tempo/generator/traces
+  processor:
+    # This configures the span-metrics processor to work correctly
+    # for all spans, which is what we need.
+    span_metrics:
+      dimensions:
+        - service.name
+        - span.name
+        - status.code
+
+overrides:
+  defaults:
+    metrics_generator:
+      # We are now ONLY enabling the processors that are stable
+      # and required for the Prometheus-based graphs.
+      processors:
+        - service-graphs
+        - span-metrics
+        - local-blocks

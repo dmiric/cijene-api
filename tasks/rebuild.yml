@@ -9,7 +9,7 @@ vars:
   COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
   COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
   # The logic now depends on the ENVIRONMENT variable, not the OS.
-  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
+  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOdocSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
 
 tasks:
   all:
@@ -36,7 +36,7 @@ tasks:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
         docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate
-        grafana prometheus pushgateway loki alloy{{ if eq .ENVIRONMENT "production" }} node_exporter{{ end }}
+        grafana prometheus pushgateway loki alloy tempo{{ if eq .ENVIRONMENT "production" }} node_exporter{{ end }}
       - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 

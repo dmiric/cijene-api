@@ -1,53 +1,67 @@
 # ./tasks/logs.yml
 version: '3'
 
+# Variables specific to this file can be defined here.
+vars:
+  # Default environment is 'prod'. Override for local development.
+  ENVIRONMENT: '{{.ENVIRONMENT | default "production"}}'
+  COMPOSE_FILES_LOCAL: '-f docker-compose.yml -f docker-compose.local.yml'
+  COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
+  COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
+  # The logic now depends on the ENVIRONMENT variable, not the OS.
+  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
+
 tasks:
   # --- Logging Tasks ---
   api:
     desc: 'Follow logs for the API service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs api
+      - docker compose {{.COMPOSE_FILES}} logs api
   db:
     desc: 'Follow logs for the Database service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs db
+      - docker compose {{.COMPOSE_FILES}} logs db
   pgadmin:
     desc: 'Follow logs for the pgAdmin service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs pgadmin
+      - docker compose {{.COMPOSE_FILES}} logs pgadmin
   backup:
     desc: 'Follow logs for the Backup service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs backup
+      - docker compose {{.COMPOSE_FILES}} logs backup
   pushgateway:
     desc: 'Follow logs for the Pushgateway service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs pushgateway
+      - docker compose {{.COMPOSE_FILES}} logs pushgateway
   prometheus:
     desc: 'Follow logs for the Prometheus service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs prometheus
+      - docker compose {{.COMPOSE_FILES}} logs prometheus
   grafana:
     desc: 'Follow logs for the Grafana service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs grafana
+      - docker compose {{.COMPOSE_FILES}} logs grafana
   loki:
     desc: 'Follow logs for the Loki service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs loki
+      - docker compose {{.COMPOSE_FILES}} logs loki
   alloy:
     desc: 'Follow logs for the Alloy service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs alloy
+      - docker compose {{.COMPOSE_FILES}} logs alloy
+  tempo:
+    desc: 'Follow logs for the Tempo service'
+    cmds:
+      - docker compose {{.COMPOSE_FILES}} logs tempo
   node_exporter:
     desc: 'Follow logs for the Node Exporter service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs node_exporter
+      - docker compose {{.COMPOSE_FILES}} logs node_exporter
   crawler:
     desc: 'Follow logs for the Crawler service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs crawler
+      - docker compose {{.COMPOSE_FILES}} logs crawler
   mailhog:
     desc: 'Follow logs for the MailHog service'
     cmds:
-      - docker compose -f docker-compose.yml -f docker-compose.local.yml logs mailhog
+      - docker compose {{.COMPOSE_FILES}} logs mailhog

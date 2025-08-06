@@ -29,6 +29,24 @@ from service.db.base import database_container, get_db_session # Import from bas
 from service.db.psql import PostgresDatabase # Keep this import for type hinting in settings.get_db()
 from prometheus_client import generate_latest, Counter, Histogram
 
+# OpenTelemetry imports
+from opentelemetry import trace
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+# Set up OpenTelemetry
+resource = Resource.create({SERVICE_NAME: "cijene-api"})
+trace.set_tracer_provider(TracerProvider(resource=resource))
+tracer = trace.get_tracer(__name__)
+
+# Configure OTLP exporter to send traces to Tempo
+otlp_exporter = OTLPSpanExporter(endpoint="tempo:4317", insecure=True)
+span_processor = BatchSpanProcessor(otlp_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
 app = FastAPI(
     title="Cijene API",
     description="Service for product pricing data by Croatian grocery chains",
@@ -37,6 +55,13 @@ app = FastAPI(
     openapi_components={
         "securitySchemes": {"HTTPBearer": {"type": "http", "scheme": "bearer"}}
     },
+)
+
+# Instrument FastAPI
+# We are explicitly telling it to not exclude any URLs to ensure all endpoints are traced.
+FastAPIInstrumentor.instrument_app(
+    app,
+    excluded_urls=None  # Ensure no URLs are excluded
 )
 
 @app.on_event("startup")
