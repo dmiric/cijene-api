@@ -111,10 +111,6 @@ rebuild-everything: ## Stop, remove all Docker containers and volumes, restart D
 		bash ./scripts/rebuild.sh --exclude="$(EXCLUDE_VOLUMES)"; \
 	fi
 
-build-worker: ## Stop, remove, and rebuild only the API and Crawler services without confirmation, excluding the database.
-	docker compose -f docker-compose.worker.yml down --remove-orphans > /dev/null 2>&1
-	docker compose -f docker-compose.worker.yml up -d --build --force-recreate > /dev/null 2>&1
-	
 dev-csv-start: ## Perform a fast fresh start for development, using sample data or existing crawled data.
 	$(MAKE) rebuild-everything EXCLUDE_VOLUMES="$(EXCLUDE_VOLUMES)"
 

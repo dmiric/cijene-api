@@ -40,12 +40,6 @@ tasks:
       - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
-  build-worker:
-    desc: 'Rebuild the worker services (api, crawler)'
-    cmds:
-      - docker compose {{.COMPOSE_FILES_WORKER}} down --remove-orphans > /dev/null 2>&1
-      - docker compose {{.COMPOSE_FILES_WORKER}} up -d --build --force-recreate > /dev/null 2>&1
-
   prune:
     desc: 'Stop all containers and perform a deep clean of the Docker system.'
     cmds:
