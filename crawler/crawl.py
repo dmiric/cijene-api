@@ -104,11 +104,13 @@ CRAWLERS = {
     LorencoCrawler.CHAIN: LorencoCrawler,
     BrodokomercCrawler.CHAIN: BrodokomercCrawler,
     BosoCrawler.CHAIN: BosoCrawler,
+    NtlCrawler.CHAIN: NtlCrawler,
+    ZabacCrawler.CHAIN: ZabacCrawler,
 }
 
 DISABLED_CRAWLERS = {
-    ZabacCrawler.CHAIN: ZabacCrawler,
-    NtlCrawler.CHAIN: NtlCrawler,
+    
+    
 }
 
 

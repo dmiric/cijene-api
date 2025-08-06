@@ -168,23 +168,6 @@ services:
     networks:
       - monitoring-network
 
-  node_exporter:
-    container_name: pricemice-node-exporter-1
-    image: prom/node-exporter:v1.9.1
-    ports:
-      - "9100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--path.rootfs=/rootfs'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    networks:
-      - monitoring-network
-
 volumes:
   db_data:
   alloy_data:

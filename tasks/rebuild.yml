@@ -36,7 +36,7 @@ tasks:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
         docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate
-        grafana prometheus pushgateway loki alloy node_exporter
+        grafana prometheus pushgateway loki alloy{{ if eq .ENVIRONMENT "production" }} node_exporter{{ end }}
       - echo "Metrics services rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
