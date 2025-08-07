@@ -5,7 +5,7 @@ groups:
       folder: Hetzner Worker
       interval: 3m
       rules:
-        - uid: beu3v69uqje2oc
+        - uid: beu3v69uqje2og
           title: Hetzner Worker Script Failed
           condition: C
           data:

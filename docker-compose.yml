@@ -104,7 +104,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus:/etc/prometheus
+      - ./config/prometheus:/etc/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--web.enable-remote-write-receiver'
@@ -122,8 +122,8 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
     environment:
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       GF_AUTH_ANONYMOUS_ENABLED: "false"
@@ -145,7 +145,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - loki_data:/loki
-      - ./loki/local-config.yaml:/etc/loki/local-config.yaml # Mount Loki configuration
+      - ./config/loki/local-config.yaml:/etc/loki/local-config.yaml # Mount Loki configuration
     networks:
       - monitoring-network
 
@@ -160,7 +160,7 @@ services:
       # Your config file needs access to the host log paths. Mount as read-only.
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       # Your Alloy config file
-      - ./alloy/alloy-config.alloy:/etc/alloy/config.alloy
+      - ./config/alloy/alloy-config.alloy:/etc/alloy/config.alloy
       # A persistent volume for Alloy's data (like log positions)
       - alloy_data:/data
     command:
@@ -179,7 +179,7 @@ services:
     user: root # Added this line to fix permission denied error
     command: [ "-config.file=/etc/tempo.yaml" ]
     volumes:
-      - ./tempo/tempo.yaml:/etc/tempo.yaml
+      - ./config/tempo/tempo.yaml:/etc/tempo.yaml
       - tempo_data:/data/tempo
     ports:
       - "14268:14268" # Jaeger gRPC

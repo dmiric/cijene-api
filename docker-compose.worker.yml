@@ -50,7 +50,7 @@ services:
       # Your config file needs access to the host log paths. Mount as read-only.
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       # Your Alloy config file
-      - ./vps_workers/alloy-config.alloy:/etc/alloy/config.alloy
+      - ./config/alloy/alloy-config.alloy:/etc/alloy/config.alloy
       # A persistent volume for Alloy's data (like log positions)
       - alloy_data:/data
     command:
