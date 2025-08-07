@@ -1,0 +1,24 @@
+version: '3'
+
+tasks:
+  push:
+    desc: 'Stages all changes and creates a git commit with a user-provided message'
+    cmds:
+      - |
+        # Prompt the user for a commit message
+        printf "Enter commit message: "
+        read COMMIT_MSG
+
+        # Check if the commit message is empty
+        if [ -z "$COMMIT_MSG" ]; then
+          echo "Commit message cannot be empty. Aborting."
+          exit 1
+        fi
+
+        # Stage all files and perform the commit
+        echo "Staging all changes..."
+        git add .
+        echo "Committing with message: '$COMMIT_MSG'"
+        git commit -m "$COMMIT_MSG"
+        echo "Commit successful."
+    silent: true

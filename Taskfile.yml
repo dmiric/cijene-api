@@ -25,6 +25,7 @@ includes:
   test: ./tasks/test.yml
   remote: ./tasks/remote.yml
   logs: ./tasks/logs.yml
+  git: ./tasks/git.yml
 
 tasks:
   default:
