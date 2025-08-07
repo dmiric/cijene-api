@@ -45,7 +45,6 @@ async def read_csv(file_path: Path) -> List[Dict[str, str]]:
         logger.error(f"Error reading {file_path}: {e}")
         return []
 
-
 async def process_stores(stores_path: Path, chain_id: int) -> dict[str, int]:
     """
     Process stores CSV and import to database.
@@ -183,7 +182,6 @@ async def process_products(
     chain_product_map = await db.get_chain_product_map(chain_id)
     return chain_product_map
 
-
 async def process_prices(
     price_date: date,
     prices_path: Path,
@@ -266,7 +264,6 @@ async def process_prices(
     logger.debug(f"Inserted {n_inserted} unique prices.")
     return n_inserted
 
-
 async def process_chain(
     price_date: date,
     chain_dir: Path,
@@ -332,7 +329,6 @@ async def process_chain(
         "n_products": len(chain_product_map),
         "n_prices": n_new_prices,
     }
-
 
 async def _import_single_chain_data(
     chain_name: str,
@@ -534,12 +530,14 @@ async def _import_single_chain_data(
                     try:
                         # Delete existing metrics for this job before pushing new ones
                         try:
-                            delete_from_gateway(pushgateway_url, job=job_name, timeout=10) # Added timeout
+                            # Run the blocking call in a separate thread
+                            await asyncio.to_thread(delete_from_gateway, pushgateway_url, job=job_name, timeout=10)
                             logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
                         except Exception as e:
                                 logger.warning(f"Could not clear existing metrics for job {job_name} from Pushgateway: {e}")
 
-                        push_to_gateway(pushgateway_url, job=job_name, registry=local_registry, timeout=10) # Added timeout
+                        # Run the blocking call in a separate thread
+                        await asyncio.to_thread(push_to_gateway, pushgateway_url, job=job_name, registry=local_registry, timeout=10)
                         logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
                     except Exception as e:
                         logger.error(f"Error pushing metrics to Pushgateway for chain {chain_name}: {e}", exc_info=True)
