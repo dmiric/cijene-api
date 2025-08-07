@@ -3,7 +3,7 @@ groups:
     - orgId: 1
       name: Evaluation group 3
       folder: Hetzner Worker
-      interval: 3m
+      interval: 1m
       rules:
         - uid: beu3v69uqje2oc
           title: Hetzner Worker Creation Failed
@@ -79,9 +79,9 @@ groups:
                 maxDataPoints: 43200
                 refId: C
                 type: threshold
-          noDataState: NoData
+          noDataState: OK
           execErrState: Error
-          for: 3m
+          for: 1m
           annotations:
             description: Hetzner Worker Creation Failed
             summary: Hetzner Worker Creation Failed

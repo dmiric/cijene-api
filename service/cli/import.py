@@ -13,7 +13,7 @@ from time import time
 import os
 from typing import Any, Dict, List, Optional
 
-from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway, delete_from_gateway
+from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway
 
 from service.config import get_settings
 from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
