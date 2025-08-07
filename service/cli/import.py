@@ -344,6 +344,7 @@ async def _import_single_chain_data(
     timeout: Optional[int] = None, # Added timeout parameter
     price_computation_lock: Optional[asyncio.Lock] = None, # New: Lock for serializing price computations
     prometheus_push_failed_event: Optional[asyncio.Event] = None, # New: Event to signal Prometheus push failure
+    args: Any = None, # Added args parameter
 ) -> None:
     """
     Imports data for a single chain and logs the import run.
@@ -622,7 +623,7 @@ async def main():
                 zip_ref.extractall(unzip_target_path)
 
             # Pass crawl_run_id as None since we are not using crawl runs from DB
-            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock, prometheus_push_failed_event)
+            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock, prometheus_push_failed_event, args)
             tasks_to_run.append(coro)
 
         # --- Execute all created tasks ---
@@ -652,5 +653,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-grafana/provisioning/alerting/alerting.yml
-grafana/provisioning/alerting/hetzner_worker_creation_failed_alert.yml
