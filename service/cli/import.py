@@ -586,35 +586,34 @@ async def main():
     temp_dirs = [] # Keep references to temp directories to prevent premature cleanup
 
     try:
-        logger.info("Automatic import mode: Checking for successful crawl runs not yet imported.")
-        successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
-        if not successful_crawl_runs:
-            logger.info("No new successful crawl runs found to import.")
+        # --- Automatic import from today's crawler_output directory ---
+        today_date = date.today()
+        price_date = datetime(today_date.year, today_date.month, today_date.day)
+        path_arg = Path(f"/app/crawler_output/{today_date.strftime('%Y-%m-%d')}")
+
+        if not path_arg.is_dir():
+            logger.warning(f"No directory found for today's date: {path_arg}. Skipping import.")
             return
 
-        for crawl_run in successful_crawl_runs:
-            chain_name = crawl_run["chain_name"]
-            crawl_date = crawl_run["crawl_date"]
+        logger.info(f"Automatic import mode for date: {price_date.date()} from path: {path_arg}")
+        zip_files = [f for f in path_arg.glob("*.zip")]
+        if not zip_files:
+            logger.warning(f"No zip files found in directory {path_arg}.")
+            return
+
+        for zip_file in zip_files:
+            chain_name = zip_file.stem
             
-            # Construct the path to the zip file based on the crawl_run data
-            # Assuming zip files are in /app/crawler_output/YYYY-MM-DD/chain_name.zip
-            # And the unzipped data will be in a temporary directory
-            price_date = datetime(crawl_date.year, crawl_date.month, crawl_date.day)
-            zip_file_path = Path(f"/app/crawler_output/{crawl_date.strftime('%Y-%m-%d')}/{chain_name}.zip")
-
-            if not zip_file_path.exists():
-                logger.warning(f"Zip file not found for chain {chain_name} on {crawl_date}: {zip_file_path}. Skipping.")
-                continue
-
             temp_dir = TemporaryDirectory(prefix=f"import_{chain_name}_")
             temp_dirs.append(temp_dir) # Keep object alive
             unzip_target_path = Path(temp_dir.name)
 
-            logger.debug(f"Extracting archive {zip_file_path} to {unzip_target_path}")
-            with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+            logger.debug(f"Extracting archive {zip_file} to {unzip_target_path}")
+            with zipfile.ZipFile(zip_file, "r") as zip_ref:
                 zip_ref.extractall(unzip_target_path)
 
-            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, crawl_run["id"], str(zip_file_path), semaphore, args.timeout, price_computation_lock)
+            # Pass crawl_run_id as None since we are not using crawl runs from DB
+            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock)
             tasks_to_run.append(coro)
 
         # --- Execute all created tasks ---
