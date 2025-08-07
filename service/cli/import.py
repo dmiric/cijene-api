@@ -528,14 +528,6 @@ async def _import_single_chain_data(
                 else:
                     job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
                     try:
-                        # Delete existing metrics for this job before pushing new ones
-                        try:
-                            # Run the blocking call in a separate thread
-                            await asyncio.to_thread(delete_from_gateway, pushgateway_url, job=job_name, timeout=10)
-                            logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
-                        except Exception as e:
-                                logger.warning(f"Could not clear existing metrics for job {job_name} from Pushgateway: {e}")
-
                         # Run the blocking call in a separate thread
                         await asyncio.to_thread(push_to_gateway, pushgateway_url, job=job_name, registry=local_registry, timeout=10)
                         logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
