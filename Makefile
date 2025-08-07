@@ -432,12 +432,6 @@ else
 endif
 
 ## SSH Commands
-hetzner-worker-ssh: ## SSH into the Hetzner worker VPS
-	@echo "Attempting to remove old host key for $(WORKER_PRIMARY_IP) from known_hosts..."
-	@ssh-keygen -f "/home/dmiric/.ssh/known_hosts" -R "$(WORKER_PRIMARY_IP)" || true
-	@echo "Connecting to Hetzner worker VPS..."
-	ssh -i $(SSH_KEY_PATH) root@$(WORKER_PRIMARY_IP)
-
 ssh-server: ## SSH into the VPS server
 	ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 $(SSH_USER)@$(SSH_IP)
 

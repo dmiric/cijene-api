@@ -50,3 +50,9 @@ tasks:
         -v "{{.SSH_KEY_PATH}}:/app/ssh_key:ro"
         -e SSH_KEY_PATH=/app/ssh_key
         hetzner-worker-image python hetzner_worker.py {{if .TEARDOWN | eq "false"}}--no-teardown{{end}}
+
+  hetzner-worker-ssh:
+    desc: 'SSH into the Hetzner worker VPS'
+    cmds:
+      - ssh-keygen -f "/home/dmiric/.ssh/known_hosts" -R "{{.WORKER_PRIMARY_IP}}" || true
+      - ssh -i {{.SSH_KEY_PATH}} root@{{.WORKER_PRIMARY_IP}}
