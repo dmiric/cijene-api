@@ -193,7 +193,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s # Increased start period just to be safe
     networks:
       - monitoring-network
 
@@ -204,7 +203,7 @@ volumes:
   db_backups:
   loki_data:
   tempo_data:
-    # New volume for Tempo
+
 
 networks:
   monitoring-network:
