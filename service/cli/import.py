@@ -343,6 +343,7 @@ async def _import_single_chain_data(
     semaphore: Optional[asyncio.Semaphore] = None, # Added semaphore parameter
     timeout: Optional[int] = None, # Added timeout parameter
     price_computation_lock: Optional[asyncio.Lock] = None, # New: Lock for serializing price computations
+    prometheus_push_failed_event: Optional[asyncio.Event] = None, # New: Event to signal Prometheus push failure
 ) -> None:
     """
     Imports data for a single chain and logs the import run.
@@ -469,76 +470,82 @@ async def _import_single_chain_data(
         )
         logger.info(f"Imported chain {chain_name} in {int(elapsed_time)} seconds with status {status.value}")
 
-        # Create a new registry for this push to ensure isolated metrics
-        local_registry = CollectorRegistry()
+        if args.metrics:
+            # Create a new registry for this push to ensure isolated metrics
+            local_registry = CollectorRegistry()
 
-        # Instantiate metrics with the local registry
-        imports_total = Counter(
-            'importer_imports_total',
-            'Total number of import runs initiated',
-            ['chain_name', 'status'],
-            registry=local_registry
-        )
-        import_errors_total = Counter(
-            'importer_import_errors_total',
-            'Total number of errors during import runs',
-            ['chain_name', 'error_type'],
-            registry=local_registry
-        )
-        import_duration_seconds = Summary(
-            'importer_import_duration_seconds',
-            'Time spent importing data for a chain',
-            ['chain_name', 'status'],
-            registry=local_registry
-        )
-        imported_stores_count = Gauge(
-            'importer_imported_stores_count',
-            'Number of stores imported in a run',
-            ['chain_name'],
-            registry=local_registry
-        )
-        imported_products_count = Gauge(
-            'importer_imported_products_count',
-            'Number of products imported in a run',
-            ['chain_name'],
-            registry=local_registry
-        )
-        imported_prices_count = Gauge(
-            'importer_imported_prices_count',
-            'Number of prices imported in a run',
-            ['chain_name'],
-            registry=local_registry
-        )
+            # Instantiate metrics with the local registry
+            imports_total = Counter(
+                'importer_imports_total',
+                'Total number of import runs initiated',
+                ['chain_name', 'status'],
+                registry=local_registry
+            )
+            import_errors_total = Counter(
+                'importer_import_errors_total',
+                'Total number of errors during import runs',
+                ['chain_name', 'error_type'],
+                registry=local_registry
+            )
+            import_duration_seconds = Summary(
+                'importer_import_duration_seconds',
+                'Time spent importing data for a chain',
+                ['chain_name', 'status'],
+                registry=local_registry
+            )
+            imported_stores_count = Gauge(
+                'importer_imported_stores_count',
+                'Number of stores imported in a run',
+                ['chain_name'],
+                registry=local_registry
+            )
+            imported_products_count = Gauge(
+                'importer_imported_products_count',
+                'Number of products imported in a run',
+                ['chain_name'],
+                registry=local_registry
+            )
+            imported_prices_count = Gauge(
+                'importer_imported_prices_count',
+                'Number of prices imported in a run',
+                ['chain_name'],
+                registry=local_registry
+            )
 
-        # Update Prometheus metrics using the local instances
-        imports_total.labels(chain_name=chain_name, status=status.value).inc()
-        import_duration_seconds.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
-        
-        logger.debug(f"Setting metrics for {chain_name}: stores={total_stores}, products={total_products}, prices={total_prices}")
-        imported_stores_count.labels(chain_name=chain_name).set(total_stores)
-        imported_products_count.labels(chain_name=chain_name).set(total_products)
-        imported_prices_count.labels(chain_name=chain_name).set(total_prices)
-        if status == ImportStatus.FAILED:
-            import_errors_total.labels(chain_name=chain_name, error_type="import_failed").inc()
+            # Update Prometheus metrics using the local instances
+            imports_total.labels(chain_name=chain_name, status=status.value).inc()
+            import_duration_seconds.labels(chain_name=chain_name, status=status.value).observe(elapsed_time)
+            
+            logger.debug(f"Setting metrics for {chain_name}: stores={total_stores}, products={total_products}, prices={total_prices}")
+            imported_stores_count.labels(chain_name=chain_name).set(total_stores)
+            imported_products_count.labels(chain_name=chain_name).set(total_products)
+            imported_prices_count.labels(chain_name=chain_name).set(total_prices)
+            if status == ImportStatus.FAILED:
+                import_errors_total.labels(chain_name=chain_name, error_type="import_failed").inc()
 
-        # Push metrics to Pushgateway using the local registry
-        try:
+            # Push metrics to Pushgateway using the local registry
             pushgateway_url = os.getenv("PROMETHEUS_PUSHGATEWAY_URL")
             if pushgateway_url:
-                job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
-                # Delete existing metrics for this job before pushing new ones
-                try:
-                    delete_from_gateway(pushgateway_url, job=job_name)
-                    logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
-                except Exception as e:
-                    logger.warning(f"Could not clear existing metrics for job {job_name} from Pushgateway: {e}")
+                if prometheus_push_failed_event and prometheus_push_failed_event.is_set():
+                    logger.warning(f"Skipping Prometheus push for chain {chain_name} as a previous push failed.")
+                else:
+                    job_name = f"importer_{chain_name}_{price_date.strftime('%Y%m%d')}"
+                    try:
+                        # Delete existing metrics for this job before pushing new ones
+                        try:
+                            delete_from_gateway(pushgateway_url, job=job_name, timeout=10) # Added timeout
+                            logger.debug(f"Cleared existing metrics for job {job_name} from Pushgateway.")
+                        except Exception as e:
+                                logger.warning(f"Could not clear existing metrics for job {job_name} from Pushgateway: {e}")
 
-                push_to_gateway(pushgateway_url, job=job_name, registry=local_registry)
-                logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
+                        push_to_gateway(pushgateway_url, job=job_name, registry=local_registry, timeout=10) # Added timeout
+                        logger.info(f"Metrics pushed to Pushgateway for chain {chain_name}.")
+                    except Exception as e:
+                        logger.error(f"Error pushing metrics to Pushgateway for chain {chain_name}: {e}", exc_info=True)
+                        if prometheus_push_failed_event:
+                            prometheus_push_failed_event.set() # Signal that a push failed
             else:
                 logger.warning("PROMETHEUS_PUSHGATEWAY_URL not set, skipping pushing metrics to Pushgateway.")
-        except Exception as e:
-            logger.error(f"Error pushing metrics to Pushgateway for chain {chain_name}: {e}", exc_info=True)
 
         # Delete the unzipped directory if it was created by this process
         if chain_data_path.is_dir() and chain_data_path.name == chain_name: # Ensure it's an unzipped directory, not the original source
@@ -560,6 +567,7 @@ async def main():
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--concurrency", type=int, default=5, help="Number of concurrent chain imports")
     parser.add_argument("--timeout", type=int, default=600, help="Timeout in seconds for each individual chain import")
+    parser.add_argument("--metrics", action="store_true", help="If present, gather Prometeus metrics")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -582,6 +590,7 @@ async def main():
     # --- Setup Concurrency Tools ---
     semaphore = asyncio.Semaphore(args.concurrency)
     price_computation_lock = asyncio.Lock()
+    prometheus_push_failed_event = asyncio.Event() # Initialize the shared event
     tasks_to_run = []
     temp_dirs = [] # Keep references to temp directories to prevent premature cleanup
 
@@ -613,7 +622,7 @@ async def main():
                 zip_ref.extractall(unzip_target_path)
 
             # Pass crawl_run_id as None since we are not using crawl runs from DB
-            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock)
+            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock, prometheus_push_failed_event)
             tasks_to_run.append(coro)
 
         # --- Execute all created tasks ---
@@ -643,3 +652,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+grafana/provisioning/alerting/alerting.yml
+grafana/provisioning/alerting/hetzner_worker_creation_failed_alert.yml
