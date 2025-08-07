@@ -557,12 +557,6 @@ async def main():
         description=main.__doc__,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument(
-        "path",
-        type=Path,
-        nargs="?",
-        help="Directory containing price data zips (YYYY-MM-DD format). If not provided, runs in automatic mode.",
-    )
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--concurrency", type=int, default=5, help="Number of concurrent chain imports")
     parser.add_argument("--timeout", type=int, default=600, help="Timeout in seconds for each individual chain import")
@@ -592,63 +586,36 @@ async def main():
     temp_dirs = [] # Keep references to temp directories to prevent premature cleanup
 
     try:
-        # --- MODE 1: Manual import from a given path ---
-        if args.path:
-            path_arg = args.path
-            if not path_arg.is_dir():
-                logger.error(f"Provided path `{path_arg}` is not a directory.")
-                return
+        logger.info("Automatic import mode: Checking for successful crawl runs not yet imported.")
+        successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
+        if not successful_crawl_runs:
+            logger.info("No new successful crawl runs found to import.")
+            return
 
-            try:
-                price_date = datetime.strptime(path_arg.name, "%Y-%m-%d")
-            except ValueError:
-                logger.error(f"Directory `{path_arg.name}` is not a valid date in YYYY-MM-DD format.")
-                return
+        for crawl_run in successful_crawl_runs:
+            chain_name = crawl_run["chain_name"]
+            crawl_date = crawl_run["crawl_date"]
+            
+            # Construct the path to the zip file based on the crawl_run data
+            # Assuming zip files are in /app/crawler_output/YYYY-MM-DD/chain_name.zip
+            # And the unzipped data will be in a temporary directory
+            price_date = datetime(crawl_date.year, crawl_date.month, crawl_date.day)
+            zip_file_path = Path(f"/app/crawler_output/{crawl_date.strftime('%Y-%m-%d')}/{chain_name}.zip")
 
-            logger.info(f"Manual import mode for date: {price_date.date()} from path: {path_arg}")
-            zip_files = [f for f in path_arg.glob("*.zip")]
-            if not zip_files:
-                logger.warning(f"No zip files found in directory {path_arg}.")
-                return
+            if not zip_file_path.exists():
+                logger.warning(f"Zip file not found for chain {chain_name} on {crawl_date}: {zip_file_path}. Skipping.")
+                continue
 
-            for zip_file in zip_files:
-                chain_name = zip_file.stem
-                
-                # BUG FIX 2: Correctly handle TemporaryDirectory
-                temp_dir = TemporaryDirectory(prefix=f"import_{chain_name}_")
-                temp_dirs.append(temp_dir) # Keep object alive
-                unzip_target_path = Path(temp_dir.name)
+            temp_dir = TemporaryDirectory(prefix=f"import_{chain_name}_")
+            temp_dirs.append(temp_dir) # Keep object alive
+            unzip_target_path = Path(temp_dir.name)
 
-                logger.debug(f"Extracting archive {zip_file} to {unzip_target_path}")
-                with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                    zip_ref.extractall(unzip_target_path)
+            logger.debug(f"Extracting archive {zip_file_path} to {unzip_target_path}")
+            with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+                zip_ref.extractall(unzip_target_path)
 
-                # BUG FIX 1: Correctly append the task INSIDE the loop
-                coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, None, str(zip_file), semaphore, args.timeout, price_computation_lock)
-                tasks_to_run.append(coro)
-
-        # --- MODE 2: Automatic import for successful crawls ---
-        else:
-            logger.info("Automatic import mode: Checking for successful crawl runs not yet imported.")
-            successful_crawl_runs = await db.import_runs.get_successful_crawl_runs_not_imported()
-            if not successful_crawl_runs:
-                logger.info("No new successful crawl runs found to import.")
-                return
-
-            for crawl_run in successful_crawl_runs:
-                # ... (Logic for automatic mode is similar, ensure it also handles temp dirs correctly) ...
-                # ... This part of your code seems correct, just apply the same temp_dir pattern ...
-                chain_name = crawl_run["chain_name"]
-                crawl_date = crawl_run["crawl_date"]
-
-                temp_dir = TemporaryDirectory(prefix=f"import_{chain_name}_")
-                temp_dirs.append(temp_dir)
-                unzip_target_path = Path(temp_dir.name)
-                # ... extract zip ...
-                
-                coro = _import_single_chain_data(...) # create the coroutine
-                tasks_to_run.append(coro)
-
+            coro = _import_single_chain_data(chain_name, unzip_target_path, price_date, crawl_run["id"], str(zip_file_path), semaphore, args.timeout, price_computation_lock)
+            tasks_to_run.append(coro)
 
         # --- Execute all created tasks ---
         if tasks_to_run:
