@@ -20,5 +20,7 @@ tasks:
         git add .
         echo "Committing with message: '$COMMIT_MSG'"
         git commit -m "$COMMIT_MSG"
+        echo "Git Push"
+        git push
         echo "Commit successful."
     silent: true
