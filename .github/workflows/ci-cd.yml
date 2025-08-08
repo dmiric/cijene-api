@@ -115,11 +115,11 @@ jobs:
           
           # Golden Record Orchestrator (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'golden-record') | crontab -
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record --log-driver=loki --log-opt loki-url=\"http://127.0.0.1:3100/loki/api/v1/push\" --log-opt loki-external-labels=\"container=golden-record,job=worker\" api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
           
           # Price Calculation (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'calc-prices') | crontab -
-          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices --log-driver=loki --log-opt loki-url=\"http://127.0.0.1:3100/loki/api/v1/push\" --log-opt loki-external-labels=\"container=calc-prices,job=worker\" api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
           
           echo "All cron jobs configured."
 

@@ -20,125 +20,120 @@ from service.main import configure_logging # Import configure_logging
 
 def process_prices_batch(start_id: int, limit: int) -> None:
     """
-    Processes a batch of products from g_products based on product_id range,
-    calculates unit prices, and loads them into g_prices.
+    Processes unprocessed rows from prices, calculates unit prices,
+    inserts into g_prices, and marks them as processed.
     """
     conn: Optional[PgConnection] = None
     try:
         conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # 1. Fetch unprocessed prices that have a linked g_product
+            cur.execute("""
+                SELECT
+                    gp.id AS g_product_id,
+                    gp.base_unit_type,
+                    gp.variants,
+                    cp.id AS chain_product_id,
+                    pz.store_id,
+                    pz.price_date,
+                    pz.regular_price,
+                    pz.special_price
+                FROM
+                    prices pz
+                JOIN chain_products cp ON pz.chain_product_id = cp.id
+                JOIN products pr ON cp.product_id = pr.id
+                JOIN g_products gp ON pr.ean = gp.ean
+                WHERE
+                    pz.processed = FALSE
+                    AND pz.chain_product_id >= %s
+                    AND pz.chain_product_id < %s + %s
+                ORDER BY
+                    gp.id, pz.price_date;
+            """, (start_id, start_id, limit))
 
-        # 1. Extract: Query g_products for products within the ID range
-        # and then fetch their associated chain_product prices.
-        # We need to ensure we only process products that have a golden record
-        # and whose prices haven't been processed into g_prices yet for the latest date.
-        # This is a simplified check; a more robust solution might involve a flag
-        # on g_products or checking the latest price date in g_prices.
-        # For now, we'll assume we process all products in the range that have a golden record.
-        cur.execute("""
-            SELECT
-                gp.id AS g_product_id,
-                gp.base_unit_type,
-                gp.variants,
-                ARRAY_AGG(cp.id) AS chain_product_ids
-            FROM
-                g_products gp
-            JOIN
-                products p ON gp.ean = p.ean
-            JOIN
-                chain_products cp ON p.id = cp.product_id
-            WHERE
-                gp.id >= %s AND gp.id < %s + %s
-            GROUP BY
-                gp.id, gp.base_unit_type, gp.variants
-            ORDER BY
-                gp.id;
-        """, (start_id, start_id, limit))
-        products_to_process = cur.fetchall()
+            rows_to_process = cur.fetchall()
 
-        if not products_to_process:
-            log.info("No golden products found for product_id range for price calculation. Exiting.", start_id=start_id, limit=limit)
-            return
+            if not rows_to_process:
+                log.info("No unprocessed prices found in range.", start_id=start_id, limit=limit)
+                return
 
-        log.info("Processing prices for golden products in product_id range",
-                 num_products=len(products_to_process), start_id=start_id, limit=limit)
+            log.info("Processing unprocessed prices", count=len(rows_to_process), start_id=start_id, limit=limit)
 
-        for record in products_to_process:
-            g_product_id = record['g_product_id']
-            base_unit_type = record['base_unit_type']
-            variants = record['variants'] if record['variants'] else []
-            chain_product_ids = record['chain_product_ids']
+            for record in rows_to_process:
+                current_price = (
+                    record['special_price']
+                    if record['special_price'] is not None
+                    else record['regular_price']
+                )
+                if current_price is None:
+                    continue  # Skip if no price
 
-            with conn.cursor(cursor_factory=RealDictCursor) as product_cur:
                 try:
-                    # Fetch all raw price data for the EAN from legacy tables
-                    product_cur.execute("""
-                        SELECT
-                            p.store_id,
-                            p.price_date,
-                            p.regular_price,
-                            p.special_price
-                        FROM
-                            prices p
-                        WHERE
-                            p.chain_product_id = ANY(%s)
-                    """, (chain_product_ids,))
-                    raw_prices = product_cur.fetchall()
+                    # Calculate unit prices
+                    calculated = calculate_unit_prices(
+                        price=current_price,
+                        base_unit_type=record['base_unit_type'],
+                        variants=record['variants'] or []
+                    )
 
-                    for price_entry in raw_prices:
-                        # Use special_price if available, otherwise regular_price
-                        current_price = price_entry['special_price'] if price_entry['special_price'] is not None else price_entry['regular_price']
-                        
-                        if current_price is None:
-                            continue # Skip entries with no price at all
-
-                        # Calculate unit prices for the current price entry using the new, robust function
-                        calculated_unit_prices = calculate_unit_prices(
-                            price=current_price,
-                            base_unit_type=base_unit_type,
-                            variants=variants
+                    # Insert or update in g_prices
+                    cur.execute("""
+                        INSERT INTO g_prices (
+                            product_id, store_id, price_date,
+                            regular_price, special_price,
+                            price_per_kg, price_per_l, price_per_piece,
+                            is_on_special_offer
                         )
-                        price_per_kg = calculated_unit_prices['price_per_kg']
-                        price_per_l = calculated_unit_prices['price_per_l']
-                        price_per_piece = calculated_unit_prices['price_per_piece']
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
+                            regular_price = EXCLUDED.regular_price,
+                            special_price = EXCLUDED.special_price,
+                            price_per_kg = EXCLUDED.price_per_kg,
+                            price_per_l = EXCLUDED.price_per_l,
+                            price_per_piece = EXCLUDED.price_per_piece,
+                            is_on_special_offer = EXCLUDED.is_on_special_offer;
+                    """, (
+                        record['g_product_id'],
+                        record['store_id'],
+                        record['price_date'],
+                        record['regular_price'],
+                        record['special_price'],
+                        calculated['price_per_kg'],
+                        calculated['price_per_l'],
+                        calculated['price_per_piece'],
+                        record['special_price'] is not None
+                    ))
 
-                        # Insert the full price data, including the CORRECTLY calculated unit prices, into g_prices
-                        product_cur.execute("""
-                            INSERT INTO g_prices (
-                                product_id, store_id, price_date, regular_price,
-                                special_price, price_per_kg, price_per_l, price_per_piece,
-                                is_on_special_offer
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
-                                regular_price = EXCLUDED.regular_price,
-                                special_price = EXCLUDED.special_price,
-                                price_per_kg = EXCLUDED.price_per_kg,
-                                price_per_l = EXCLUDED.price_per_l,
-                                price_per_piece = EXCLUDED.price_per_piece,
-                                is_on_special_offer = EXCLUDED.is_on_special_offer;
-                        """, (
-                            g_product_id,
-                            price_entry['store_id'],
-                            price_entry['price_date'],
-                            price_entry['regular_price'],
-                            price_entry['special_price'],
-                            price_per_kg,
-                            price_per_l,
-                            price_per_piece,
-                            price_entry['special_price'] is not None
-                        ))
-                    conn.commit()
-                    log.info("Successfully processed prices for g_product_id.", g_product_id=g_product_id)
+                    # Mark original price row as processed
+                    cur.execute("""
+                        UPDATE prices
+                        SET processed = TRUE
+                        WHERE chain_product_id = %s
+                          AND store_id = %s
+                          AND price_date = %s
+                    """, (
+                        record['chain_product_id'],
+                        record['store_id'],
+                        record['price_date']
+                    ))
+
                 except Exception as e:
-                    conn.rollback()
-                    log.error("Error processing prices for g_product_id. Transaction rolled back.", g_product_id=g_product_id, error=str(e))
-                    continue # Continue to the next product even if one fails
+                    log.error("Error processing price row, skipping.",
+                              chain_product_id=record['chain_product_id'],
+                              store_id=record['store_id'],
+                              price_date=str(record['price_date']),
+                              error=str(e))
+                    continue
+
+            conn.commit()
+            log.info("Batch processing complete.", processed_count=len(rows_to_process))
 
     except Exception as e:
-        log.error("An error occurred during the main price calculation loop", error=str(e))
+        log.error("Fatal error in price processing batch.", error=str(e))
     finally:
         if conn:
             conn.close()
+
 
 if __name__ == "__main__":
     configure_logging() # Configure logging at the start of the script
