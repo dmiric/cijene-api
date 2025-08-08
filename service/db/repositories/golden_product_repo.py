@@ -375,11 +375,13 @@ class GoldenProductRepository(BaseRepository):
                 p.price_per_kg,
                 p.price_per_l,
                 p.price_per_piece,
+                p.is_on_special_offer, # Include is_on_special_offer
             )
             for p in g_prices
         ]
-        async with self._get_conn() as conn:
-            # Copy records to a temporary table
+
+        async with self._atomic() as conn: # Use atomic transaction to ensure single connection
+            # Create a temporary table
             await conn.execute("""
                 CREATE TEMPORARY TABLE temp_g_prices (
                     product_id BIGINT,
