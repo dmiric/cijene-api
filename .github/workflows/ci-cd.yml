@@ -108,14 +108,14 @@ jobs:
           echo "--> Configuring cron jobs..."
           # Hetzner Worker (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
-          (crontab -l 2>/dev/null; echo "0 6-11 * * *  cd /home/dmiric/pricemice && source .env && docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker . && docker run --rm --name hetzner-worker-container --network="host" -v "$(pwd)/.env:/app/.env:ro" -v "${SSH_KEY_PATH}:/app/ssh_key:ro" -e SSH_KEY_PATH=/app/ssh_key hetzner-worker-image python hetzner_worker.py") | crontab -
+          (crontab -l 2>/dev/null; echo "0 6-11 * * *  cd /home/dmiric/pricemice && source .env && docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker . && docker run --rm --name hetzner-worker --network="host" -v "$(pwd)/.env:/app/.env:ro" -v "${SSH_KEY_PATH}:/app/ssh_key:ro" -e SSH_KEY_PATH=/app/ssh_key hetzner-worker-image python hetzner_worker.py") | crontab -
           
           # Golden Record Orchestrator (New - Docker manages logs)
-          (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
+          (crontab -l 2>/dev/null | grep -v 'golden-record') | crontab -
           (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
           
           # Price Calculation (New - Docker manages logs)
-          (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
+          (crontab -l 2>/dev/null | grep -v 'price-calc') | crontab -
           (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices --env api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
           
           echo "All cron jobs configured."
