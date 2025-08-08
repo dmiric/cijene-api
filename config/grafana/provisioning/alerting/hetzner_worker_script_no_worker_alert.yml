@@ -44,7 +44,7 @@ groups:
                 datasource:
                     type: __expr__
                     uid: __expr__
-                expression: '(hour() >= 6 && hour() <= 11) && minute() < 5'
+                expression: '(hour(now()) >= 6 && hour(now()) < 12) && minute(now()) < 5'
                 intervalMs: 1000
                 maxDataPoints: 43200
                 refId: C
