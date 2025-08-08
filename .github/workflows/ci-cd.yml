@@ -112,11 +112,11 @@ jobs:
           
           # Golden Record Orchestrator (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'golden-record-orchestrator') | crontab -
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-golden-record-1 api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
           
           # Price Calculation (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'price-calculation') | crontab -
-          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name pricemice-calc-prices-1 --env api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices --env api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 10000") | crontab -
           
           echo "All cron jobs configured."
 

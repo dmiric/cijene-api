@@ -15,7 +15,7 @@ discovery.relabel "filtered_containers" {
 
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/(worker-alloy-1)"
+    regex         = "/(worker-alloy)"
     action        = "drop"
   }
   rule {
@@ -26,7 +26,7 @@ discovery.relabel "filtered_containers" {
   }
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/(worker-api-1)"
+    regex         = "/(worker-api)"
     target_label  = "job"
     replacement   = "$1"
   }
@@ -58,7 +58,7 @@ loki.relabel "api_filter" {
   forward_to = [loki.process.api_pipeline.receiver]
   rule {
     source_labels = ["job"]
-    regex         = "worker-api-1"
+    regex         = "worker-api"
     action        = "keep"
   }
 }
@@ -67,7 +67,7 @@ loki.relabel "default_filter" {
   forward_to = [loki.process.default_pipeline.receiver]
   rule {
     source_labels = ["job"]
-    regex         = "worker-api-1"
+    regex         = "worker-api"
     action        = "drop"
   }
 }
@@ -76,7 +76,7 @@ loki.relabel "default_filter" {
 // LOG PROCESSING PIPELINES
 // -----------------------------------------------------------------------------
 
-// Pipeline 1: For the 'pricemice-api-1' container ONLY
+// Pipeline 1: For the 'api' container ONLY
 // This is the simple, correct, and resilient way to build the pipeline.
 loki.process "api_pipeline" {
   forward_to = [loki.write.default.receiver]

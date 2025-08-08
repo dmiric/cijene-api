@@ -19,7 +19,7 @@ services:
         max-file: "5"
 
   crawler:
-    container_name: pricemice-crawler-1
+    container_name: crawler
     build:
       context: .
       dockerfile: Dockerfile
@@ -56,7 +56,7 @@ services:
     # This command is still essential to fix the pgpass file permissions.
 
   mailhog:
-    container_name: pricemice-mailhog-1
+    container_name: mailhog
     # Add MailHog service
     image: mailhog/mailhog
     logging:

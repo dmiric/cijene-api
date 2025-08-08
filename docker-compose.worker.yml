@@ -1,6 +1,6 @@
 services:
   api:
-    container_name: worker-api-1
+    container_name: worker-api
     build:
       context: .
       dockerfile: Dockerfile
@@ -18,7 +18,7 @@ services:
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000 --reload" ] # Add --reload for development
 
   crawler:
-    container_name: worker-crawler-1
+    container_name: worker-crawler
     build:
       context: .
       dockerfile: Dockerfile
@@ -40,7 +40,7 @@ services:
     command: [ "tail", "-f", "/dev/null" ]
 
   alloy:
-    container_name: worker-alloy-1
+    container_name: worker-alloy
     # THIS IS THE CRITICAL LINE THAT MUST BE CORRECT
     image: grafana/alloy:v1.1.0
     restart: unless-stopped

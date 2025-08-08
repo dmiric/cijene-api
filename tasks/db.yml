@@ -10,10 +10,10 @@ tasks:
   dump-tables:
     desc: 'Dump specified tables to local ./backups/ directory'
     cmds:
-      - docker exec pricemice-backup-1 find /backups -type f -delete
-      - docker exec pricemice-backup-1 /scripts/backup_tables.sh
+      - docker exec backup find /backups -type f -delete
+      - docker exec backup /scripts/backup_tables.sh
       - mkdir -p backups
-      - docker cp pricemice-backup-1:/backups/. ./backups/
+      - docker cp backup:/backups/. ./backups/
 
   dump:
     desc: 'Dump the entire database to a local backup file'
@@ -27,7 +27,7 @@ tasks:
       - docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backup bash /scripts/dump_database.sh {{.TIMESTAMP}}
       - mkdir -p backups
       - echo "Copying dump file to local backups/..."
-      - docker cp pricemice-backup-1:/tmp/full_db_{{.TIMESTAMP}}.sql.gz ./backups/full_db_{{.TIMESTAMP}}.sql.gz
+      - docker cp backup:/tmp/full_db_{{.TIMESTAMP}}.sql.gz ./backups/full_db_{{.TIMESTAMP}}.sql.gz
 
   restore:
     desc: 'Restore database from a backup. Usage: task db:restore -- [TIMESTAMP=...]'

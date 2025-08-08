@@ -1,6 +1,6 @@
 services:
   db:
-    container_name: pricemice-db-1
+    container_name: db
     build:
       context: .
       dockerfile: Dockerfile.postgres
@@ -23,7 +23,7 @@ services:
       - monitoring-network
 
   api:
-    container_name: pricemice-api-1
+    container_name: api
     build:
       context: .
       dockerfile: Dockerfile
@@ -50,7 +50,7 @@ services:
       - monitoring-network
 
   pgadmin:
-    container_name: pricemice-pgadmin-1
+    container_name: pgadmin
     image: dpage/pgadmin4
     env_file:
       - ./.env
@@ -73,7 +73,7 @@ services:
       - monitoring-network
 
   backup:
-    container_name: pricemice-backup-1
+    container_name: backup
     image: postgis/postgis:16-3.4
     env_file:
       - ./.env
@@ -89,7 +89,7 @@ services:
 
   pushgateway:
     # Added Pushgateway service
-    container_name: pricemice-pushgateway-1
+    container_name: pushgateway
     image: prom/pushgateway:v1.11.1
     ports:
       - "9091:9091"
@@ -99,7 +99,7 @@ services:
       - monitoring-network
 
   prometheus:
-    container_name: pricemice-prometheus-1
+    container_name: prometheus
     image: prom/prometheus:v3.5.0
     ports:
       - "9090:9090"
@@ -115,7 +115,7 @@ services:
       - monitoring-network
 
   grafana:
-    container_name: pricemice-grafana-1
+    container_name: grafana
     image: grafana/grafana:12.2.0-16711121739
     ports:
       - "127.0.0.1:3000:3000"
@@ -137,7 +137,7 @@ services:
       - monitoring-network
 
   loki:
-    container_name: pricemice-loki-1
+    container_name: loki
     image: grafana/loki:k266-ec53492
     user: root # Added this line
     ports:
@@ -150,7 +150,7 @@ services:
       - monitoring-network
 
   alloy:
-    container_name: pricemice-alloy-1
+    container_name: alloy
     # THIS IS THE CRITICAL LINE THAT MUST BE CORRECT
     image: grafana/alloy:v1.1.0
     restart: unless-stopped
@@ -174,7 +174,7 @@ services:
       - monitoring-network
 
   tempo:
-    container_name: pricemice-tempo-1
+    container_name: tempo
     image: grafana/tempo:2.8.1
     user: root # Added this line to fix permission denied error
     command: [ "-config.file=/etc/tempo.yaml" ]

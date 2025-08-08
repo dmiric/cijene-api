@@ -154,7 +154,7 @@
                     },
                     "direction": "backward",
                     "editorMode": "code",
-                    "expr": "sum by (level) (\r\n  count_over_time(\r\n    {job=\"pricemice-api-1\"} | json | __error__=\"\" | level != \"\" [$__interval]\r\n  )\r\n)",
+                    "expr": "sum by (level) (\r\n  count_over_time(\r\n    {job=\"api\"} | json | __error__=\"\" | level != \"\" [$__interval]\r\n  )\r\n)",
                     "legendFormat": "{{level}}",
                     "queryType": "range",
                     "refId": "A"

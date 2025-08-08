@@ -20,7 +20,7 @@ services:
     command: [ "sh", "-c", "python -m uvicorn service.main:app --host 0.0.0.0 --port 8000" ]
 
   node_exporter:
-    container_name: pricemice-node-exporter-1
+    container_name: node-exporter
     image: prom/node-exporter:v1.9.1
     ports:
       - "9100:9100"
