@@ -18,7 +18,7 @@ tasks:
         # Stage all files and perform the commit
         echo "Staging all changes..."
         git add .
-        echo "Committing with message: '$COMMIT_MSG'"
+        echo "Committing with message: '$COMMIT_MSG' [skip ci]"
         git commit -m "$COMMIT_MSG [skip ci]"
         echo "Git Push"
         git push
