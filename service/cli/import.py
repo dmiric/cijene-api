@@ -402,7 +402,7 @@ async def process_chain(
     return {
         "n_stores": len(store_map),
         "n_products": len(chain_product_map),
-        "n_prices": n_new_prices + n_new_g_prices, # Sum of both price types
+        "n_prices": int(n_new_prices) + int(n_new_g_prices), # Sum of both price types, ensuring they are integers
     }
 
 async def _import_single_chain_data(
