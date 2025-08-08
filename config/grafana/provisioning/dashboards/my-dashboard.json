@@ -377,7 +377,7 @@
                 "enableLogDetails": true,
                 "prettifyLogMessage": true,
                 "showCommonLabels": false,
-                "showLabels": true,
+                "showLabels": false,
                 "showTime": false,
                 "sortOrder": "Descending",
                 "wrapLogMessage": true
