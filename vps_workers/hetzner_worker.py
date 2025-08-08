@@ -32,7 +32,7 @@ SERVER_TYPE = "cpx31"
 IMAGE_NAME = "docker-ce"
 LOCATION = "fsn1"
 PROJECT_DIR_ON_VPS = "/opt/cijene-api"
-SSH_KEY_NAME = "worker-key" # The name of your SSH key in Hetzner Console
+SSH_KEY_NAME = "pricemice-worker-key" # The name of your SSH key in Hetzner Console
 
 # ==============================================================================
 # --- HELPER & API FUNCTIONS ---
