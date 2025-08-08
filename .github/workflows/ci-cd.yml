@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.vscode/**'
+      - '.clinerules/**'
 
 # Use environment variables to keep image names consistent and DRY
 env:
