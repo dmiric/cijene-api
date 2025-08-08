@@ -134,9 +134,12 @@ def process_prices_batch(start_id: int, limit: int) -> None:
                 execute_values(
                     cur,
                     """
-                    UPDATE prices
+                    UPDATE prices AS p
                     SET processed = TRUE
-                    WHERE (chain_product_id, store_id, price_date) IN %s;
+                    FROM (VALUES %s) AS t(chain_product_id, store_id, price_date)
+                    WHERE p.chain_product_id = t.chain_product_id
+                      AND p.store_id = t.store_id
+                      AND p.price_date = t.price_date;
                     """,
                     prices_to_mark_processed
                 )
