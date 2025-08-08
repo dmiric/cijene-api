@@ -45,8 +45,14 @@ $BACKUP_FILE_IN_CONTAINER = "${BACKUP_DIR}/full_db_${TIMESTAMP}.sql.gz"
 
 Write-Host "Starting full database restore from $BACKUP_FILE_IN_CONTAINER..."
 
+Write-Host "Dropping existing database '$DB_NAME' if it exists..."
+docker compose exec -T --env "PGPASSWORD=$PGPassword" db psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c "DROP DATABASE IF EXISTS $DB_NAME WITH (FORCE);"
+
+Write-Host "Creating new database '$DB_NAME'..."
+docker compose exec -T --env "PGPASSWORD=$PGPassword" db psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
+
 # Decompress and restore the database using a cleaner, more robust command.
 # We use `docker compose exec --env` to pass the password securely without quoting issues.
-docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | docker compose exec -T --env "PGPASSWORD=$PGPassword" db pg_restore --username "$DB_USER" --dbname "$DB_NAME" --host "$DB_HOST" --port "$DB_PORT"
+docker compose exec backup gzip -dc "$BACKUP_FILE_IN_CONTAINER" | docker compose exec -T --env "PGPASSWORD=$PGPassword" db pg_restore --username "$DB_USER" --dbname "$DB_NAME" --host "$DB_HOST" --port "$DB_PORT" --no-owner --no-privileges
 
 Write-Host "Full database restore completed successfully."

@@ -24,6 +24,7 @@ class CrawlResult:
     n_stores: int = 0
     n_products: int = 0
     n_prices: int = 0
+    n_g_prices: int = 0 # Add this line
 
 async def get_g_products_map() -> Dict[str, Dict[str, Any]]:
     """
@@ -190,7 +191,7 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
         # Explicitly raise an error if no stores/products were retrieved
         raise ValueError(f"No stores or products retrieved for {chain} on {date}")
 
-    save_chain(temp_chain_path, stores, g_products_map)
+    store_list, product_list, price_list, g_price_list = save_chain(temp_chain_path, stores, g_products_map, date) # save_chain now returns the lists
     t1 = time()
 
     all_products = set()
@@ -202,7 +203,8 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
         elapsed_time=t1 - t0,
         n_stores=len(stores),
         n_products=len(all_products),
-        n_prices=sum(len(store.items) for store in stores),
+        n_prices=len(price_list), # Use length of price_list
+        n_g_prices=len(g_price_list), # Add n_g_prices
     )
 
     # Create chain-specific zip file
@@ -331,7 +333,7 @@ async def crawl(
     logger.info(f"Finished processing all chains for {date:%Y-%m-%d} in {t1 - t0:.2f}s")
     for chain, r in results.items():
         logger.info(
-            f"  * {chain}: {r.n_stores} stores, {r.n_products} products, {r.n_prices} prices in {r.elapsed_time:.2f}s"
+            f"  * {chain}: {r.n_stores} stores, {r.n_products} products, {r.n_prices} prices, {r.n_g_prices} g_prices in {r.elapsed_time:.2f}s"
         )
 
     if os.path.exists(temp_base_path):

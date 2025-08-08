@@ -9,7 +9,7 @@ vars:
   COMPOSE_FILES_PROD: '-f docker-compose.yml -f docker-compose.prod.yml'
   COMPOSE_FILES_WORKER: '-f docker-compose.worker.yml'
   # The logic now depends on the ENVIRONMENT variable, not the OS.
-  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOdocSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
+  COMPOSE_FILES: '{{ if eq .ENVIRONMENT "local" }}{{ .COMPOSE_FILES_LOCAL }}{{ else }}{{ .COMPOSE_FILES_PROD }}{{ end }}'
 
 tasks:
   all:
@@ -17,7 +17,7 @@ tasks:
     cmds:
       - mkdir -p logs && > {{.DOCKER_BUILD_LOG_FILE}}
       - >
-        docker compose {{.COMPOSE_FILES}} up -d --build --force-recreate
+        docker compose {{.COMPOSE_FILES}} up -d --build --quiet-pull
       - echo "Docker containers rebuilt. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
       - docker compose ps
 
@@ -48,6 +48,15 @@ tasks:
       - echo "Pruning Docker system. This is an interactive command."
       - docker system prune -a --volumes
 
+  all-with-volumes:
+    desc: 'Rebuild and restart all Docker containers, removing volumes (logs to {{.DOCKER_BUILD_LOG_FILE}})'
+    cmds:
+      - echo "Stopping all running project containers and removing volumes..."
+      - docker compose {{.COMPOSE_FILES}} down -v
+      - docker compose {{.COMPOSE_FILES}} up -d --build
+      - echo "Docker containers rebuilt with volumes removed. Check {{.DOCKER_BUILD_LOG_FILE}} for details."
+      - docker compose ps
+
   # --- Development Lifecycle Tasks ---
   dev-csv-start:
     desc: 'Fast fresh start for dev, using CSV backups.'
@@ -68,14 +77,14 @@ tasks:
   dev-fresh-start:
     desc: 'Fast fresh start for dev, using last DB dump.'
     deps:
-      - task: docker:rebuild-everything
-      - task: db:restore
+      - task: all-with-volumes
     cmds:
+      - task: :db:restore
       - echo "Applying base schema..."
       - >
         docker compose {{.COMPOSE_FILES_LOCAL}} exec -T db
         psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -f /app/service/db/psql.sql
-      - task: db:migrate
-      - task: data:enrich
+      - task: :db:migrate
+      - task: :data:enrich
         vars: { TYPE: all-user-data, CSV_FILE: ./backups/users.csv, USER_LOCATIONS_CSV_FILE: ./backups/user_locations.csv }
       - echo "Development fresh start completed."

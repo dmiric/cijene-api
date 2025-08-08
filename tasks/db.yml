@@ -32,10 +32,8 @@ tasks:
   restore:
     desc: 'Restore database from a backup. Usage: task db:restore -- [TIMESTAMP=...]'
     cmds:
-      - cmd: 'pwsh -File ./scripts/copy_dump_to_container.ps1 "{{.TIMESTAMP}}" ... && pwsh -File ./scripts/restore_database.ps1 "{{.TIMESTAMP}}" ...'
+      - cmd: 'pwsh -File ./scripts/copy_dump_to_container.ps1 "{{.TIMESTAMP}}" && pwsh -File ./scripts/restore_database.ps1 "{{.TIMESTAMP}}" "{{.POSTGRES_USER}}" "{{.POSTGRES_PASSWORD}}" "{{.POSTGRES_DB}}" "db" "5432"'
         platform: [windows]
-      - cmd: 'bash ./scripts/copy_dump_to_container.sh "{{.TIMESTAMP}}" && bash ./scripts/restore_database.sh "{{.TIMESTAMP}}"'
-        platform: [linux, darwin]
 
   csv-export:
     desc: 'Export specified tables to CSV files in the backups/ folder'

@@ -8,6 +8,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from .models import Store
 from service.normaliser.db_utils import calculate_unit_prices # Import calculate_unit_prices
 from typing import Any, Dict, List, Optional
+from datetime import date # Import date
 
 logger = getLogger(__name__)
 
@@ -37,6 +38,7 @@ PRICE_COLUMNS = [
     "best_price_30",
     "anchor_price",
     "special_price",
+    "processed", # Add this line
 ]
 
 G_PRICE_COLUMNS = [
@@ -54,8 +56,9 @@ G_PRICE_COLUMNS = [
 
 def transform_products(
     stores: list[Store],
-    g_products_map: Dict[str, Dict[str, Any]] # Add g_products_map parameter
-) -> tuple[list[dict], list[dict], list[dict], list[dict]]: # Return 4 lists now
+    g_products_map: Dict[str, Dict[str, Any]],
+    crawl_date: date # Add crawl_date parameter
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     """
     Transform store data into a structured format for CSV export,
     calculating g_prices based on g_products_map.
@@ -63,6 +66,7 @@ def transform_products(
     Args:
         stores: List of Store objects containing product data.
         g_products_map: Dictionary mapping EAN to g_product details.
+        crawl_date: The date of the crawl.
 
     Returns:
         Tuple containing:
@@ -73,11 +77,14 @@ def transform_products(
     """
     store_list = []
     product_map = {}
-    price_list = [] # Keep original price list
-    g_price_list = [] # New g_price list
+    price_list = []
+    g_price_list = []
 
-    def maybe(val: Decimal | None) -> Decimal | str:
-        return val if val is not None else ""
+    def maybe(val: Decimal | None) -> str:
+        if val is None:
+            return ""
+        # Format Decimal to 4 decimal places
+        return f"{val:.4f}"
 
     for store in stores:
         store_data = {
@@ -112,6 +119,7 @@ def transform_products(
                     "best_price_30": maybe(product.best_price_30),
                     "anchor_price": maybe(product.anchor_price),
                     "special_price": maybe(product.special_price),
+                    "processed": bool(g_products_map.get(product.barcode)), # Set based on g_product_info existence
                 }
             )
 
@@ -136,7 +144,7 @@ def transform_products(
                     {
                         "g_product_id": g_product_info['id'],
                         "store_id": store.store_id,
-                        "price_date": store.date.isoformat(), # Use the store's date for price_date
+                        "price_date": crawl_date.isoformat(), # Use the passed crawl_date
                         "regular_price": product.price,
                         "special_price": maybe(product.special_price),
                         "price_per_kg": maybe(calculated['price_per_kg']),
@@ -146,7 +154,7 @@ def transform_products(
                     }
                 )
             else:
-                logger.warning(f"Skipping g_price calculation for product with unknown EAN in g_products_map: {product.barcode}")
+                logger.debug(f"Skipping g_price calculation for product with unknown EAN in g_products_map: {product.barcode}")
 
 
     return store_list, list(product_map.values()), price_list, g_price_list
@@ -181,7 +189,7 @@ def save_csv(path: Path, data: list[dict], columns: list[str]):
             writer.writerow(cleaned_row)
 
 
-def save_chain(chain_path: Path, stores: list[Store], g_products_map: Dict[str, Dict[str, Any]]):
+def save_chain(chain_path: Path, stores: list[Store], g_products_map: Dict[str, Dict[str, Any]], crawl_date: date):
     """
     Save retail chain data to CSV files.
 
@@ -197,14 +205,16 @@ def save_chain(chain_path: Path, stores: list[Store], g_products_map: Dict[str, 
             (will be created if it doesn't exist).
         stores: List of Store objects containing product data.
         g_products_map: Dictionary mapping EAN to g_product details.
+        crawl_date: The date of the crawl.
     """
 
     makedirs(chain_path, exist_ok=True)
-    store_list, product_list, price_list, g_price_list = transform_products(stores, g_products_map)
+    store_list, product_list, price_list, g_price_list = transform_products(stores, g_products_map, crawl_date)
     save_csv(chain_path / "stores.csv", store_list, STORE_COLUMNS)
     save_csv(chain_path / "products.csv", product_list, PRODUCT_COLUMNS)
     save_csv(chain_path / "prices.csv", price_list, PRICE_COLUMNS) # Keep original prices.csv
     save_csv(chain_path / "g_prices.csv", g_price_list, G_PRICE_COLUMNS) # Add g_prices.csv
+    return store_list, product_list, price_list, g_price_list # Return the lists
 
 
 def copy_archive_info(path: Path):
