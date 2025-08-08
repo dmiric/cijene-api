@@ -1,0 +1,71 @@
+apiVersion: 1
+groups:
+    - orgId: 1
+      name: Evaluation group - Hetzner Worker Scheduled Check
+      folder: Hetzner Worker
+      interval: 1m
+      rules:
+        - uid: a4b5e6g7d8f9
+          title: Hetzner Worker Scheduled Job Not Detected
+          condition: D
+          data:
+            - refId: A
+              queryType: range
+              relativeTimeRange:
+                from: 300 # 5 minutes
+                to: 0
+              datasourceUid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
+              model:
+                datasource:
+                    type: loki
+                    uid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
+                editorMode: code
+                expr: 'count_over_time({container=~"hetzner-worker-container.*"} |= `Step 2: Checking for Pending Jobs` [5m])'
+                instant: false
+                queryType: range
+                refId: A
+            - refId: B
+              queryType: expression
+              datasourceUid: __expr__
+              model:
+                datasource:
+                    name: Expression
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                reducer: last
+                type: reduce
+                settings:
+                    mode: strict
+                    replaceWith: 0 # If no logs are found, reduce to 0
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: '(hour() >= 6 && hour() <= 11) && minute() < 5'
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: math
+            - refId: D
+              datasourceUid: __expr__
+              model:
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: '$B < 1 && $C == 1'
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: D
+                type: math
+          noDataState: OK
+          execErrState: Error
+          for: 3m
+          annotations:
+            description: 'The log message "Step 2: Checking for Pending Jobs" was not found at the top of the hour. The job may not have run as scheduled.'
+            summary: Hetzner Worker scheduled job did not run
+          labels:
+            severity: critical
+          isPaused: false
