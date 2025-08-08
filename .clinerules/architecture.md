@@ -6,6 +6,7 @@ This document outlines the current architecture of the database interaction laye
 
 The `service/db/repositories` directory now clearly distinguishes between different data domains:
 
+
 ```
 service/
 └── db/
