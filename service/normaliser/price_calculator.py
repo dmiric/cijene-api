@@ -59,6 +59,9 @@ def process_prices_batch(start_id: int, limit: int) -> None:
 
             log.info("Processing unprocessed prices", count=len(rows_to_process), start_id=start_id, limit=limit)
 
+            g_prices_data = []
+            prices_to_mark_processed = []
+
             for record in rows_to_process:
                 current_price = (
                     record['special_price']
@@ -76,23 +79,7 @@ def process_prices_batch(start_id: int, limit: int) -> None:
                         variants=record['variants'] or []
                     )
 
-                    # Insert or update in g_prices
-                    cur.execute("""
-                        INSERT INTO g_prices (
-                            product_id, store_id, price_date,
-                            regular_price, special_price,
-                            price_per_kg, price_per_l, price_per_piece,
-                            is_on_special_offer
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
-                            regular_price = EXCLUDED.regular_price,
-                            special_price = EXCLUDED.special_price,
-                            price_per_kg = EXCLUDED.price_per_kg,
-                            price_per_l = EXCLUDED.price_per_l,
-                            price_per_piece = EXCLUDED.price_per_piece,
-                            is_on_special_offer = EXCLUDED.is_on_special_offer;
-                    """, (
+                    g_prices_data.append((
                         record['g_product_id'],
                         record['store_id'],
                         record['price_date'],
@@ -104,14 +91,7 @@ def process_prices_batch(start_id: int, limit: int) -> None:
                         record['special_price'] is not None
                     ))
 
-                    # Mark original price row as processed
-                    cur.execute("""
-                        UPDATE prices
-                        SET processed = TRUE
-                        WHERE chain_product_id = %s
-                          AND store_id = %s
-                          AND price_date = %s
-                    """, (
+                    prices_to_mark_processed.append((
                         record['chain_product_id'],
                         record['store_id'],
                         record['price_date']
@@ -125,9 +105,44 @@ def process_prices_batch(start_id: int, limit: int) -> None:
                               error=str(e))
                     continue
 
+            if g_prices_data:
+                # Bulk insert or update into g_prices
+                from psycopg2.extras import execute_values
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO g_prices (
+                        product_id, store_id, price_date,
+                        regular_price, special_price,
+                        price_per_kg, price_per_l, price_per_piece,
+                        is_on_special_offer
+                    )
+                    VALUES %s
+                    ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
+                        regular_price = EXCLUDED.regular_price,
+                        special_price = EXCLUDED.special_price,
+                        price_per_kg = EXCLUDED.price_per_kg,
+                        price_per_l = EXCLUDED.price_per_l,
+                        price_per_piece = EXCLUDED.price_per_piece,
+                        is_on_special_offer = EXCLUDED.is_on_special_offer;
+                    """,
+                    g_prices_data
+                )
+
+            if prices_to_mark_processed:
+                # Bulk update original price rows as processed
+                execute_values(
+                    cur,
+                    """
+                    UPDATE prices
+                    SET processed = TRUE
+                    WHERE (chain_product_id, store_id, price_date) IN %s;
+                    """,
+                    prices_to_mark_processed
+                )
+
             conn.commit()
             log.info("Batch processing complete.", processed_count=len(rows_to_process))
-
     except Exception as e:
         log.error("Fatal error in price processing batch.", error=str(e))
     finally:
