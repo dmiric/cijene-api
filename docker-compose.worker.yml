@@ -38,6 +38,9 @@ services:
       - ./crawler_output:/app/output # Mount crawler output for direct access
       - .:/app # Mount the entire project directory
     command: [ "tail", "-f", "/dev/null" ]
+    networks:
+      # Add networks section
+      - monitoring-network # Connect to the existing monitoring-network
 
   alloy:
     container_name: worker-alloy
@@ -58,6 +61,14 @@ services:
       - "/etc/alloy/config.alloy"
       # This flag tells Alloy where to store its data inside the container
       - "--storage.path=/data"
+    networks:
+      # Add networks section
+      - monitoring-network # Connect to the existing monitoring-network
 
 volumes:
   alloy_data:
+
+
+networks:
+  monitoring-network:
+    driver: bridge

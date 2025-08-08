@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from prometheus_client import CollectorRegistry, Gauge, Counter, Summary, push_to_gateway
 
 from service.config import get_settings
-from service.db.models import Chain, ChainProduct, Price, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
+from service.db.models import Chain, ChainProduct, Price, GPrice, Store, User, UserLocation, ImportRun, ImportStatus, CrawlStatus
 
 logger = logging.getLogger("importer")
 
@@ -264,33 +264,86 @@ async def process_prices(
     logger.debug(f"Inserted {n_inserted} unique prices.")
     return n_inserted
 
+async def process_g_prices(
+    g_prices_path: Path,
+) -> int:
+    """
+    Process g_prices CSV and import to database.
+
+    Args:
+        g_prices_path: Path to the g_prices CSV file.
+
+    Returns:
+        The number of g_prices successfully inserted into the database.
+    """
+    logger.debug(f"Reading g_prices from {g_prices_path}")
+
+    g_prices_data = await read_csv(g_prices_path)
+
+    # Create g_price objects
+    g_prices_to_create = []
+    seen_g_prices = set() # To track unique g_price entries
+
+    logger.debug(f"Found {len(g_prices_data)} g_price entries, preparing to import")
+
+    def clean_decimal(value: str) -> Decimal | None:
+        if value is None or value == "":
+            return None
+        try:
+            dval = Decimal(value)
+            if dval == 0:
+                return None
+            return dval
+        except Exception:
+            logger.warning(f"Could not convert '{value}' to Decimal. Setting to None.")
+            return None
+
+    def clean_bool(value: str) -> bool:
+        return str(value).lower() == 'true'
+
+    for g_price_row in g_prices_data:
+        g_product_id = int(g_price_row["g_product_id"])
+        store_id = int(g_price_row["store_id"])
+        price_date_str = g_price_row["price_date"]
+        price_date_obj = datetime.fromisoformat(price_date_str).date() # Assuming ISO format from crawler
+
+        # Create a unique key for the g_price entry
+        g_price_key = (g_product_id, store_id, price_date_obj)
+        if g_price_key in seen_g_prices:
+            continue
+        seen_g_prices.add(g_price_key)
+
+        g_prices_to_create.append(
+            GPrice(
+                product_id=g_product_id,
+                store_id=store_id,
+                price_date=price_date_obj,
+                regular_price=clean_decimal(g_price_row.get("regular_price")),
+                special_price=clean_decimal(g_price_row.get("special_price")),
+                price_per_kg=clean_decimal(g_price_row.get("price_per_kg")),
+                price_per_l=clean_decimal(g_price_row.get("price_per_l")),
+                price_per_piece=clean_decimal(g_price_row.get("price_per_piece")),
+                is_on_special_offer=clean_bool(g_price_row.get("is_on_special_offer", "False")),
+            )
+        )
+
+    logger.debug(f"Attempting to insert {len(g_prices_to_create)} unique g_prices...")
+    n_inserted = await db.add_many_g_prices(g_prices_to_create) # This method needs to be implemented
+    logger.debug(f"Inserted {n_inserted} unique g_prices.")
+    return n_inserted
+
+
 async def process_chain(
     price_date: date,
     chain_dir: Path,
     barcodes: dict[str, int],
-    chain_name: str, # Added chain_name here
+    chain_name: str,
     import_run_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Process a single retail chain and import its data.
-
-    The expected directory structure and CSV columns are documented in
-    `crawler/store/archive_info.txt`.
-
-    Note: updates the `barcodes` dictionary with any new EAN codes found
-    (see the `process_products` function).
-
-    Args:
-        price_date: The date for which the prices are valid.
-        chain_dir: Path to the directory containing the chain's CSV files.
-        barcodes: Dictionary mapping EAN codes to global product IDs.
-        chain_name: The actual name of the chain (e.g., "boso", "roto").
-        import_run_id: Optional ID of the associated import run.
-
-    Returns:
-        A dictionary containing import statistics for the chain.
     """
-    code = chain_name # Use the passed chain_name here
+    code = chain_name
 
     stores_path = chain_dir / "stores.csv"
     if not stores_path.exists():
@@ -303,8 +356,10 @@ async def process_chain(
         return {}
 
     prices_path = chain_dir / "prices.csv"
-    if not prices_path.exists():
-        logger.warning(f"No prices.csv found for chain {code}")
+    g_prices_path = chain_dir / "g_prices.csv" # New: path to g_prices.csv
+
+    if not prices_path.exists() and not g_prices_path.exists():
+        logger.warning(f"No prices.csv or g_prices.csv found for chain {code}")
         return {}
 
     logger.debug(f"Processing chain: {code}")
@@ -315,19 +370,28 @@ async def process_chain(
     store_map = await process_stores(stores_path, chain_id)
     chain_product_map = await process_products(products_path, chain_id, code, barcodes)
 
-    n_new_prices = await process_prices(
-        price_date,
-        prices_path,
-        chain_id,
-        store_map,
-        chain_product_map,
-    )
+    n_new_prices = 0
+    if prices_path.exists():
+        n_new_prices = await process_prices(
+            price_date,
+            prices_path,
+            chain_id,
+            store_map,
+            chain_product_map,
+        )
+        logger.info(f"Imported {n_new_prices} new prices for {code} from prices.csv")
 
-    logger.info(f"Imported {n_new_prices} new prices for {code}")
+    n_new_g_prices = 0
+    if g_prices_path.exists():
+        n_new_g_prices = await process_g_prices(
+            g_prices_path,
+        )
+        logger.info(f"Imported {n_new_g_prices} new g_prices for {code} from g_prices.csv")
+
     return {
         "n_stores": len(store_map),
         "n_products": len(chain_product_map),
-        "n_prices": n_new_prices,
+        "n_prices": n_new_prices + n_new_g_prices, # Sum of both price types
     }
 
 async def _import_single_chain_data(

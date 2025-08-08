@@ -14,7 +14,7 @@ vars:
   QUERY: limun
   NUM_WORKERS: 1
   BATCH_SIZE: 50
-  DATE: '{{now | date "2006-01-02"}}'
+  DATE: '{{now | date "20060102"}}'
   DOCKER_BUILD_LOG_FILE: 'logs/docker-build.log'
 
 # Include the other task files and assign them a namespace.

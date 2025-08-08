@@ -1,15 +1,19 @@
 from dataclasses import dataclass
 import os
 import datetime
-from typing import List, Union, Dict, Optional
+from typing import List, Union, Dict, Optional, Any # Import Any
 import logging
 from pathlib import Path
 from time import time
 import httpx
 import json
 import shutil
+from psycopg2.extras import RealDictCursor
+from psycopg2.extensions import connection as PgConnection, cursor as PgCursor
 
 from service.db.models import CrawlStatus
+from service.config import get_settings # Import get_settings
+from service.normaliser.db_utils import get_db_connection # Import get_db_connection
 
 API_BASE_URL = os.getenv("BASE_URL", "http://api:8000")
 API_KEY = os.getenv("API_KEY") # Get API_KEY from environment variables
@@ -20,6 +24,35 @@ class CrawlResult:
     n_stores: int = 0
     n_products: int = 0
     n_prices: int = 0
+
+async def get_g_products_map() -> Dict[str, Dict[str, Any]]:
+    """
+    Fetches all g_products from the database and returns them as a dictionary
+    mapping EAN to g_product details (id, base_unit_type, variants).
+    """
+    conn: Optional[PgConnection] = None
+    g_products_map = {}
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, ean, base_unit_type, variants
+                FROM g_products;
+            """)
+            for row in cur.fetchall():
+                g_products_map[row['ean']] = {
+                    'id': row['id'],
+                    'base_unit_type': row['base_unit_type'],
+                    'variants': row['variants']
+                }
+        logger.info(f"Fetched {len(g_products_map)} g_products from the database.")
+    except Exception as e:
+        logger.error(f"Error fetching g_products from database: {e}", exc_info=True)
+    finally:
+        if conn:
+            conn.close()
+    return g_products_map
+
 
 async def report_crawl_status(
     chain_name: str,
@@ -124,7 +157,7 @@ def get_chains() -> List[str]:
     return [chain for chain in CRAWLERS.keys() if chain not in DISABLED_CRAWLERS]
 
 
-def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_dir: Path) -> tuple[CrawlResult, Optional[Path]]:
+def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_dir: Path, g_products_map: Dict[str, Dict[str, Any]]) -> tuple[CrawlResult, Optional[Path]]:
     """
     Crawl a specific retail chain for product/pricing data, save it, and create a zip archive.
 
@@ -157,7 +190,7 @@ def crawl_chain(chain: str, date: datetime.date, temp_chain_path: Path, output_d
         # Explicitly raise an error if no stores/products were retrieved
         raise ValueError(f"No stores or products retrieved for {chain} on {date}")
 
-    save_chain(temp_chain_path, stores)
+    save_chain(temp_chain_path, stores, g_products_map)
     t1 = time()
 
     all_products = set()
@@ -207,6 +240,12 @@ async def crawl(
         date = datetime.date.today()
 
     logger.debug(f"Crawl date being used: {date:%Y-%m-%d}")
+
+    # Fetch g_products data once at the beginning
+    g_products_map = await get_g_products_map()
+    if not g_products_map:
+        logger.error("Failed to fetch g_products map. Cannot proceed with crawl.")
+        return []
 
     # This part remains the same: check which chains actually need crawling.
     successful_runs = await get_crawl_runs_from_api(date, CrawlStatus.SUCCESS)
@@ -260,7 +299,8 @@ async def crawl(
             temp_chain_path = temp_base_path / chain
             
             # Directly call the crawl_chain function and wait for it to complete
-            crawl_result, zip_file_path = crawl_chain(chain, date, temp_chain_path, output_dir_for_date)
+            # Pass g_products_map to crawl_chain
+            crawl_result, zip_file_path = crawl_chain(chain, date, temp_chain_path, output_dir_for_date, g_products_map)
             
             # If we get here, the crawl for this chain was successful
             results[chain] = crawl_result

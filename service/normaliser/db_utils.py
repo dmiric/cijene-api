@@ -22,7 +22,9 @@ log = structlog.get_logger()
 
 def get_db_connection() -> PgConnection:
     """Establishes and returns a database connection."""
-    conn = psycopg2.connect(os.getenv("DB_DSN"))
+    db_dsn = os.getenv("DB_DSN")
+    log.info("Attempting to connect to database", db_dsn=db_dsn) # Log the connection string
+    conn = psycopg2.connect(db_dsn)
     return conn
 
 def calculate_unit_prices(

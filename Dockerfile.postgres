@@ -22,5 +22,9 @@ RUN apt-get update && \
     hunspell-hr \
     && rm -rf /var/lib/apt/lists/*
 ENV PGDATA=/var/lib/postgresql/data/pgdata
+
+# Copy the psql.sql schema file into the container
+COPY service/db/psql.sql /app/service/db/psql.sql
+
 # Switch back to the default postgres user
 USER postgres
