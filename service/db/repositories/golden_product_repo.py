@@ -379,15 +379,60 @@ class GoldenProductRepository(BaseRepository):
             for p in g_prices
         ]
         async with self._get_conn() as conn:
-            result = await conn.copy_records_to_table(
-                'g_prices',
+            # Copy records to a temporary table
+            await conn.execute("""
+                CREATE TEMPORARY TABLE temp_g_prices (
+                    product_id BIGINT,
+                    store_id BIGINT,
+                    price_date DATE,
+                    regular_price NUMERIC(10, 4),
+                    special_price NUMERIC(10, 4),
+                    price_per_kg NUMERIC(10, 4),
+                    price_per_l NUMERIC(10, 4),
+                    price_per_piece NUMERIC(10, 4),
+                    is_on_special_offer BOOLEAN
+                ) ON COMMIT DROP;
+            """)
+
+            await conn.copy_records_to_table(
+                'temp_g_prices',
                 records=records,
                 columns=[
                     'product_id', 'store_id', 'price_date', 'regular_price',
-                    'special_price', 'price_per_kg', 'price_per_l', 'price_per_piece'
+                    'special_price', 'price_per_kg', 'price_per_l', 'price_per_piece',
+                    'is_on_special_offer'
                 ]
             )
-            return result
+
+            # Insert from temporary table to g_prices, handling conflicts
+            insert_query = """
+                INSERT INTO g_prices (
+                    product_id, store_id, price_date, regular_price,
+                    special_price, price_per_kg, price_per_l, price_per_piece,
+                    is_on_special_offer
+                )
+                SELECT
+                    product_id, store_id, price_date, regular_price,
+                    special_price, price_per_kg, price_per_l, price_per_piece,
+                    is_on_special_offer
+                FROM temp_g_prices
+                ON CONFLICT (product_id, store_id, price_date) DO UPDATE SET
+                    regular_price = EXCLUDED.regular_price,
+                    special_price = EXCLUDED.special_price,
+                    price_per_kg = EXCLUDED.price_per_kg,
+                    price_per_l = EXCLUDED.price_per_l,
+                    price_per_piece = EXCLUDED.price_per_piece,
+                    is_on_special_offer = EXCLUDED.is_on_special_offer;
+            """
+            status = await conn.execute(insert_query)
+            # For ON CONFLICT DO UPDATE, the status string is typically "INSERT 0 N" (for inserts)
+            # or "UPDATE N" (for updates). We need to parse the actual number of rows affected.
+            # A more robust way is to query the actual changes or parse the command tag.
+            # For simplicity, we can return the count of prices passed, assuming all are processed.
+            # Or, parse the result string more robustly.
+            # For now, let's return the length of the input prices list, as it's a more direct measure
+            # of how many prices were *attempted* to be added/updated.
+            return len(g_prices)
     
     async def add_many_g_product_best_offers(self, g_offers: List[GProductBestOffer]) -> int:
         """
