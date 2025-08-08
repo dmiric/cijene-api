@@ -57,7 +57,7 @@ class NtlCrawler(BaseCrawler):
         soup = BeautifulSoup(content, "html.parser")
         urls = []
 
-        for link_tag in soup.select('table a[href$=".csv"]'):
+        for link_tag in soup.select('a[href$=".csv"]'):
             href = str(link_tag.get("href"))
             urls.append(href)
 

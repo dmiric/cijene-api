@@ -266,6 +266,7 @@ async def process_prices(
 
 async def process_g_prices(
     g_prices_path: Path,
+    store_map: dict[str, int],
 ) -> int:
     """
     Process g_prices CSV and import to database.
@@ -302,8 +303,17 @@ async def process_g_prices(
         return str(value).lower() == 'true'
 
     for g_price_row in g_prices_data:
-        g_product_id = int(g_price_row["g_product_id"])
-        store_id = int(g_price_row["store_id"])
+        try:
+            g_product_id = int(g_price_row["g_product_id"])
+        except ValueError:
+            logger.warning(f"Skipping g_price row due to invalid g_product_id: {g_price_row.get('g_product_id')}. Row: {g_price_row}")
+            continue
+
+        store_id = store_map.get(g_price_row["store_id"])
+        if store_id is None:
+            logger.warning(f"Skipping g_price for unknown store {g_price_row['store_id']}. Row: {g_price_row}")
+            continue
+        
         price_date_str = g_price_row["price_date"]
         price_date_obj = datetime.fromisoformat(price_date_str).date() # Assuming ISO format from crawler
 
@@ -385,6 +395,7 @@ async def process_chain(
     if g_prices_path.exists():
         n_new_g_prices = await process_g_prices(
             g_prices_path,
+            store_map, # Pass store_map
         )
         logger.info(f"Imported {n_new_g_prices} new g_prices for {code} from g_prices.csv")
 

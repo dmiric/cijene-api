@@ -88,7 +88,7 @@ def transform_products(
 
     for store in stores:
         store_data = {
-            "store_id": store.store_id,
+            "store_id": str(store.store_id),  # Ensure store_id is a string
             "type": store.store_type,
             "address": store.street_address,
             "city": store.city,
@@ -112,7 +112,7 @@ def transform_products(
             # Append to original price_list
             price_list.append(
                 {
-                    "store_id": store.store_id,
+                    "store_id": str(store.store_id),  # Ensure store_id is a string
                     "product_id": product.product_id,
                     "price": product.price,
                     "unit_price": maybe(product.unit_price),
@@ -143,7 +143,7 @@ def transform_products(
                 g_price_list.append(
                     {
                         "g_product_id": g_product_info['id'],
-                        "store_id": store.store_id,
+                        "store_id": str(store.store_id),  # Ensure store_id is a string
                         "price_date": crawl_date.isoformat(), # Use the passed crawl_date
                         "regular_price": product.price,
                         "special_price": maybe(product.special_price),
