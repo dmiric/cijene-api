@@ -49,24 +49,25 @@ def delete_old_prices_and_chain_products() -> None:
     except Exception as e:
         log.error("Error during old price and chain_product cleanup", error=str(e))
 
-def get_min_max_product_ids() -> Optional[tuple[int, int]]:
+def get_min_max_chain_product_ids() -> Optional[tuple[int, int]]:
     """
-    Retrieves the minimum and maximum IDs from the products table.
+    Retrieves the minimum and maximum chain_product_id from the prices table for unprocessed entries.
     """
     conn: Optional[PgConnection] = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            SELECT MIN(id), MAX(id)
-            FROM products;
+            SELECT MIN(chain_product_id), MAX(chain_product_id)
+            FROM prices
+            WHERE processed = FALSE;
         """)
         min_id, max_id = cur.fetchone()
         if min_id is None or max_id is None:
             return None
         return min_id, max_id
     except Exception as e:
-        log.error("Error getting min/max product IDs", error=str(e))
+        log.error("Error getting min/max chain_product IDs", error=str(e))
         return None
     finally:
         if conn:
@@ -89,21 +90,21 @@ def run_worker(start_id: int, limit: int):
 
 def orchestrate_prices(num_workers: int, batch_size: int):
     """
-    Orchestrates the price calculation phase by distributing product ID ranges to multiple workers.
+    Orchestrates the price calculation phase by distributing chain_product_id ranges to multiple workers.
     """
-    id_range = get_min_max_product_ids()
+    id_range = get_min_max_chain_product_ids()
     if not id_range:
-        log.info("No products found in products table. Exiting price calculation orchestration.")
+        log.info("No unprocessed prices found. Exiting price calculation orchestration.")
         return
 
-    min_product_id, max_product_id = id_range
+    min_chain_product_id, max_chain_product_id = id_range
     
-    log.info("Total product ID range", min_id=min_product_id, max_id=max_product_id)
+    log.info("Total chain_product ID range for unprocessed prices", min_id=min_chain_product_id, max_id=max_chain_product_id)
     log.info("Orchestrating price calculation", num_workers=num_workers, batch_size=batch_size)
 
     processes = []
-    current_start_id = min_product_id
-    while current_start_id <= max_product_id:
+    current_start_id = min_chain_product_id
+    while current_start_id <= max_chain_product_id:
         actual_limit = batch_size
         process = run_worker(current_start_id, actual_limit)
         processes.append(process)
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=os.cpu_count() or 1,
                         help="Number of parallel workers to run (defaults to CPU count).")
     parser.add_argument("--batch-size", type=int, default=1000,
-                        help="Number of product IDs to cover per worker batch.")
+                        help="Number of chain_product IDs to cover per worker batch.")
     args = parser.parse_args()
 
     delete_old_prices_and_chain_products() # Call the cleanup function before orchestration
