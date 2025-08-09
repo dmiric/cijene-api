@@ -591,9 +591,9 @@
                         "axisPlacement": "auto",
                         "barAlignment": 0,
                         "barWidthFactor": 0.6,
-                        "drawStyle": "bars",
-                        "fillOpacity": 100,
-                        "gradientMode": "hue",
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
@@ -606,7 +606,7 @@
                         "scaleDistribution": {
                             "type": "linear"
                         },
-                        "showPoints": "never",
+                        "showPoints": "auto",
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -639,7 +639,7 @@
                 "x": 14,
                 "y": 12
             },
-            "id": 4,
+            "id": 7,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -661,17 +661,14 @@
                         "type": "prometheus",
                         "uid": "PBFA97CFB590B2093"
                     },
-                    "editorMode": "code",
-                    "expr": "sum(rate(golden_record_processing_time_seconds_sum{}[$__rate_interval]))/sum(rate(golden_record_processing_time_seconds_count{}[$__rate_interval]))",
+                    "expr": "sum(rate(golden_records_processed_total{}[$__rate_interval]))",
                     "fromExploreMetrics": true,
-                    "instant": true,
                     "interval": "",
-                    "legendFormat": "golden_record_processing_time_seconds (average)",
-                    "range": true,
+                    "legendFormat": "${metric} (overall per-second rate)",
                     "refId": "A"
                 }
             ],
-            "title": "Golden Record Processing",
+            "title": "Golden record processing",
             "type": "timeseries"
         }
     ],
@@ -689,5 +686,5 @@
     "timezone": "browser",
     "title": "Dash 1",
     "uid": "0ad02421-644c-4067-b629-af96be4df250",
-    "version": 1
+    "version": 3
 }
