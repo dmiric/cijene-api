@@ -145,7 +145,7 @@ def validate_and_get_config() -> Dict[str, Any]:
         "SERVER_IP": os.getenv("SERVER_IP"),
         "API_KEY": os.getenv("API_KEY"),
         "PRIVATE_NETWORK_NAME": os.getenv("PRIVATE_NETWORK_NAME"),
-        "MAIN_SERVER_PRIVATE_IP": os.getenv("SERVER_PRIVATE_IP"),
+        "MAIN_SERVER_PRIVATE_IP": os.getenv("SERVER_PRIVATE_IP"), # Changed to match .env file
     }
 
     # PROMETHEUS_PUSHGATEWAY_URL will be derived from SERVER_IP, so it's not a direct env var
