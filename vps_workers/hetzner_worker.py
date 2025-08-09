@@ -314,15 +314,27 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
         run_remote_command(ssh_client, f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}", "Git Clone Project")
         run_remote_command(ssh_client, f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{remote_env}\nEOF", "Write .env File", sensitive=True)
         
-        job_commands = [
-            {"name": "Cleanup Docker", "description": "Shut down and remove old worker containers", "command": "docker compose -f docker-compose.worker.yml down --remove-orphans"},
-            {"name": "Build & Start Worker", "description": "Build and start the worker services", "command": "docker compose -f docker-compose.worker.yml up -d --build --force-recreate"},
-            {"name": "Run Crawler", "description": "Execute the data crawling process", "command": f"docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py{(' --chain ' + ','.join(chains_to_process)) if chains_to_process else ''}"},
-            {"name": "Import Data", "description": "Import crawled data into the database", "command": "docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py"},
-            {"name": "Geocode Stores", "description": "Geocode store locations", "command": "docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -c \"import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())\""},
-        ]
-        for job in job_commands:
-            run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {job['command']}", job['description'])
+        # Initial setup commands
+        run_remote_command(ssh_client, "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git", "Install Dependencies")
+        run_remote_command(ssh_client, f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}", "Git Clone Project")
+        run_remote_command(ssh_client, f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{remote_env}\nEOF", "Write .env File", sensitive=True)
+        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml down --remove-orphans", "Cleanup Docker")
+        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml up -d --build --force-recreate", "Build & Start Worker")
+
+        # Process chains one by one
+        for chain_code in chains_to_process:
+            log.info("Processing chain", chain=chain_code)
+            # Run Crawler for the specific chain
+            crawl_command = f"docker compose -f docker-compose.worker.yml run --rm crawler python crawler/cli/crawl.py --chain {chain_code}"
+            run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {crawl_command}", f"Run Crawler for {chain_code}")
+
+            # Import Data for the specific chain
+            import_command = f"docker compose -f docker-compose.worker.yml run --rm api python service/cli/import.py --chain {chain_code}"
+            run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {import_command}", f"Import Data for {chain_code}")
+
+        # Geocode Stores (can be run once after all imports)
+        geocode_command = "docker compose -f docker-compose.worker.yml run --rm --env DEBUG=false api python -c \"import asyncio; from service.cli.geocode_stores import geocode_stores; asyncio.run(geocode_stores())\""
+        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && {geocode_command}", "Geocode Stores")
     finally:
         ssh_client.close()
         log.info("SSH connection closed.")

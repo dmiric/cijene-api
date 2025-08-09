@@ -634,6 +634,7 @@ async def main():
     parser.add_argument("--concurrency", type=int, default=5, help="Number of concurrent chain imports")
     parser.add_argument("--timeout", type=int, default=600, help="Timeout in seconds for each individual chain import")
     parser.add_argument("--metrics", action="store_true", help="If present, gather Prometeus metrics")
+    parser.add_argument("--chain", type=str, default=None, help="Specify a single chain to import (e.g., 'boso'). If not provided, all chains will be imported.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -671,12 +672,33 @@ async def main():
             return
 
         logger.info(f"Automatic import mode for date: {price_date.date()} from path: {path_arg}")
-        zip_files = [f for f in path_arg.glob("*.zip")]
-        if not zip_files:
-            logger.warning(f"No zip files found in directory {path_arg}.")
+        
+        all_zip_files = [f for f in path_arg.glob("*.zip")]
+        
+        if not all_zip_files:
+            logger.warning(f"No zip files found in directory {path_arg}. Skipping import.")
             return
 
-        for zip_file in zip_files:
+        zip_files_to_process = []
+        if args.chain:
+            # Filter for the specified chain
+            found_chain_file = False
+            for f in all_zip_files:
+                if f.stem == args.chain:
+                    zip_files_to_process.append(f)
+                    found_chain_file = True
+                    break # Assuming only one zip file per chain name
+            
+            if not found_chain_file:
+                logger.warning(f"No zip file found for specified chain '{args.chain}' in directory {path_arg}. Skipping import.")
+                return
+            logger.info(f"Processing only chain: {args.chain}")
+        else:
+            # Process all zip files if no chain is specified
+            zip_files_to_process = all_zip_files
+            logger.info(f"Processing all chains found in {path_arg}")
+
+        for zip_file in zip_files_to_process:
             chain_name = zip_file.stem
             
             temp_dir = TemporaryDirectory(prefix=f"import_{chain_name}_")

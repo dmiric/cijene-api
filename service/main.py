@@ -233,6 +233,7 @@ def configure_logging():
         debug_mode=is_debug, 
         log_level=logging.getLevelName(log_level)
     )
+    # =======================================================
     log.info("Starting application...")
 
 # Call logging configuration at the module level
