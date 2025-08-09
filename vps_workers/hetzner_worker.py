@@ -26,15 +26,6 @@ from typing import Optional, List, Dict, Any
 # Load environment variables from .env file in the current directory
 load_dotenv()
 
-# Debugging: Log loaded environment variables
-log.debug("Loaded environment variables from .env (if found):")
-log.debug(f"HCLOUD_TOKEN: {os.getenv('HCLOUD_TOKEN')}")
-log.debug(f"WORKER_PRIMARY_IP: {os.getenv('WORKER_PRIMARY_IP')}")
-log.debug(f"SERVER_IP: {os.getenv('SERVER_IP')}")
-log.debug(f"API_KEY: {os.getenv('API_KEY')}")
-log.debug(f"PRIVATE_NETWORK_NAME: {os.getenv('PRIVATE_NETWORK_NAME')}")
-log.debug(f"SERVER_PRIVATE_IP (MAIN_SERVER_PRIVATE_IP): {os.getenv('SERVER_PRIVATE_IP')}")
-
 # Static configuration for the worker server
 SERVER_NAME = "cijene-ingestion-worker"
 SERVER_TYPE = "cpx31"
@@ -156,6 +147,15 @@ def validate_and_get_config() -> Dict[str, Any]:
         "PRIVATE_NETWORK_NAME": os.getenv("PRIVATE_NETWORK_NAME"),
         "MAIN_SERVER_PRIVATE_IP": os.getenv("SERVER_PRIVATE_IP"), # Changed to match .env file
     }
+
+    # Debugging: Log loaded environment variables within the function
+    log.debug("Loaded environment variables from .env (if found):")
+    log.debug(f"HCLOUD_TOKEN: {config.get('HCLOUD_TOKEN')}")
+    log.debug(f"WORKER_PRIMARY_IP: {config.get('WORKER_PRIMARY_IP')}")
+    log.debug(f"SERVER_IP: {config.get('SERVER_IP')}")
+    log.debug(f"API_KEY: {config.get('API_KEY')}")
+    log.debug(f"PRIVATE_NETWORK_NAME: {config.get('PRIVATE_NETWORK_NAME')}")
+    log.debug(f"SERVER_PRIVATE_IP (MAIN_SERVER_PRIVATE_IP): {config.get('MAIN_SERVER_PRIVATE_IP')}")
 
     # PROMETHEUS_PUSHGATEWAY_URL will be derived from SERVER_IP, so it's not a direct env var
     missing_vars = [key for key, value in config.items() if not value]

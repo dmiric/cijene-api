@@ -126,6 +126,19 @@ loki.process "default_pipeline" {
 // WRITING TO LOKI
 // -----------------------------------------------------------------------------
 
+loki.source.file "syslog_logs" {
+  targets = [{ __path__ = "/var/log/syslog", job = "syslog" }]
+  forward_to = [loki.process.syslog_pipeline.receiver]
+}
+
+loki.process "syslog_pipeline" {
+  forward_to = [loki.write.default.receiver]
+  stage.syslog {} // Attempt to parse syslog format
+  stage.output {
+    source = "log"
+  }
+}
+
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
