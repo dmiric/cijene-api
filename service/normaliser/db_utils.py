@@ -23,7 +23,7 @@ log = structlog.get_logger()
 def get_db_connection() -> PgConnection:
     """Establishes and returns a database connection."""
     db_dsn = os.getenv("DB_DSN")
-    log.info("Attempting to connect to database", db_dsn=db_dsn) # Log the connection string
+    log.debug("Attempting to connect to database", db_dsn=db_dsn) # Changed to debug level
     conn = psycopg2.connect(db_dsn)
     return conn
 
