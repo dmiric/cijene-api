@@ -233,11 +233,6 @@ def configure_logging():
         debug_mode=is_debug, 
         log_level=logging.getLevelName(log_level)
     )
-    # =======================================================
-    log.info("Logger level.", logger_name="uvicorn")
-    log.info("Uvicorn logger configured with structlog.", logger_name="uvicorn")
-    log.info("Uvicorn error logger configured with structlog.", logger_name="uvicorn.error")
-    log.info("Uvicorn access logger configured with structlog.", logger_name="uvicorn.access")
     log.info("Starting application...")
 
 # Call logging configuration at the module level

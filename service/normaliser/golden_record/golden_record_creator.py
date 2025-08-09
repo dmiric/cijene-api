@@ -65,7 +65,7 @@ GOLDEN_RECORD_BATCH_SIZE = Gauge(
     registry=registry
 )
 
-def process_golden_records_batch(normalizer_type: str, embedder_type: str, start_id: int, limit: int) -> None:
+def process_golden_records_batch(normalizer_type: str, embedder_type: str, product_ids: List[int]) -> None:
     """
     Processes a batch of product data from chain_products based on product_id range,
     sends it to the AI for golden record creation, generates embeddings,
@@ -94,34 +94,27 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
 
         # 1. Extract: Query EANs that need golden records, ordered by product_id,
         # and then join with chain_products to get the necessary data.
+        # Filter by the exact product_ids provided.
         query = """
-            WITH products_to_process AS (
-                SELECT p.id AS product_id, p.ean
-                FROM products p
-                LEFT JOIN g_products gp ON p.ean = gp.ean
-                WHERE gp.id IS NULL
-                AND p.id >= %s -- Start looking from this product_id
-                GROUP BY p.id, p.ean -- Group by both id and ean
-                ORDER BY p.id -- Order by product_id to ensure consistent batches
-                LIMIT %s -- Limit the number of EANs to process in this batch
-            )
             SELECT
-                ptp.ean,
+                p.ean,
                 ARRAY_AGG(cp.name) AS name_variations,
                 ARRAY_AGG(cp.id) AS chain_product_ids,
                 ARRAY_AGG(cp.brand) AS brands,
                 ARRAY_AGG(cp.category) AS categories,
                 ARRAY_AGG(cp.unit) AS units
             FROM
-                chain_products cp
+                products p
             JOIN
-                products_to_process ptp ON cp.product_id = ptp.product_id
+                chain_products cp ON cp.product_id = p.id
+            LEFT JOIN
+                g_products gp ON p.ean = gp.ean
             WHERE
-                cp.is_processed = FALSE
-            GROUP BY ptp.ean
-            ORDER BY ptp.ean;
+                p.id = ANY(%s) AND gp.id IS NULL AND cp.is_processed = FALSE
+            GROUP BY p.ean
+            ORDER BY p.ean;
         """
-        params = [start_id, limit]
+        params = [product_ids]
 
         cur.execute(query, params)
         unprocessed_eans = cur.fetchall()
@@ -130,11 +123,11 @@ def process_golden_records_batch(normalizer_type: str, embedder_type: str, start
         GOLDEN_RECORD_BATCH_SIZE.labels(normalizer_type=normalizer_type, embedder_type=embedder_type).set(batch_size_actual)
 
         if not unprocessed_eans:
-            log.info("No unprocessed products found for product_id range. Exiting.", start_id=start_id, limit=limit)
+            log.info("No unprocessed products found for the given IDs. Exiting.", product_ids=product_ids)
             return
 
-        log.info("Processing EANs for golden record creation in product_id range",
-                 num_eans=batch_size_actual, start_id=start_id, limit=limit,
+        log.info("Processing EANs for golden record creation for specific product IDs",
+                 num_eans=batch_size_actual, product_ids_count=len(product_ids),
                  normalizer_type=normalizer_type, embedder_type=embedder_type)
 
         for record in unprocessed_eans:
@@ -229,17 +222,19 @@ if __name__ == "__main__":
                         help="Type of normalizer to use (gemini or grok).")
     parser.add_argument("--embedder-type", type=str, choices=["gemini"], default="gemini",
                         help="Type of embedder to use (e.g., gemini).")
-    parser.add_argument("--start-id", type=int, required=True, help="Starting product_id for the batch.")
-    parser.add_argument("--limit", type=int, required=True, help="Number of product_ids to cover in this batch.")
+    parser.add_argument("--product-ids", type=str, required=True,
+                        help="Comma-separated list of product IDs to process.")
     parser.add_argument("--pushgateway-url", type=str, default=os.getenv("PROMETHEUS_PUSHGATEWAY_URL", "http://pushgateway:9091"),
                         help="URL of the Prometheus Pushgateway.")
     args = parser.parse_args()
 
+    product_ids_list = [int(pid) for pid in args.product_ids.split(',')]
+
     log.info("Starting Golden Record Creator Service for batch",
              normalizer=args.normalizer_type, embedder=args.embedder_type,
-             start_id=args.start_id, limit=args.limit)
+             product_ids_count=len(product_ids_list))
     
     # Process the batch
-    process_golden_records_batch(args.normalizer_type, args.embedder_type, args.start_id, args.limit)
+    process_golden_records_batch(args.normalizer_type, args.embedder_type, product_ids_list)
     
     log.info("Golden Record Creator Service finished.")
