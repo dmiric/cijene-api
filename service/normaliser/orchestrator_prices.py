@@ -105,16 +105,25 @@ def orchestrate_prices(num_workers: int, batch_size: int):
     processes = []
     current_start_id = min_chain_product_id
     while current_start_id <= max_chain_product_id:
+        # Wait for a worker to finish if we have reached the maximum number of concurrent workers
+        while len(processes) >= num_workers:
+            # Check if any process has finished
+            for p in processes:
+                if p.poll() is not None: # Process has finished
+                    processes.remove(p)
+                    break
+            else: # No process finished, wait for one
+                # This is a simple blocking wait, for more complex scenarios, consider select.select or asyncio
+                processes[0].wait()
+                processes.pop(0)
+
         actual_limit = batch_size
         process = run_worker(current_start_id, actual_limit)
         processes.append(process)
         current_start_id += batch_size
 
-        if len(processes) >= num_workers:
-            for p in processes:
-                p.wait()
-            processes = []
-    for p in processes: # Wait for any remaining processes
+    # Wait for any remaining processes to finish
+    for p in processes:
         p.wait()
     log.info("Price Calculation orchestration finished.")
 
