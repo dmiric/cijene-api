@@ -111,7 +111,7 @@ jobs:
           echo "--> Configuring cron jobs..."
           # Hetzner Worker (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'hetzner-worker') | crontab -
-          (crontab -l 2>/dev/null; echo "0 6-11 * * * cd /home/dmiric/pricemice && . .env && docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker . && docker run --rm --name hetzner-worker --log-driver=loki --log-opt loki-url="http://127.0.0.1:3100/loki/api/v1/push" --log-opt loki-external-labels="container=hetzner-worker,job=worker" --network=pricemice_monitoring-network -v "$(pwd)/.env:/app/.env:ro" -v "/home/dmiric/.ssh/pricemice-worker-key:/app/ssh_key:ro" -e SSH_KEY_PATH=/app/ssh_key hetzner-worker-image python hetzner_worker.py") | crontab -
+          (crontab -l 2>/dev/null; echo "0 6-11 * * * cd /home/dmiric/pricemice && . .env && docker build -t hetzner-worker-image -f vps_workers/Dockerfile.hetzner_worker . && docker run --rm --name hetzner-worker --log-driver=loki --log-opt loki-url="http://127.0.0.1:3100/loki/api/v1/push" --log-opt loki-external-labels="container=hetzner-worker,job=worker" --network=pricemice_monitoring-network -v "/home/dmiric/pricemice/.env:/app/.env:ro" -v "/home/dmiric/.ssh/pricemice-worker-key:/app/ssh_key:ro" -e SSH_KEY_PATH=/app/ssh_key hetzner-worker-image python hetzner_worker.py") | crontab -
           
           # Golden Record Orchestrator (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'golden-record') | crontab -
