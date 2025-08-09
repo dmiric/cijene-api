@@ -133,7 +133,6 @@ loki.source.file "syslog_logs" {
 
 loki.process "syslog_pipeline" {
   forward_to = [loki.write.default.receiver]
-  stage.syslog {} // Attempt to parse syslog format
   stage.output {
     source = "log"
   }
