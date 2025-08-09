@@ -88,7 +88,7 @@ jobs:
           # --- Set Server Timezone ---
           #### This code won't run because of the sudo, but it's here as a reminder
           echo "--> Configuring server time and NTP synchronization..."
-          sudo timedatectl set-timezone UTC
+          sudo timedatectl set-timezone Europe/Berlin
           sudo timedatectl set-ntp true
           
           # --- Configure Swap Space ---
@@ -115,7 +115,7 @@ jobs:
           
           # Golden Record Orchestrator (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'golden-record') | crontab -
-          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200") | crontab -
+          (crontab -l 2>/dev/null; echo "30 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name golden-record api python -m service.normaliser.golden_record.orchestrator_golden_records --normalizer-type grok --embedder-type gemini --num-workers 2 --batch-size 200 --max-products-to-do 400") | crontab -
           
           # Price Calculation (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'calc-prices') | crontab -
