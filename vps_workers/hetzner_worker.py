@@ -322,8 +322,8 @@ def connect_and_run_jobs(config: Dict[str, Any], chains_to_process: List[str], r
         run_remote_command(ssh_client, "export DEBIAN_FRONTEND=noninteractive && apt-get update -q && apt-get install -y -q git", "Install Dependencies")
         run_remote_command(ssh_client, f"git clone https://github.com/dmiric/cijene-api.git {PROJECT_DIR_ON_VPS}", "Git Clone Project")
         run_remote_command(ssh_client, f"cat <<'EOF' > {PROJECT_DIR_ON_VPS}/.env\n{remote_env}\nEOF", "Write .env File", sensitive=True)
-        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml down --remove-orphans", "Cleanup Docker")
-        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml up -d --build --force-recreate", "Build & Start Worker")
+        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml down --remove-orphans > /dev/null 2>&1", "Cleanup Docker")
+        run_remote_command(ssh_client, f"cd {PROJECT_DIR_ON_VPS} && docker compose -f docker-compose.worker.yml up -d --build --force-recreate > /dev/null 2>&1", "Build & Start Worker")
 
         # Process chains one by one
         for chain_code in chains_to_process:
