@@ -2,15 +2,15 @@
 version: '3'
 
 tasks:
-  ssh-server:
-    desc: 'SSH into the main VPS server with port forwarding'
-    cmds:
-      - ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8081:localhost:80 {{.SSH_USER}}@{{.SSH_IP}}
-
-  pgtunnel:
+  ssh:
     desc: 'Create an SSH tunnel for PGAdmin, Prometheus, and Grafana'
     cmds:
       - ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9095:localhost:9090 -L 9096:localhost:9091 -L 3001:localhost:3000 {{.SSH_USER}}@{{.SSH_IP}}
+
+  ssh-tail:
+    desc: 'Create an SSH tunnel for PGAdmin, Prometheus, and Grafana and tail syslog'
+    cmds:
+      - ssh-add ~/.ssh/github_actions_deploy_key; ssh -L 8088:localhost:80 -L 9095:localhost:9090 -L 9096:localhost:9091 -L 3001:localhost:3000 {{.SSH_USER}}@{{.SSH_IP}} 'sudo /usr/bin/tail -f /var/log/syslog'
 
   upload-dump:
     desc: 'Upload the latest database dump to the remote server'
