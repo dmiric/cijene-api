@@ -36,8 +36,8 @@ groups:
                 reducer: last
                 type: reduce
                 settings:
-                    mode: strict
-                    replaceWith: 0 # If no logs are found, reduce to 0
+                  mode: replaceNN # Changed from strict to replaceNN
+                  replaceWith: 0 # This setting works with replaceNN
             - refId: C
               datasourceUid: __expr__
               model:
