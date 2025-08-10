@@ -20,7 +20,7 @@ groups:
                     type: loki
                     uid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
                 editorMode: code
-                expr: 'count_over_time({container=~"hetzner-worker-container.*"} |= `Step 2: Checking for Pending Jobs` [5m])'
+                expr: 'count_over_time({container=~"hetzner-worker.*"} |= `Step 2: Checking for Pending Jobs` [15m])'
                 instant: false
                 queryType: range
                 refId: A
@@ -44,7 +44,7 @@ groups:
                 datasource:
                     type: __expr__
                     uid: __expr__
-                expression: '(hour(now()) >= 6 && hour(now()) < 12) && minute(now()) < 5'
+                expression: '(hour(now()) >= 6 && hour(now()) < 12) && minute(now()) < 10'
                 intervalMs: 1000
                 maxDataPoints: 43200
                 refId: C
