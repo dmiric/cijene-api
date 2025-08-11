@@ -37,7 +37,7 @@ groups:
                 type: reduce
                 settings:
                   mode: replaceNN # Changed from strict to replaceNN
-                  replaceWith: 0 # This setting works with replaceNN
+                  replaceWithValue: 0 # This setting works with replaceNN
             - refId: C
               datasourceUid: __expr__
               model:
