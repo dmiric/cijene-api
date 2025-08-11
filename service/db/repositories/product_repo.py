@@ -13,7 +13,11 @@ from decimal import Decimal
 import sys
 import json
 import pgvector.asyncpg
+from time import time # Import time for timing
+import logging # Import logging
 from service.utils.timing import timing_decorator # Import the decorator
+
+logger = logging.getLogger(__name__) # Initialize logger
 
 from service.db.base import BaseRepository
 from service.db.models import (
@@ -390,6 +394,7 @@ class ProductRepository(BaseRepository):
                     for p in prices
                 ),
             )
+            t0 = time()
             result = await conn.execute(
                 """
                 INSERT INTO prices(
@@ -411,6 +416,9 @@ class ProductRepository(BaseRepository):
                     anchor_price = EXCLUDED.anchor_price
                 """
             )
+            t1 = time()
+            elapsed_time = t1 - t0
+            logger.debug(f"add_many_prices query took {elapsed_time:.4f} seconds for {len(prices)} records.")
             await conn.execute("DROP TABLE temp_prices")
             # For ON CONFLICT DO UPDATE, result string is different.
             # It's typically "UPDATE N" or "INSERT 0 N"
