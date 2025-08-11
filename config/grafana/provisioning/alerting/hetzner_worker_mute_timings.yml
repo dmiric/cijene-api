@@ -1,0 +1,16 @@
+apiVersion: 1
+
+# List of mute timings
+# In your policy, you will refer to these by their 'name'.
+mute_timings:
+  - name: 'Hetzner Worker Mute Time'
+    # This mute timing is active OUTSIDE of your desired window.
+    # So we mute from midnight to 6 AM, and from 12 PM to midnight.
+    time_intervals:
+      - times: # Mute from 00:00 to 06:00
+          - start_time: '00:00'
+            end_time: '06:05'
+        weekdays: ['monday:sunday'] # Optional: specify days
+      - times: # Mute from 12:00 to 23:59
+          - start_time: '11:05'
+            end_time: '23:59'

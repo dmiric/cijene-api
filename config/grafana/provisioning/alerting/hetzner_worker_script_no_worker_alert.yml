@@ -1,71 +1,85 @@
+# API version for Grafana provisioning
 apiVersion: 1
+
+# A group of rules
 groups:
-    - orgId: 1
-      name: Evaluation group - Hetzner Worker Scheduled Check
-      folder: Hetzner Worker
-      interval: 1m
-      rules:
-        - uid: a4b5e6g7d8f9
-          title: Hetzner Worker Scheduled Job Not Detected
-          condition: D
-          data:
-            - refId: A
+  - name: Hetzner Worker Scheduled Check
+    folder: Hetzner Worker
+    interval: 1m
+    rules:
+      - uid: a4b5e6g7d8f9
+        title: Hetzner Worker Scheduled Job Not Detected
+        
+        # The final condition that determines the alert's state. It refers to RefID 'B'.
+        condition: B
+        
+        # --- Data Queries and Expressions ---
+        data:
+          # Query A: Counts the occurrences of the log message in the last 15 minutes.
+          - refId: A
+            queryType: range
+            relativeTimeRange:
+              from: 900 # 15 minutes
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
+            model:
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
+              editorMode: code
+              expr: 'count_over_time({container=~"hetzner-worker.*"} |= `Step 2: Checking for Pending Jobs` [15m])'
               queryType: range
-              relativeTimeRange:
-                from: 300 # 5 minutes
-                to: 0
-              datasourceUid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
-              model:
-                datasource:
-                    type: loki
-                    uid: P8E80F9AEF21F6940 # Replace with your Loki datasource UID
-                editorMode: code
-                expr: 'count_over_time({container=~"hetzner-worker.*"} |= `Step 2: Checking for Pending Jobs` [15m])'
-                instant: false
-                queryType: range
-                refId: A
-            - refId: B
-              queryType: expression
-              datasourceUid: __expr__
-              model:
-                datasource:
-                    name: Expression
-                    type: __expr__
-                    uid: __expr__
-                expression: A
-                reducer: last
-                type: reduce
-                settings:
-                  mode: replaceNN # Changed from strict to replaceNN
-                  replaceWithValue: 0 # This setting works with replaceNN
-            - refId: C
-              datasourceUid: __expr__
-              model:
-                datasource:
-                    type: __expr__
-                    uid: __expr__
-                expression: '(hour(now()) >= 6 && hour(now()) < 12) && minute(now()) < 10'
-                intervalMs: 1000
-                maxDataPoints: 43200
-                refId: C
-                type: math
-            - refId: D
-              datasourceUid: __expr__
-              model:
-                datasource:
-                    type: __expr__
-                    uid: __expr__
-                expression: '$B < 1 && $C == 1'
-                intervalMs: 1000
-                maxDataPoints: 43200
-                refId: D
-                type: math
-          noDataState: OK
-          execErrState: Error
-          for: 3m
-          annotations:
-            description: 'The log message "Step 2: Checking for Pending Jobs" was not found at the top of the hour. The job may not have run as scheduled.'
-            summary: Hetzner Worker scheduled job did not run
-          labels:
-            severity: critical
-          isPaused: false
+              refId: A
+
+          # Expression B: Evaluates the result from Query A.
+          # This will be true if the count of logs is less than 1.
+          - refId: B
+            queryType: "" # Classic conditions don't use a queryType
+            datasourceUid: __expr__
+            model:
+              type: classic_conditions
+              conditions:
+                - # WHEN the last value from query 'A'
+                  type: query
+                  reducer:
+                    type: last
+                    params: []
+                  evaluator:
+                    # IS BELOW 1
+                    type: lt
+                    params:
+                      - 1
+                  operator:
+                    type: and
+              datasource:
+                name: Expression
+                type: __expr__
+                uid: __expr__
+
+        # --- Alerting Behavior ---
+        
+        # The alert must be firing continuously for this duration before sending a notification.
+        for: 3m
+        
+        # NoData state is 'OK' because if the Loki query returns no data, it means no logs were found, which is the failure condition.
+        # The classic condition 'B' will correctly evaluate this as a firing state.
+        noDataState: OK
+        
+        # What to do if the query fails to execute (e.g., Loki is down).
+        execErrState: Error
+        
+        # --- Annotations and Labels ---
+        
+        # Annotations add descriptive information to the alert notification.
+        annotations:
+          description: 'The log message "Step 2: Checking for Pending Jobs" was not found at the top of the hour. The job may not have run as scheduled.'
+          summary: 'Hetzner Worker scheduled job did not run'
+          
+        # Labels are the key-value pairs used to connect this rule to a notification policy.
+        labels:
+          severity: critical
+          # This is the custom label you will use in your notification policy to apply a time-based mute.
+          notification_schedule: hetzner_worker_hours
+
+        # Ensure the rule is active.
+        isPaused: false

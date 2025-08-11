@@ -1,5 +1,36 @@
 apiVersion: 1
 
+# List of policy trees. Usually just one for the default organization.
 policies:
   - orgId: 1
+    # This is the ROOT policy definition. It is the catch-all default.
     receiver: 'Primary Email Alerts'
+    group_by: ['grafana_folder', 'alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+    # All specific policies are defined as children of the root policy.
+    # Grafana checks these routes in order.
+    routes:
+      # --- Route for Hetzner Worker Alerts ---
+      - receiver: 'Primary Email Alerts'
+        # object_matchers is the correct way to match on Grafana-managed labels.
+        object_matchers:
+          - ['notification_schedule', '=', 'hetzner_worker_hours']
+        # Because this is a child route, it can have a mute timing.
+        # This name must EXACTLY match a mute timing you have created.
+        mute_time_intervals:
+          - 'Hetzner Worker Active Hours'
+        # If you want an alert that matches this to ALSO be sent to the
+        # root receiver ('grafana-default-email'), you would add 'continue: true'.
+        # By default, it is false, so matching stops here.
+        continue: false
+
+      # --- Route for OTHER critical alerts (that don't have the schedule label) ---
+      # This route is now simpler.
+      - receiver: 'Primary Email Alerts' # or a critical-specific receiver
+        object_matchers:
+          - ['severity', '=', 'critical']
+        # No mute timing here, so these alerts fire 24/7
+        continue: false
