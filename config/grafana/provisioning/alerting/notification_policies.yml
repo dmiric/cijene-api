@@ -1,36 +1,36 @@
+# config file version
 apiVersion: 1
 
-# List of policy trees. Usually just one for the default organization.
 policies:
+  # This defines the entire policy tree for organization 1.
   - orgId: 1
-    # This is the ROOT policy definition. It is the catch-all default.
+    # This is the ROOT policy. It is the default for all alerts.
     receiver: 'Primary Email Alerts'
     group_by: ['grafana_folder', 'alertname']
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 4h
 
-    # All specific policies are defined as children of the root policy.
-    # Grafana checks these routes in order.
+    # 'routes' is a list of child policies. It must be indented at the same level as 'receiver' and 'group_by'.
     routes:
-      # --- Route for Hetzner Worker Alerts ---
+      # The hyphen (-) marks the beginning of the first child route.
+      # This route is for your time-limited alerts.
       - receiver: 'Primary Email Alerts'
-        # object_matchers is the correct way to match on Grafana-managed labels.
+        # object_matchers must be indented under the hyphen.
         object_matchers:
+          # The inner hyphens (-) define a list of matchers.
           - ['notification_schedule', '=', 'hetzner_worker_hours']
-        # Because this is a child route, it can have a mute timing.
-        # This name must EXACTLY match a mute timing you have created.
+        
+        # mute_time_intervals must be at the same indentation level as object_matchers.
         mute_time_intervals:
-          - 'Hetzner Worker Active Hours'
-        # If you want an alert that matches this to ALSO be sent to the
-        # root receiver ('grafana-default-email'), you would add 'continue: true'.
-        # By default, it is false, so matching stops here.
+          # The inner hyphen (-) defines a list of mute timing names.
+          - 'Hetzner Worker Mute Time' # Make sure this name matches your mute_timings.yaml
+          
+        # 'continue' must be at the same indentation level as object_matchers.
         continue: false
 
-      # --- Route for OTHER critical alerts (that don't have the schedule label) ---
-      # This route is now simpler.
-      - receiver: 'Primary Email Alerts' # or a critical-specific receiver
-        object_matchers:
-          - ['severity', '=', 'critical']
-        # No mute timing here, so these alerts fire 24/7
-        continue: false
+      # To add another route, you would start another list item here with a hyphen
+      # at the EXACT same indentation as the first one.
+      # - receiver: 'Another Receiver'
+      #   object_matchers:
+      #     - ['severity', '=', 'disaster']
