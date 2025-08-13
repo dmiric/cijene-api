@@ -35,6 +35,7 @@ groups:
           # This will be true if the count of logs is less than 1.
           - refId: B
             datasourceUid: __expr__
+            queryType: expression
             model:
               type: classic_conditions
               conditions:
