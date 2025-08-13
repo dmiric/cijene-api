@@ -41,6 +41,9 @@ groups:
               conditions:
                 - # WHEN the last value from query 'A'
                   type: query
+                  query:
+                    params:
+                      - A
                   reducer:
                     type: last
                     params: []
