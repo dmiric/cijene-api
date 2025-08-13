@@ -4,5 +4,4 @@ alerting:
   - name: "Hetzner Worker Alerts"
     type: file
     options:
-      # This path should point to the directory containing the alert rules and contact points
       path: "/etc/grafana/provisioning/alerting"

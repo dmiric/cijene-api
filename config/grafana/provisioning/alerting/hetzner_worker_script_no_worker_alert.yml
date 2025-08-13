@@ -34,7 +34,6 @@ groups:
           # Expression B: Evaluates the result from Query A.
           # This will be true if the count of logs is less than 1.
           - refId: B
-            queryType: "" # Classic conditions don't use a queryType
             datasourceUid: __expr__
             model:
               type: classic_conditions

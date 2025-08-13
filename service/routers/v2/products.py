@@ -4,11 +4,15 @@ from pydantic import BaseModel, Field
 from typing import Any, Optional, List
 import sys
 import datetime # Import datetime
+import logging # Import logging
+import json # Import json for JSON operations
 
 from service.config import get_settings
 from service.routers.auth import RequireAuth
 from fastapi import Depends
+from .chat_components.ai_schemas import LocationInfo, BarcodeScanRequest # Add this import
 
+logger = logging.getLogger(__name__) # Initialize logger
 router = APIRouter(tags=["Products V2"], dependencies=[RequireAuth])
 db = get_settings().get_db()
 
@@ -24,6 +28,7 @@ class ProductSearchItemV2(BaseModel):
     product_url: Optional[str] = Field(None, description="URL to the product page.")
     unit_of_measure: Optional[str] = Field(None, description="Unit of measure (e.g., 'kg', 'L', 'kom').")
     quantity_value: Optional[Decimal] = Field(None, description="Quantity value.")
+    prices_in_stores: Optional[List[Any]] = Field(None, description="List of prices for this product in various stores.") # New field for prices
     # Add best offer fields if joined
     best_unit_price_per_kg: Optional[Decimal] = Field(None, description="Best unit price per kg.")
     best_unit_price_per_l: Optional[Decimal] = Field(None, description="Best unit price per liter.")
@@ -110,7 +115,82 @@ async def search_products_v2(
         brand=brand,
     )
     
-    return ProductSearchResponseV2(products=[ProductSearchItemV2(**p) for p in products_data])
+    # Ensure 'name' and 'prices_in_stores' fields are correctly formatted for ProductSearchItemV2
+    processed_products_data = []
+    for p in products_data:
+        if 'name' not in p and 'canonical_name' in p:
+            p['name'] = p['canonical_name']
+        
+        # Parse prices_in_stores if it's a JSON string
+        if 'prices_in_stores' in p and isinstance(p['prices_in_stores'], str):
+            try:
+                p['prices_in_stores'] = json.loads(p['prices_in_stores'])
+            except json.JSONDecodeError:
+                p['prices_in_stores'] = [] # Set to empty list if parsing fails
+        elif 'prices_in_stores' not in p or p['prices_in_stores'] is None:
+            p['prices_in_stores'] = [] # Ensure it's an empty list if missing or None
+
+        processed_products_data.append(p)
+
+    response = ProductSearchResponseV2(products=[ProductSearchItemV2(**p) for p in processed_products_data])
+    logger.debug(f"Product search response: {response.dict()}") # Change to debug level
+    logger.debug("Finished processing product search response.") # Add another debug log
+    return response
+
+
+@router.post("/products/barcode_scan", summary="Scan Product by Barcode (v2)")
+async def barcode_scan(
+    request: BarcodeScanRequest,
+) -> ProductSearchResponseV2:
+    """
+    Scans a product by its EAN and returns product details, optionally filtered by nearby stores.
+    """
+    ean = request.ean
+    location_info = request.location_info
+    
+    store_ids = None
+    if location_info:
+        # Find nearby stores if location info is provided
+        nearby_stores = await db.find_nearby_stores(
+            lat=location_info.latitude,
+            lon=location_info.longitude,
+            radius_meters=5000 # Example radius, can be configurable 
+        )
+        store_ids = [store["id"] for store in nearby_stores]
+        if not store_ids:
+            # If no stores found nearby, return empty list as no products can be filtered by location
+            return ProductSearchResponseV2(products=[])
+
+    # Search for the product by EAN in the database layer, now including prices
+    products_data = await db.golden_products.get_g_products_by_ean_with_prices( # Use the method that fetches prices
+        ean=ean,
+        store_ids=store_ids, # Pass store_ids to filter by availability if applicable
+        limit=20, # Default limit
+        offset=0, # Default offset
+        sort_by=None # No specific sort for barcode scan by default
+    )
+    
+    # Ensure 'name' and 'prices_in_stores' fields are correctly formatted for ProductSearchItemV2
+    processed_products_data = []
+    for p in products_data:
+        if 'name' not in p and 'canonical_name' in p:
+            p['name'] = p['canonical_name']
+        
+        # Parse prices_in_stores if it's a JSON string
+        if 'prices_in_stores' in p and isinstance(p['prices_in_stores'], str):
+            try:
+                p['prices_in_stores'] = json.loads(p['prices_in_stores'])
+            except json.JSONDecodeError:
+                p['prices_in_stores'] = [] # Set to empty list if parsing fails
+        elif 'prices_in_stores' not in p or p['prices_in_stores'] is None:
+            p['prices_in_stores'] = [] # Ensure it's an empty list if missing or None
+
+        processed_products_data.append(p)
+    
+    response = ProductSearchResponseV2(products=[ProductSearchItemV2(**p) for p in processed_products_data])
+    logger.debug(f"Barcode scan response: {response.dict()}") # Change to debug level
+    logger.debug("Finished processing barcode scan response.") # Add another debug log
+    return response
 
 
 @router.get("/products/{product_id}/prices-by-location", summary="Get Product Prices by Location (v2)")

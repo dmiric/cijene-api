@@ -1,0 +1,10 @@
+apiVersion: 1
+muteTimes:
+    - orgId: 1
+      name: Hetzner Worker Alert Working Times
+      time_intervals:
+        - times:
+            - start_time: "06:05"
+              end_time: "11:50"
+          weekdays: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+

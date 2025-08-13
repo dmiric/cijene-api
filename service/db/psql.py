@@ -257,6 +257,26 @@ class PostgresDatabase(Database):
     ) -> list[dict[str, Any]]:
         return await self.stores.get_stores_within_radius(lat, lon, radius_meters, chain_code, fields)
 
+    async def find_nearby_stores(
+        self,
+        lat: Decimal,
+        lon: Decimal,
+        radius_meters: int,
+        chain_code: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Finds stores within a specified radius of a geographic point.
+        Delegates to the StoreRepository.
+        """
+        return await self.stores.get_stores_within_radius(
+            lat=lat,
+            lon=lon,
+            radius_meters=radius_meters,
+            chain_code=chain_code,
+            fields=fields
+        )
+
     # --- V2-specific methods (delegating to GoldenProductRepository) ---
 
     async def get_g_products_hybrid_search(
@@ -267,6 +287,16 @@ class PostgresDatabase(Database):
         sort_by: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         return await self.golden_products.get_g_products_hybrid_search(query, limit, offset, sort_by)
+
+    async def get_g_products_by_ean(
+        self,
+        ean: str,
+        store_ids: List[int],
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await self.golden_products.get_g_products_by_ean_with_prices(ean, store_ids, limit, offset, sort_by)
     
     async def get_g_products_hybrid_search_with_prices(
         self,

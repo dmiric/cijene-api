@@ -1,36 +1,20 @@
-# config file version
 apiVersion: 1
-
 policies:
-  # This defines the entire policy tree for organization 1.
-  - orgId: 1
-    # This is the ROOT policy. It is the default for all alerts.
-    receiver: 'Primary Email Alerts'
-    group_by: ['grafana_folder', 'alertname']
-    group_wait: 30s
-    group_interval: 5m
-    repeat_interval: 4h
-
-    # 'routes' is a list of child policies. It must be indented at the same level as 'receiver' and 'group_by'.
-    routes:
-      # The hyphen (-) marks the beginning of the first child route.
-      # This route is for your time-limited alerts.
-      - receiver: 'Primary Email Alerts'
-        # object_matchers must be indented under the hyphen.
-        object_matchers:
-          # The inner hyphens (-) define a list of matchers.
-          - ['notification_schedule', '=', 'hetzner_worker_hours']
-        
-        # mute_time_intervals must be at the same indentation level as object_matchers.
-        mute_time_intervals:
-          # The inner hyphen (-) defines a list of mute timing names.
-          - 'Hetzner Worker Mute Time' # Make sure this name matches your mute_timings.yaml
-          
-        # 'continue' must be at the same indentation level as object_matchers.
-        continue: false
-
-      # To add another route, you would start another list item here with a hyphen
-      # at the EXACT same indentation as the first one.
-      # - receiver: 'Another Receiver'
-      #   object_matchers:
-      #     - ['severity', '=', 'disaster']
+    - orgId: 1
+      receiver: Primary Contact
+      group_by:
+        - grafana_folder
+        - alertname
+      routes:
+        - receiver: Primary Contact
+          object_matchers:
+            - - notification_schedule
+              - =
+              - hetzner_worker_hours
+          active_time_intervals:
+            - Hetzner Worker Alert Working Times
+          group_wait: 1m
+          repeat_interval: 1h
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h

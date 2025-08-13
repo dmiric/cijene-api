@@ -5,6 +5,7 @@ import sys
 from datetime import date, datetime
 from decimal import Decimal
 import json
+from time import time # Import time for timing
 from service.utils.timing import timing_decorator # Import the decorator
 
 from service.db.base import BaseRepository
@@ -13,6 +14,9 @@ from service.db.models import (
     GProductBestOfferWithId, ProductSearchItemV2, Category
 )
 from service.db.field_configs import PRODUCT_FULL_FIELDS, PRODUCT_AI_SEARCH_FIELDS, PRODUCT_AI_DETAILS_FIELDS, PRODUCT_DB_SEARCH_FIELDS
+import structlog # Import structlog
+
+log = structlog.get_logger(__name__) # Initialize structlog logger
 
 class GoldenProductRepository(BaseRepository):
     """
@@ -120,6 +124,7 @@ class GoldenProductRepository(BaseRepository):
             -- Step 3: Fetch the full data for only the final, filtered, sorted, and limited set of product IDs.
             SELECT
                 gp.*,
+                gp.canonical_name AS name, -- Alias canonical_name to name for ProductSearchItemV2
                 c.name AS category_name, -- Fetch category name
                 (
                     SELECT jsonb_agg(prices.price_data)
@@ -166,6 +171,7 @@ class GoldenProductRepository(BaseRepository):
                     r['prices_in_stores'] = []
                 # Populate the 'category' field from 'category_name'
                 r['category'] = r.pop('category_name', None)
+            log.debug("get_g_products_by_ean_with_prices results", results=results) # Add logging
             return results
     
     #this is being used to search products without stores
@@ -213,11 +219,131 @@ class GoldenProductRepository(BaseRepository):
             query += " ORDER BY COALESCE(gpr.special_price, gpr.regular_price) ASC"
 
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+            results = [dict(row) for row in rows]
+            log.debug("get_g_product_prices_by_location results", results=results) # Add logging
+            return results
         
+    async def get_g_products_by_ean_with_prices(
+        self,
+        ean: str,
+        store_ids: List[int],
+        limit: int = 10,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Performs a search for products by EAN and fetches prices, similar to hybrid search.
+        """
+        if not store_ids:
+            # If no store_ids are provided, we cannot filter prices by store,
+            # so we should return products without price-related fields or raise an error.
+            # For consistency with search_products_v2, we'll return an empty list if no stores.
+            return []
+
+        params = [ean]
+        param_counter = 2
+
+        # --- Intelligent Sorting and Filtering Logic ---
+        sort_by_column = "relevance_score" # Placeholder, as EAN search doesn't have relevance score
+        sort_by_direction = "DESC"
+        filter_condition = "TRUE" # Default: no additional filtering
+
+        if sort_by and sort_by.startswith("best_value_"):
+            sort_by_column = "best_price_metric"
+            sort_by_direction = "ASC NULLS LAST"
+            if sort_by == 'best_value_kg':
+                filter_condition = "base_unit_type = 'WEIGHT'"
+            elif sort_by == 'best_value_l':
+                filter_condition = "base_unit_type = 'VOLUME'"
+            elif sort_by == 'best_value_piece':
+                filter_condition = "base_unit_type = 'COUNT'"
+
+        final_query = f"""
+            WITH products_with_metrics AS (
+                -- Step 1: Find all products matching the EAN and calculate their
+                -- metrics. We must include base_unit_type here for the next step.
+                SELECT
+                    gp.id,
+                    gp.base_unit_type,
+                    -- For EAN search, relevance_score is not applicable, use a constant or 0
+                    0.0 AS relevance_score, 
+                    MIN(
+                        CASE
+                            WHEN gp.base_unit_type = 'WEIGHT' THEN gpr.price_per_kg
+                            WHEN gp.base_unit_type = 'VOLUME' THEN gpr.price_per_l
+                            WHEN gp.base_unit_type = 'COUNT' THEN gpr.price_per_piece
+                            ELSE NULL
+                        END
+                    ) AS best_price_metric
+                FROM g_products gp
+                INNER JOIN g_prices gpr ON gp.id = gpr.product_id AND gpr.store_id = ANY(${param_counter + 2})
+                WHERE gp.ean = $1 -- Filter by EAN
+                GROUP BY gp.id, gp.base_unit_type
+            ),
+            sorted_product_ids AS (
+                -- Step 2: Apply the new, intelligent filter.
+                SELECT id
+                FROM products_with_metrics
+                WHERE {filter_condition}
+                ORDER BY {sort_by_column} {sort_by_direction}, relevance_score DESC
+                LIMIT ${param_counter} OFFSET ${param_counter + 1}
+            )
+            -- Step 3: Fetch the full data for only the final, filtered, sorted, and limited set of product IDs.
+            SELECT
+                gp.*,
+                c.name AS category_name, -- Fetch category name
+                (
+                    SELECT jsonb_agg(prices.price_data)
+                    FROM (
+                        SELECT
+                            jsonb_build_object(
+                                'product_id', gpr.product_id,
+                                'store_id', gpr.store_id,
+                                'price_date', gpr.price_date,
+                                'regular_price', gpr.regular_price,
+                                'special_price', gpr.special_price,
+                                'unit_price',
+                                    CASE (SELECT p.base_unit_type FROM g_products p WHERE p.id = gpr.product_id)
+                                        WHEN 'WEIGHT' THEN gpr.price_per_kg
+                                        WHEN 'VOLUME' THEN gpr.price_per_l
+                                        WHEN 'COUNT' THEN gpr.price_per_piece
+                                        ELSE NULL
+                                    END,
+                                'best_price_30', NULL, 'anchor_price', NULL, 'is_on_special_offer', gpr.is_on_special_offer
+                            ) as price_data
+                        FROM g_prices gpr
+                        WHERE gpr.product_id = gp.id
+                          AND gpr.store_id = ANY(${param_counter + 2})
+                          AND gpr.price_date = (SELECT MAX(price_date) FROM g_prices WHERE product_id = gpr.product_id AND store_id = gpr.store_id)
+                    ) AS prices
+                ) AS prices_in_stores
+            FROM g_products gp
+            LEFT JOIN g_categories c ON gp.category_id = c.id -- Join with g_categories table
+            WHERE gp.id IN (SELECT id FROM sorted_product_ids)
+            ORDER BY (
+                SELECT {sort_by_column} FROM products_with_metrics WHERE products_with_metrics.id = gp.id
+            ) {sort_by_direction},
+            (
+                SELECT relevance_score FROM products_with_metrics WHERE products_with_metrics.id = gp.id
+            ) DESC
+        """
+        params.extend([limit, offset, store_ids])
+        
+        async with self._get_conn() as conn:
+            rows = await conn.fetch(final_query, *params, timeout=45.0)
+            results = [dict(row) for row in rows]
+            for r in results:
+                if r.get('prices_in_stores') is None:
+                    r['prices_in_stores'] = []
+                # Populate the 'category' field from 'category_name'
+                r['category'] = r.pop('category_name', None)
+            # log.debug("get_g_products_by_ean_with_prices results", results=results) # Add logging
+            return results
+    
     async def get_g_product_by_ean(self, ean: str) -> Optional[GProductWithId]:
         """
         Retrieves a single golden product by its EAN.
+        This is the original method, kept for compatibility if needed elsewhere.
         """
         query = """
             SELECT gp.id, gp.ean, gp.canonical_name, gp.brand, gp.category_id, cat.name AS category_name, gp.base_unit_type,
@@ -309,13 +435,14 @@ class GoldenProductRepository(BaseRepository):
             
             if row:
                 row_dict = dict(row)
-                # Manually convert embedding string to list of floats if it's a string
                 if "embedding" in row_dict and isinstance(row_dict["embedding"], str):
                     try:
                         row_dict["embedding"] = json.loads(row_dict["embedding"])
                     except json.JSONDecodeError:
                         row_dict["embedding"] = None
+                log.debug("get_g_product_details results", results=row_dict) # Add logging
                 return row_dict
+            log.debug("get_g_product_details results", results=None) # Add logging for None case
             return None
 
  
@@ -426,7 +553,11 @@ class GoldenProductRepository(BaseRepository):
                     price_per_piece = EXCLUDED.price_per_piece,
                     is_on_special_offer = EXCLUDED.is_on_special_offer;
             """
+            t0 = time()
             status = await conn.execute(insert_query)
+            t1 = time()
+            elapsed_time = t1 - t0
+            log.debug(f"add_many_g_prices query took {elapsed_time:.4f} seconds for {len(g_prices)} records.")
             # For ON CONFLICT DO UPDATE, the status string is typically "INSERT 0 N" (for inserts)
             # or "UPDATE N" (for updates). We need to parse the actual number of rows affected.
             # A more robust way is to query the actual changes or parse the command tag.
@@ -515,4 +646,6 @@ class GoldenProductRepository(BaseRepository):
             params = [f"%{canonical_name}%", f"%{category}%", current_month, limit, offset]
             
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+            results = [dict(row) for row in rows]
+            log.debug("get_overall_seasonal_best_price_for_generic_product results", results=results) # Add logging
+            return results

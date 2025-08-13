@@ -161,8 +161,8 @@ def configure_logging():
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
-        structlog.dev.set_exc_info,  # Add this for better exception info in debug
-        # structlog.processors.JSONRenderer(), # REMOVED: This should be the final step in the formatter
+        structlog.processors.format_exc_info,  # Use format_exc_info for less verbose exception info
+
     ]
 
     # Configure structlog to use standard library logging
@@ -193,14 +193,14 @@ def configure_logging():
             "default": {
                 "level": log_level,
                 "class": "logging.StreamHandler",
-                "formatter": "console_formatter" if is_debug else "json_formatter",
+                "formatter": "console_formatter", # Always use console formatter for easier debugging
                 "stream": "ext://sys.stdout",  # Explicitly use sys.stdout
             },
         },
         "loggers": {
             "": {  # root logger
                 "handlers": ["default"],
-                "level": log_level,
+                "level": logging.DEBUG if is_debug else logging.INFO, # Set root logger to DEBUG in debug mode
                 "propagate": False,
             },
             "uvicorn": {
@@ -216,7 +216,12 @@ def configure_logging():
             "uvicorn.access": {
                 "handlers": ["default"],
                 "level": log_level,
-                "propagate": True, # Propagate to root logger for JSON formatting
+                "propagate": False, # Do not propagate to root logger, handle explicitly
+            },
+            "service.routers.v2.products": { # New logger for products router
+                "handlers": ["default"],
+                "level": logging.DEBUG if is_debug else logging.INFO, # Set products router logger to DEBUG in debug mode
+                "propagate": False,
             },
         },
     }
@@ -239,18 +244,6 @@ def configure_logging():
 # Call logging configuration at the module level
 configure_logging()
 
-# The uvicorn.run call should be outside of any function if it's meant to be the entry point
-# when running directly, but since Uvicorn imports 'app', this part is handled by Uvicorn itself.
-# We only need to ensure 'app' is defined and logging is configured.
-# The original uvicorn.run call was inside main(), which is not executed when imported.
-# We remove it as it's not needed for the Uvicorn server.
-# If direct execution is still desired for local testing without docker,
-# a simple uvicorn.run call can be added here, but it's usually handled by a separate script or Makefile.
-
-# The print statement at the end of the file is also removed as it's part of the old main() block.
-
-# This block is added for local development/testing without Docker,
-# allowing direct execution of the script with Uvicorn.
 if __name__ == "__main__":
     uvicorn.run(
         "service.main:app",

@@ -38,6 +38,10 @@ class ChatResponse(BaseModel):
     session_id: UUID = Field(..., description="The UUID of the chat session.")
     message: str = Field(..., description="A message indicating the status or initial response.")
 
+class BarcodeScanRequest(BaseModel):
+    ean: str = Field(..., description="The EAN (European Article Number) of the product.")
+    location_info: Optional[LocationInfo] = Field(None, description="Optional: Information about the user's location.")
+
 # --- AI Tool Schemas ---
 # Manually define gemini_tools as FunctionDeclaration dictionaries
 gemini_tools = [

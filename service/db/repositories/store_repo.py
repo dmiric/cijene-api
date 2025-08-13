@@ -305,4 +305,5 @@ class StoreRepository(BaseRepository):
                     else:
                         converted_row[key] = value
                 converted_rows.append(converted_row)
+            self.log.debug("get_stores_within_radius results", results=converted_rows) # Add logging
             return converted_rows
