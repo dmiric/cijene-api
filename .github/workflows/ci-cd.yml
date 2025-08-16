@@ -119,7 +119,11 @@ jobs:
           
           # Price Calculation (New - Docker manages logs)
           (crontab -l 2>/dev/null | grep -v 'calc-prices') | crontab -
-          # (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 1000") | crontab -
+          (crontab -l 2>/dev/null; echo "50 * * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name calc-prices api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 1000") | crontab -
+          
+          # Delete old prices
+          (crontab -l 2>/dev/null | grep -v 'delete-old-prices') | crontab -
+          (crontab -l 2>/dev/null; echo "* 3 * * * cd /home/dmiric/pricemice && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --name delete-old-prices api python -m service.normaliser.orchestrator_prices --num-workers 1 --batch-size 1000 --skip-calculation") | crontab -
           
           echo "All cron jobs configured."
 

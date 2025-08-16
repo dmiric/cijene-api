@@ -135,7 +135,10 @@ if __name__ == "__main__":
                         help="Number of parallel workers to run (defaults to CPU count).")
     parser.add_argument("--batch-size", type=int, default=1000,
                         help="Number of chain_product IDs to cover per worker batch.")
+    parser.add_argument("--skip-calculation", action="store_true",
+                        help="Skip price calculation and only run cleanup.")
     args = parser.parse_args()
 
     delete_old_prices_and_chain_products() # Call the cleanup function before orchestration
-    orchestrate_prices(args.num_workers, args.batch_size)
+    if not args.skip_calculation:
+        orchestrate_prices(args.num_workers, args.batch_size)
