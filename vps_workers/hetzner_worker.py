@@ -288,7 +288,7 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
         start_after_create=True,
     )
     
-    wait_for_action(create_result.action, 900)
+    wait_for_action(create_result.action, 1800)
     server = create_result.server
     server.reload()
     
@@ -405,7 +405,7 @@ def configure_logging():
             "default": {
                 "level": log_level,
                 "class": "logging.StreamHandler",
-                "formatter": "console_formatter" if is_debug else "json_formatter",
+                "formatter": "console_formatter",
                 "stream": "ext://sys.stdout",
             },
         },
