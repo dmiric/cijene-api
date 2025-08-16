@@ -288,7 +288,7 @@ def provision_worker_server(client: hcloud.Client, config: Dict[str, Any]) -> Bo
         start_after_create=True,
     )
     
-    wait_for_action(create_result.action, 300)
+    wait_for_action(create_result.action, 900)
     server = create_result.server
     server.reload()
     
